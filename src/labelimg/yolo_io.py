@@ -28,7 +28,9 @@ class YOLOWriter:
         bnd_box['difficult'] = difficult
         self.box_list.append(bnd_box)
 
-    def bnd_box_to_yolo_line(self, box, class_list=[]):
+    def bnd_box_to_yolo_line(self, box, class_list=None):
+        if class_list is None:
+            class_list = []
         x_min = box['xmin']
         x_max = box['xmax']
         y_min = box['ymin']
@@ -49,7 +51,9 @@ class YOLOWriter:
 
         return class_index, x_center, y_center, w, h
 
-    def save(self, class_list=[], target_file=None):
+    def save(self, class_list=None, target_file=None):
+        if class_list is None:
+            class_list = []
 
         out_file = None  # Update yolo .txt
         out_class_file = None   # Update class list .txt
@@ -97,8 +101,8 @@ class YoloReader:
 
         # print (file_path, self.class_list_path)
 
-        classes_file = open(self.class_list_path, 'r')
-        self.classes = classes_file.read().strip('\n').split('\n')
+        with open(self.class_list_path, 'r', encoding=ENCODE_METHOD) as classes_file:
+            self.classes = classes_file.read().strip('\n').split('\n')
 
         # print (self.classes)
 
@@ -138,10 +142,10 @@ class YoloReader:
         return label, x_min, y_min, x_max, y_max
 
     def parse_yolo_format(self):
-        bnd_box_file = open(self.file_path, 'r')
-        for bndBox in bnd_box_file:
-            class_index, x_center, y_center, w, h = bndBox.strip().split(' ')
-            label, x_min, y_min, x_max, y_max = self.yolo_line_to_shape(class_index, x_center, y_center, w, h)
+        with open(self.file_path, 'r', encoding=ENCODE_METHOD) as bnd_box_file:
+            for bndBox in bnd_box_file:
+                class_index, x_center, y_center, w, h = bndBox.strip().split(' ')
+                label, x_min, y_min, x_max, y_max = self.yolo_line_to_shape(class_index, x_center, y_center, w, h)
 
-            # Caveat: difficult flag is discarded when saved as yolo format.
-            self.add_shape(label, x_min, y_min, x_max, y_max, False)
+                # Caveat: difficult flag is discarded when saved as yolo format.
+                self.add_shape(label, x_min, y_min, x_max, y_max, False)

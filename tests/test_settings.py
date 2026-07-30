@@ -3,7 +3,7 @@ import os
 import tempfile
 import unittest
 
-from labelimg.labelFile import LabelFileFormat
+from labelimg.annotation_document import AnnotationFormat
 from labelimg.settings import Settings
 
 __author__ = 'TzuTaLin'
@@ -24,10 +24,11 @@ class TestSettings(unittest.TestCase):
 
         settings.reset()
 
-    def test_loads_label_format_saved_by_legacy_libs_package(self):
+    def assert_legacy_label_format_loads(self, module_name):
         legacy_settings = (
             b'(dp0\nVlabelFileFormat\np1\n'
-            b'clibs.labelFile\nLabelFileFormat\np2\n'
+            + b'c' + module_name.encode('ascii')
+            + b'\nLabelFileFormat\np2\n'
             b'(I2\ntp3\nRp4\ns.'
         )
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -44,7 +45,15 @@ class TestSettings(unittest.TestCase):
             self.assertTrue(settings.load())
             self.assertIs(
                 settings['labelFileFormat'],
-                LabelFileFormat.YOLO,
+                AnnotationFormat.YOLO,
             )
+
+    def test_loads_label_format_saved_by_legacy_libs_package(self):
+        self.assert_legacy_label_format_loads('libs.labelFile')
+
+    def test_loads_label_format_saved_by_legacy_labelimg_package(self):
+        self.assert_legacy_label_format_loads('labelimg.labelFile')
+
+
 if __name__ == '__main__':
     unittest.main()

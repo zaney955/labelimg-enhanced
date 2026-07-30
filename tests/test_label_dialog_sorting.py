@@ -6,21 +6,21 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication, QDialog
 
-from labelimg.candidateLabelDialog import (
+from labelimg.candidate_label_dialog import (
+    CandidateLabelDialog,
     CandidateLabelList,
-    LabelDialog,
     contrast_text_color,
 )
 from labelimg.utils import generate_color_by_text
 
 
-class LabelDialogSortingTest(unittest.TestCase):
+class CandidateLabelDialogSortingTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
     def setUp(self):
-        self.dialog = LabelDialog(
+        self.dialog = CandidateLabelDialog(
             list_item=["zebra", "apple", "middle"]
         )
 
@@ -40,8 +40,16 @@ class LabelDialogSortingTest(unittest.TestCase):
             ["apple", "middle", "zebra"],
         )
 
+    def test_candidate_labels_update_in_place(self):
+        dialog_identity = id(self.dialog)
+
+        self.dialog.set_candidate_labels(["pear", "banana"])
+
+        self.assertEqual(id(self.dialog), dialog_identity)
+        self.assertEqual(self.candidate_names(), ["banana", "pear"])
+
     def test_candidate_labels_keep_qt_default_text_sorting(self):
-        dialog = LabelDialog(list_item=["2", "10", "1"])
+        dialog = CandidateLabelDialog(list_item=["2", "10", "1"])
         self.addCleanup(dialog.deleteLater)
 
         self.assertEqual(
@@ -72,7 +80,7 @@ class LabelDialogSortingTest(unittest.TestCase):
         self.assertEqual(self.dialog.edit.text(), "apple")
 
     def test_candidates_use_five_equal_width_columns(self):
-        dialog = LabelDialog(
+        dialog = CandidateLabelDialog(
             list_item=["label-{}".format(index) for index in range(6)]
         )
         self.addCleanup(dialog.deleteLater)
@@ -101,9 +109,13 @@ class LabelDialogSortingTest(unittest.TestCase):
         )
 
     def test_candidate_width_adapts_and_is_capped_at_eighty_percent(self):
-        short_dialog = LabelDialog(list_item=["a"])
-        long_dialog = LabelDialog(list_item=["a very long label name"] * 5)
-        extreme_dialog = LabelDialog(list_item=["x" * 1000] * 5)
+        short_dialog = CandidateLabelDialog(list_item=["a"])
+        long_dialog = CandidateLabelDialog(
+            list_item=["a very long label name"] * 5
+        )
+        extreme_dialog = CandidateLabelDialog(
+            list_item=["x" * 1000] * 5
+        )
         self.addCleanup(short_dialog.deleteLater)
         self.addCleanup(long_dialog.deleteLater)
         self.addCleanup(extreme_dialog.deleteLater)
@@ -123,10 +135,10 @@ class LabelDialogSortingTest(unittest.TestCase):
         )
 
     def test_candidate_height_shows_all_rows_until_screen_limit(self):
-        small_dialog = LabelDialog(
+        small_dialog = CandidateLabelDialog(
             list_item=["label-{}".format(index) for index in range(10)]
         )
-        large_dialog = LabelDialog(
+        large_dialog = CandidateLabelDialog(
             list_item=["label-{}".format(index) for index in range(500)]
         )
         self.addCleanup(small_dialog.deleteLater)

@@ -52,6 +52,14 @@ _Avoid_: Additive overlap toggle, select-through
 A selection set whose members are identical on the canvas and in the label list. The label list follows file-explorer conventions: an ordinary click replaces the set, Ctrl-click toggles one member, and Shift-click selects a contiguous range in the currently displayed list order.
 _Avoid_: Current row, independent list selection
 
+**Selected label-list appearance**:
+The equal-emphasis visual state of every selection-set member in the label list: its label background is preserved, its text is bold, and a slim inset theme-accent marker appears at the left without surrounding the row.
+_Avoid_: Full blue border, primary row, active-row emphasis
+
+**Initial image selection**:
+The empty selection set established whenever an image becomes current, regardless of whether it was opened directly, reached by navigation, chosen from the file list, or revealed after deletion.
+_Avoid_: Last-label selection, carried selection
+
 **Visibility toggle**:
 The label-list checkbox that controls whether an annotation box is rendered on the canvas without changing the selection set. Hidden boxes cannot be hit on the canvas but remain selectable in the list and eligible for bulk selection actions.
 _Avoid_: Selection checkbox
@@ -67,3 +75,11 @@ _Avoid_: Option, list item, tag
 **Candidate area**:
 The portion of the label-entry dialog that presents candidate labels.
 _Avoid_: Candidate frame, label list
+
+**Annotation document**:
+The annotation boxes and review status associated with one image, whether stored as Pascal VOC, YOLO, or CreateML.
+_Avoid_: Label file, format file
+
+**Annotation workspace**:
+The images being annotated together with their corresponding annotation documents and the candidate labels discovered from them.
+_Avoid_: Image folder, save directory, dataset

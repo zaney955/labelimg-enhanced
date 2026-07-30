@@ -6,10 +6,13 @@ class _SettingsUnpickler(pickle.Unpickler):
     """Load settings written before modules moved out of top-level ``libs``."""
 
     def find_class(self, module, name):
-        if module == 'libs.labelFile' and name == 'LabelFileFormat':
-            from labelimg.labelFile import LabelFileFormat
+        if (
+            module in ('libs.labelFile', 'labelimg.labelFile')
+            and name == 'LabelFileFormat'
+        ):
+            from labelimg.annotation_document import AnnotationFormat
 
-            return LabelFileFormat
+            return AnnotationFormat
         return super().find_class(module, name)
 
 

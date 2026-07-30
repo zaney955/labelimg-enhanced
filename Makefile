@@ -8,10 +8,13 @@ test:
 resources:
 	pyrcc5 -o src/labelimg/resources.py resources.qrc
 
-build:
+build: clean-build
 	python -m pip wheel . --no-deps --no-build-isolation
 
-clean:
-	rm -rf dist build src/*.egg-info
+clean-build:
+	rm -rf build src/*.egg-info
 
-.PHONY: all test resources build clean
+clean: clean-build
+	rm -rf dist
+
+.PHONY: all test resources build clean-build clean

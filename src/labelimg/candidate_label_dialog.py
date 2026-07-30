@@ -220,22 +220,21 @@ class CandidateLabelList(QListWidget):
         return super(CandidateLabelList, self).sizeHint()
 
 
-class LabelDialog(QDialog):
+class CandidateLabelDialog(QDialog):
     maximum_screen_width_ratio = 0.8
     maximum_screen_height_ratio = 0.9
 
     def __init__(self, text="Enter object label", parent=None, list_item=None):
-        super(LabelDialog, self).__init__(parent)
+        super(CandidateLabelDialog, self).__init__(parent)
 
         self.edit = QLineEdit()
         self.edit.setText(text)
         self.edit.setValidator(label_validator())
         self.edit.editingFinished.connect(self.post_process)
 
-        model = QStringListModel()
-        model.setStringList(list_item or [])
+        self._completion_model = QStringListModel()
         completer = QCompleter()
-        completer.setModel(model)
+        completer.setModel(self._completion_model)
         self.edit.setCompleter(completer)
 
         self.dialog_layout = layout = QVBoxLayout()
@@ -247,27 +246,33 @@ class LabelDialog(QDialog):
         bb.rejected.connect(self.reject)
         layout.addWidget(bb)
 
-        if list_item:
-            self.list_widget = CandidateLabelList(self)
-            self.list_widget.setSortingEnabled(True)
-            base_color = self.list_widget.palette().base().color()
-            for label in list_item:
-                item = QListWidgetItem(label)
-                background = generate_color_by_text(label)
-                item.setData(Qt.BackgroundRole, background)
-                item.setData(
-                    Qt.ForegroundRole,
-                    contrast_text_color(background, base_color),
-                )
-                item.setToolTip(label)
-                self.list_widget.addItem(item)
-            self.list_widget.itemClicked.connect(self.list_item_click)
-            self.list_widget.itemDoubleClicked.connect(
-                self.list_item_double_click
-            )
-            layout.addWidget(self.list_widget)
+        self.list_widget = CandidateLabelList(self)
+        self.list_widget.setSortingEnabled(True)
+        self.list_widget.itemClicked.connect(self.list_item_click)
+        self.list_widget.itemDoubleClicked.connect(
+            self.list_item_double_click
+        )
+        layout.addWidget(self.list_widget)
 
         self.setLayout(layout)
+        self.set_candidate_labels(list_item or ())
+
+    def set_candidate_labels(self, labels):
+        labels = tuple(str(label) for label in labels if str(label))
+        self._completion_model.setStringList(list(labels))
+        self.list_widget.clear()
+        base_color = self.list_widget.palette().base().color()
+        for label in labels:
+            item = QListWidgetItem(label)
+            background = generate_color_by_text(label)
+            item.setData(Qt.BackgroundRole, background)
+            item.setData(
+                Qt.ForegroundRole,
+                contrast_text_color(background, base_color),
+            )
+            item.setToolTip(label)
+            self.list_widget.addItem(item)
+        self.list_widget.setVisible(bool(labels))
         self.update_candidate_geometry()
 
     def available_screen_geometry(self):
@@ -281,7 +286,9 @@ class LabelDialog(QDialog):
         return QApplication.desktop().availableGeometry(self)
 
     def update_candidate_geometry(self):
-        if not hasattr(self, "list_widget"):
+        if self.list_widget.count() == 0:
+            self.dialog_layout.activate()
+            self.adjustSize()
             return
 
         screen_geometry = self.available_screen_geometry()
@@ -339,7 +346,7 @@ class LabelDialog(QDialog):
     def post_process(self):
         self.edit.setText(trimmed(self.edit.text()))
 
-    def pop_up(self, text="", move=True):
+    def choose(self, text="", move=True):
         """
         Show the dialog and return the entered label, or None when cancelled.
         """
