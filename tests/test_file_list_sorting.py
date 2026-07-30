@@ -1,8 +1,9 @@
 import os
 import tempfile
 import unittest
+from functools import cmp_to_key
 
-from labelimg.app import MainWindow
+from labelimg.app import MainWindow, portable_logical_compare
 
 
 class FileListSortingTest(unittest.TestCase):
@@ -42,6 +43,32 @@ class FileListSortingTest(unittest.TestCase):
                     "a70zu3nrb8.jpg",
                 ],
             )
+
+    def test_portable_sort_matches_windows_explorer_name_order(self):
+        names = [
+            "a70zu3nrb8.jpg",
+            "042jl90w74.jpg",
+            "0dc52y1wpm.jpg",
+            "10aozc9brc.jpg",
+            "00nested.jpg",
+            "a9n2wdrngy.jpg",
+            "07oa6axaiz.jpg",
+            "01z2revfcj.jpg",
+        ]
+
+        self.assertEqual(
+            sorted(names, key=cmp_to_key(portable_logical_compare)),
+            [
+                "00nested.jpg",
+                "0dc52y1wpm.jpg",
+                "01z2revfcj.jpg",
+                "07oa6axaiz.jpg",
+                "10aozc9brc.jpg",
+                "042jl90w74.jpg",
+                "a9n2wdrngy.jpg",
+                "a70zu3nrb8.jpg",
+            ],
+        )
 
 
 if __name__ == "__main__":
