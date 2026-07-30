@@ -10,7 +10,6 @@ except ImportError:
     from PyQt4.QtCore import *
 
 from labelimg.utils import distance
-import sys
 
 DEFAULT_LINE_COLOR = QColor(0, 255, 0, 128)
 DEFAULT_FILL_COLOR = QColor(255, 0, 0, 128)
@@ -37,6 +36,10 @@ class Shape(object):
     point_size = 4
     scale = 1.0
     label_font_size = 8
+    selected_label_background_color = QColor(0, 0, 0, 153)
+    selected_label_text_color = QColor(Qt.white)
+    selected_label_padding = 2.0
+    selected_label_radius = 2.0
 
     def __init__(self, label=None, line_color=None, difficult=False, paint_label=False):
         self.label = label
@@ -111,25 +114,6 @@ class Shape(object):
             painter.drawPath(vertex_path)
             painter.fillPath(vertex_path, color)
 
-            # Draw text at the top-left
-            if self.paint_label:
-                min_x = sys.maxsize
-                min_y = sys.maxsize
-                min_y_label = int(1.25 * self.label_font_size)
-                for point in self.points:
-                    min_x = min(min_x, point.x())
-                    min_y = min(min_y, point.y())
-                if min_x != sys.maxsize and min_y != sys.maxsize:
-                    font = QFont()
-                    font.setPointSize(self.label_font_size)
-                    font.setBold(True)
-                    painter.setFont(font)
-                    if self.label is None:
-                        self.label = ""
-                    if min_y < min_y_label:
-                        min_y += min_y_label
-                    painter.drawText(int(round(min_x)), int(round(min_y)), self.label)
-
             if self.fill:
                 fill_color = QColor(
                     self.line_color if self.selected else self.fill_color
@@ -137,6 +121,51 @@ class Shape(object):
                 if self.selected:
                     fill_color.setAlpha(100)
                 painter.fillPath(line_path, fill_color)
+
+            if self.paint_label:
+                self.paint_label_text(painter)
+
+    def paint_label_text(self, painter):
+        """Draw label text, highlighting it when this shape is selected."""
+        min_x = min(point.x() for point in self.points)
+        min_y = min(point.y() for point in self.points)
+        min_y_label = int(1.25 * self.label_font_size)
+        if min_y < min_y_label:
+            min_y += min_y_label
+
+        if self.label is None:
+            self.label = ""
+        if not self.label:
+            return
+
+        font = QFont()
+        font.setPointSize(self.label_font_size)
+        font.setBold(True)
+        text_x = int(round(min_x))
+        text_y = int(round(min_y))
+
+        painter.save()
+        painter.setFont(font)
+        if self.selected:
+            text_rect = QRectF(
+                QFontMetrics(font).tightBoundingRect(self.label)
+            )
+            text_rect.translate(text_x, text_y)
+            scale = max(float(self.scale), 0.01)
+            padding = self.selected_label_padding / scale
+            radius = self.selected_label_radius / scale
+            background_rect = text_rect.adjusted(
+                -padding,
+                -padding,
+                padding,
+                padding,
+            )
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(self.selected_label_background_color)
+            painter.drawRoundedRect(background_rect, radius, radius)
+            painter.setPen(self.selected_label_text_color)
+        painter.drawText(text_x, text_y, self.label)
+        painter.restore()
 
     def draw_vertex(self, path, i):
         d = self.point_size / self.scale
