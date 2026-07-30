@@ -33,6 +33,7 @@ classifiers = [
 labelImg = "labelimg.app:main"
 
 [project.urls]
+Repository = "https://github.com/zaney955/labelimg-enhanced"
 Upstream = "https://github.com/HumanSignal/labelImg"
 
 [tool.setuptools]
