@@ -1,12 +1,30 @@
 import unittest
+from unittest.mock import Mock
 
-from PyQt5.QtCore import QPointF, Qt
-from PyQt5.QtGui import QColor, QImage, QPainter, QPainterPath, QPen
+from PyQt5.QtCore import QPointF, QRectF, Qt
+from PyQt5.QtGui import (
+    QColor,
+    QFont,
+    QFontMetrics,
+    QImage,
+    QPainter,
+    QPainterPath,
+    QPen,
+)
+from PyQt5.QtWidgets import QApplication
 
 from labelimg.shape import Shape
 
 
 class ShapeRenderingStyleTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self):
+        Shape.scale = 1.0
+        Shape.label_font_size = 8
+
     def make_rectangle(self):
         shape = Shape(label="car")
         for point in (
@@ -85,6 +103,113 @@ class ShapeRenderingStyleTest(unittest.TestCase):
             (12, 34, 56),
         ):
             self.assertLessEqual(abs(actual - expected), 1)
+
+    def test_selected_label_uses_translucent_black_background_and_white_text(self):
+        shape = self.make_rectangle()
+        shape.paint_label = True
+        shape.selected = True
+        shape.fill = True
+        painter = Mock()
+
+        shape.paint(painter)
+
+        painter.drawRoundedRect.assert_called_once()
+        painter.setBrush.assert_called_once_with(
+            Shape.selected_label_background_color
+        )
+        self.assertEqual(
+            Shape.selected_label_background_color,
+            QColor(0, 0, 0, 153),
+        )
+        self.assertIn(
+            Shape.selected_label_text_color,
+            [call.args[0] for call in painter.setPen.call_args_list],
+        )
+        painter.drawText.assert_called_once_with(20, 20, "car")
+
+        font = QFont()
+        font.setPointSize(Shape.label_font_size)
+        font.setBold(True)
+        expected_rect = QRectF(QFontMetrics(font).tightBoundingRect("car"))
+        expected_rect.translate(20, 20)
+        expected_rect.adjust(
+            -Shape.selected_label_padding,
+            -Shape.selected_label_padding,
+            Shape.selected_label_padding,
+            Shape.selected_label_padding,
+        )
+        actual_rect, horizontal_radius, vertical_radius = (
+            painter.drawRoundedRect.call_args.args
+        )
+        self.assertEqual(actual_rect, expected_rect)
+        self.assertEqual(horizontal_radius, Shape.selected_label_radius)
+        self.assertEqual(vertical_radius, Shape.selected_label_radius)
+
+        method_names = [
+            call[0] for call in painter.method_calls
+        ]
+        self.assertLess(
+            max(
+                index
+                for index, name in enumerate(method_names)
+                if name == "fillPath"
+            ),
+            method_names.index("drawRoundedRect"),
+        )
+        self.assertLess(
+            method_names.index("drawRoundedRect"),
+            method_names.index("drawText"),
+        )
+
+    def test_unselected_label_keeps_original_text_without_highlight(self):
+        shape = self.make_rectangle()
+        shape.paint_label = True
+        painter = Mock()
+
+        shape.paint(painter)
+
+        painter.drawRoundedRect.assert_not_called()
+        painter.setBrush.assert_not_called()
+        painter.drawText.assert_called_once_with(20, 20, "car")
+        self.assertNotIn(
+            Shape.selected_label_text_color,
+            [call.args[0] for call in painter.setPen.call_args_list],
+        )
+
+    def test_hidden_label_does_not_paint_highlight_when_selected(self):
+        shape = self.make_rectangle()
+        shape.selected = True
+        painter = Mock()
+
+        shape.paint(painter)
+
+        painter.drawRoundedRect.assert_not_called()
+        painter.drawText.assert_not_called()
+
+    def test_selected_label_background_is_visible_in_rendered_pixels(self):
+        image = QImage(100, 80, QImage.Format_ARGB32)
+        image.fill(Qt.transparent)
+        shape = self.make_rectangle()
+        shape.paint_label = True
+        shape.selected = True
+        shape.fill = True
+
+        painter = QPainter(image)
+        shape.paint(painter)
+        painter.end()
+
+        label_pixels = [
+            image.pixelColor(x, y)
+            for y in range(5, 28)
+            for x in range(15, 50)
+        ]
+        self.assertTrue(any(
+            color.red() <= 5
+            and color.green() <= 5
+            and color.blue() <= 5
+            and 140 <= color.alpha() <= 170
+            for color in label_pixels
+        ))
 
 
 if __name__ == "__main__":
