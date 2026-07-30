@@ -37,16 +37,15 @@ from labelimg.shape import Shape, DEFAULT_LINE_COLOR, DEFAULT_FILL_COLOR
 from labelimg.stringBundle import StringBundle
 from labelimg.canvas import Canvas
 from labelimg.zoomWidget import ZoomWidget
-from labelimg.candidateLabelDialog import LabelDialog
+from labelimg.candidate_label_dialog import CandidateLabelDialog
 from labelimg.colorDialog import ColorDialog
-from labelimg.labelFile import LabelFile, LabelFileError, LabelFileFormat
+from labelimg.annotation_document import (
+    AnnotationDocument,
+    AnnotationDocumentError,
+    AnnotationFormat,
+)
+from labelimg.annotation_workspace import AnnotationWorkspace
 from labelimg.toolBar import ToolBar
-from labelimg.pascal_voc_io import PascalVocReader
-from labelimg.pascal_voc_io import XML_EXT
-from labelimg.yolo_io import YoloReader
-from labelimg.yolo_io import TXT_EXT
-from labelimg.create_ml_io import CreateMLReader
-from labelimg.create_ml_io import JSON_EXT
 from labelimg.ustr import ustr
 from labelimg.hashableQListWidgetItem import HashableQListWidgetItem
 
@@ -54,6 +53,15 @@ __appname__ = 'labelImg'
 FILE_LIST_ANNOTATED_MARK = '\u25cb'
 FILE_LIST_VERIFIED_MARK = '\u2713'
 FILE_LIST_QUESTIONED_MARK = '?'
+
+
+def document_format_name(annotation_format):
+    return {
+        AnnotationFormat.PASCAL_VOC: FORMAT_PASCALVOC,
+        AnnotationFormat.YOLO: FORMAT_YOLO,
+        AnnotationFormat.CREATE_ML: FORMAT_CREATEML,
+    }[annotation_format]
+
 
 if platform.system() == 'Windows':
     WINDOWS_LOGICAL_COMPARE = ctypes.windll.shlwapi.StrCmpLogicalW
@@ -113,7 +121,9 @@ def compare_image_paths(left_path, right_path):
 
 
 class LabelListItemDelegate(QStyledItemDelegate):
-    selected_border_color = QColor(0, 120, 215)
+    selection_marker_width = 3
+    selection_marker_inset = 4
+    selection_marker_radius = 1.5
 
     def paint(self, painter, option, index):
         paint_option = QStyleOptionViewItem(option)
@@ -122,6 +132,7 @@ class LabelListItemDelegate(QStyledItemDelegate):
             paint_option.state &= ~QStyle.State_Selected
             paint_option.state &= ~QStyle.State_HasFocus
             paint_option.state &= ~QStyle.State_MouseOver
+            paint_option.font.setBold(True)
 
         super(LabelListItemDelegate, self).paint(
             painter,
@@ -131,9 +142,28 @@ class LabelListItemDelegate(QStyledItemDelegate):
 
         if selected:
             painter.save()
-            painter.setPen(QPen(self.selected_border_color, 2))
-            painter.setBrush(Qt.NoBrush)
-            painter.drawRect(option.rect.adjusted(1, 1, -2, -2))
+            palette = (
+                option.widget.palette()
+                if option.widget is not None
+                else option.palette
+            )
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(palette.color(QPalette.Highlight))
+            marker_rect = QRectF(
+                option.rect.left(),
+                option.rect.top() + self.selection_marker_inset,
+                self.selection_marker_width,
+                max(
+                    0,
+                    option.rect.height()
+                    - (2 * self.selection_marker_inset),
+                ),
+            )
+            painter.drawRoundedRect(
+                marker_rect,
+                self.selection_marker_radius,
+                self.selection_marker_radius,
+            )
             painter.restore()
 
 
@@ -241,7 +271,10 @@ class MainWindow(QMainWindow, WindowMixin):
 
         # Save as Pascal voc xml
         self.default_save_dir = default_save_dir
-        self.label_file_format = settings.get(SETTING_LABEL_FILE_FORMAT, LabelFileFormat.PASCAL_VOC)
+        self.annotation_format = settings.get(
+            SETTING_LABEL_FILE_FORMAT,
+            AnnotationFormat.PASCAL_VOC,
+        )
 
         # For loading all image under a directory
         self.m_img_list = []
@@ -254,18 +287,20 @@ class MainWindow(QMainWindow, WindowMixin):
         # Whether we need to save or not.
         self.dirty = False
 
-        self._selection_syncing = False
         self._beginner = True
         self.screencast = "https://youtu.be/p0nR2YsCY_U"
 
         # Load predefined classes to the list
         self.load_predefined_classes(default_prefdef_class_file)
-        self.predefined_labels = list(self.label_hist)
-        self.candidate_labels = list(self.label_hist)
-        self.annotation_labels_by_path = {}
+        self.annotation_workspace = AnnotationWorkspace(
+            save_dir=default_save_dir,
+        )
+        self.candidate_labels = list(
+            self.annotation_workspace.candidate_labels
+        )
 
         # Main widgets and related state.
-        self.label_dialog = LabelDialog(
+        self.candidate_label_dialog = CandidateLabelDialog(
             parent=self,
             list_item=self.candidate_labels,
         )
@@ -356,6 +391,8 @@ class MainWindow(QMainWindow, WindowMixin):
         }
         self.scroll_area = scroll
         self.canvas.scrollRequest.connect(self.scroll_request)
+        self.canvas.panRequest.connect(self.pan_request)
+        self.canvas.statusRequest.connect(self.status)
 
         self.canvas.newShape.connect(self.new_shape)
         self.canvas.shapeMoved.connect(self.set_dirty)
@@ -417,16 +454,16 @@ class MainWindow(QMainWindow, WindowMixin):
             """
             returns a tuple containing (title, icon_name) of the selected format
             """
-            if format == LabelFileFormat.PASCAL_VOC:
+            if format == AnnotationFormat.PASCAL_VOC:
                 return '&PascalVOC', 'format_voc'
-            elif format == LabelFileFormat.YOLO:
+            elif format == AnnotationFormat.YOLO:
                 return '&YOLO', 'format_yolo'
-            elif format == LabelFileFormat.CREATE_ML:
+            elif format == AnnotationFormat.CREATE_ML:
                 return '&CreateML', 'format_createml'
 
-        save_format = action(get_format_meta(self.label_file_format)[0],
+        save_format = action(get_format_meta(self.annotation_format)[0],
                              self.change_format, 'Ctrl+',
-                             get_format_meta(self.label_file_format)[1],
+                             get_format_meta(self.annotation_format)[1],
                              get_str('changeSaveFormat'), enabled=True)
 
         save_as = action(get_str('saveAs'), self.save_file_as,
@@ -694,10 +731,23 @@ class MainWindow(QMainWindow, WindowMixin):
         # Display cursor coordinates at the right of status bar
         self.label_coordinates = QLabel('')
         self.statusBar().addPermanentWidget(self.label_coordinates)
+        self.canvas.coordinatesChanged.connect(
+            self.label_coordinates.setText
+        )
 
         # Open Dir if default file
         if self.file_path and os.path.isdir(self.file_path):
             self.open_dir_dialog(dir_path=self.file_path, silent=True)
+
+    @property
+    def default_save_dir(self):
+        return self._default_save_dir
+
+    @default_save_dir.setter
+    def default_save_dir(self, value):
+        self._default_save_dir = value
+        if hasattr(self, 'annotation_workspace'):
+            self.annotation_workspace.set_save_dir(value)
 
     def keyReleaseEvent(self, event):
         if event.key() == Qt.Key_Control:
@@ -712,27 +762,24 @@ class MainWindow(QMainWindow, WindowMixin):
         if save_format == FORMAT_PASCALVOC:
             self.actions.save_format.setText(FORMAT_PASCALVOC)
             self.actions.save_format.setIcon(new_icon("format_voc"))
-            self.label_file_format = LabelFileFormat.PASCAL_VOC
-            LabelFile.suffix = XML_EXT
+            self.annotation_format = AnnotationFormat.PASCAL_VOC
 
         elif save_format == FORMAT_YOLO:
             self.actions.save_format.setText(FORMAT_YOLO)
             self.actions.save_format.setIcon(new_icon("format_yolo"))
-            self.label_file_format = LabelFileFormat.YOLO
-            LabelFile.suffix = TXT_EXT
+            self.annotation_format = AnnotationFormat.YOLO
 
         elif save_format == FORMAT_CREATEML:
             self.actions.save_format.setText(FORMAT_CREATEML)
             self.actions.save_format.setIcon(new_icon("format_createml"))
-            self.label_file_format = LabelFileFormat.CREATE_ML
-            LabelFile.suffix = JSON_EXT
+            self.annotation_format = AnnotationFormat.CREATE_ML
 
     def change_format(self):
-        if self.label_file_format == LabelFileFormat.PASCAL_VOC:
+        if self.annotation_format == AnnotationFormat.PASCAL_VOC:
             self.set_format(FORMAT_YOLO)
-        elif self.label_file_format == LabelFileFormat.YOLO:
+        elif self.annotation_format == AnnotationFormat.YOLO:
             self.set_format(FORMAT_CREATEML)
-        elif self.label_file_format == LabelFileFormat.CREATE_ML:
+        elif self.annotation_format == AnnotationFormat.CREATE_ML:
             self.set_format(FORMAT_PASCALVOC)
         else:
             raise ValueError('Unknown label file format.')
@@ -813,7 +860,7 @@ class MainWindow(QMainWindow, WindowMixin):
         self.label_list.clear()
         self.file_path = None
         self.image_data = None
-        self.label_file = None
+        self.annotation_document = None
         self.canvas.reset_state()
         self.label_coordinates.clear()
         self.combo_box.cb.clear()
@@ -925,7 +972,7 @@ class MainWindow(QMainWindow, WindowMixin):
         item = self.current_item()
         if not item:
             return
-        text = self.label_dialog.pop_up(item.text())
+        text = self.candidate_label_dialog.choose(item.text())
         if text is not None:
             item.setText(text)
             item.setBackground(generate_color_by_text(text))
@@ -964,26 +1011,23 @@ class MainWindow(QMainWindow, WindowMixin):
 
     # React to canvas signals.
     def shape_selection_changed(self, selected=False):
-        if not self._selection_syncing:
-            self._selection_syncing = True
-            blocker = QSignalBlocker(self.label_list)
-            self.label_list.clearSelection()
-            for shape in self.canvas.selected_shapes:
-                item = self.shapes_to_items.get(shape)
-                if item is not None:
-                    item.setSelected(True)
-            active_item = self.shapes_to_items.get(
-                self.canvas.selected_shape
+        blocker = QSignalBlocker(self.label_list)
+        self.label_list.clearSelection()
+        for shape in self.canvas.selected_shapes:
+            item = self.shapes_to_items.get(shape)
+            if item is not None:
+                item.setSelected(True)
+        active_item = self.shapes_to_items.get(
+            self.canvas.selected_shape
+        )
+        if active_item is not None:
+            self.label_list.setCurrentItem(
+                active_item,
+                QItemSelectionModel.NoUpdate,
             )
-            if active_item is not None:
-                self.label_list.setCurrentItem(
-                    active_item,
-                    QItemSelectionModel.NoUpdate,
-                )
-            else:
-                self.label_list.setCurrentItem(None)
-            del blocker
-            self._selection_syncing = False
+        else:
+            self.label_list.setCurrentItem(None)
+        del blocker
         self.update_selection_actions()
 
     def selected_label_shapes(self):
@@ -1073,6 +1117,21 @@ class MainWindow(QMainWindow, WindowMixin):
         self.update_combo_box()
         self.canvas.load_shapes(s)
 
+    def load_annotation_document(self, document):
+        shapes, snapped = document.create_shapes(
+            self.canvas.snap_point_to_canvas,
+            generate_color_by_text,
+        )
+        for shape in shapes:
+            self.add_label(shape)
+        self.update_combo_box()
+        self.canvas.load_shapes(shapes)
+        self.annotation_document = document
+        self.canvas.verified = document.verified
+        self.canvas.questioned = document.questioned
+        if snapped:
+            self.set_dirty()
+
     def update_combo_box(self):
         # Get the unique labels and add them to the Combobox.
         items_text_list = [str(self.label_list.item(i).text()) for i in range(self.label_list.count())]
@@ -1086,45 +1145,30 @@ class MainWindow(QMainWindow, WindowMixin):
 
     def save_labels(self, annotation_file_path):
         annotation_file_path = ustr(annotation_file_path)
-        if self.label_file is None:
-            self.label_file = LabelFile()
-        self.label_file.verified = self.canvas.verified
-        self.label_file.questioned = self.canvas.questioned
-
-        def format_shape(s):
-            return dict(label=s.label,
-                        line_color=s.line_color.getRgb(),
-                        fill_color=s.fill_color.getRgb(),
-                        points=[(p.x(), p.y()) for p in s.points],
-                        # add chris
-                        difficult=s.difficult)
-
-        shapes = [format_shape(shape) for shape in self.canvas.shapes]
-        # Can add different annotation formats here
+        document = AnnotationDocument.from_shapes(
+            image_path=self.file_path,
+            image_data=self.image_data,
+            shapes=self.canvas.shapes,
+            class_names=self.label_hist,
+            verified=self.canvas.verified,
+            questioned=self.canvas.questioned,
+        )
         try:
-            if self.label_file_format == LabelFileFormat.PASCAL_VOC:
-                if annotation_file_path[-4:].lower() != ".xml":
-                    annotation_file_path += XML_EXT
-                self.label_file.save_pascal_voc_format(annotation_file_path, shapes, self.file_path, self.image_data,
-                                                       self.line_color.getRgb(), self.fill_color.getRgb())
-            elif self.label_file_format == LabelFileFormat.YOLO:
-                if annotation_file_path[-4:].lower() != ".txt":
-                    annotation_file_path += TXT_EXT
-                self.label_file.save_yolo_format(annotation_file_path, shapes, self.file_path, self.image_data, self.label_hist,
-                                                 self.line_color.getRgb(), self.fill_color.getRgb())
-            elif self.label_file_format == LabelFileFormat.CREATE_ML:
-                if annotation_file_path[-5:].lower() != ".json":
-                    annotation_file_path += JSON_EXT
-                self.label_file.save_create_ml_format(annotation_file_path, shapes, self.file_path, self.image_data,
-                                                      self.label_hist, self.line_color.getRgb(), self.fill_color.getRgb())
-            else:
-                self.label_file.save(annotation_file_path, shapes, self.file_path, self.image_data,
-                                     self.line_color.getRgb(), self.fill_color.getRgb())
-            print('Image:{0} -> Annotation:{1}'.format(self.file_path, annotation_file_path))
-            return True
-        except LabelFileError as e:
+            saved_path = document.save(
+                annotation_file_path,
+                self.annotation_format,
+            )
+            self.annotation_document = document
+            print(
+                'Image:{0} -> Annotation:{1}'.format(
+                    self.file_path,
+                    saved_path,
+                )
+            )
+            return saved_path
+        except AnnotationDocumentError as e:
             self.error_message(u'Error saving label data', u'<b>%s</b>' % e)
-            return False
+            return None
 
     def copy_selected_shape(self):
         copied_shapes = self.canvas.copy_selected_shapes()
@@ -1147,9 +1191,6 @@ class MainWindow(QMainWindow, WindowMixin):
                 self.label_list.item(i).setCheckState(2)
 
     def label_selection_changed(self):
-        if self._selection_syncing:
-            return
-
         shapes = self.selected_label_shapes()
         current_item = self.label_list.currentItem()
         active_shape = None
@@ -1159,12 +1200,10 @@ class MainWindow(QMainWindow, WindowMixin):
         ):
             active_shape = self.items_to_shapes.get(current_item)
 
-        self._selection_syncing = True
         self.canvas.set_selected_shapes(
             shapes,
             active_shape=active_shape,
         )
-        self._selection_syncing = False
         self.update_selection_actions()
 
     def label_item_changed(self, item):
@@ -1184,15 +1223,13 @@ class MainWindow(QMainWindow, WindowMixin):
         position MUST be in global coordinates.
         """
         if not self.use_default_label_checkbox.isChecked() or not self.default_label_text_line.text():
-            if len(self.candidate_labels) > 0:
-                self.label_dialog = LabelDialog(
-                    parent=self, list_item=self.candidate_labels)
-
             # Sync single class mode from PR#106
             if self.single_class_mode.isChecked() and self.lastLabel:
                 text = self.lastLabel
             else:
-                text = self.label_dialog.pop_up(text=self.prev_label_text)
+                text = self.candidate_label_dialog.choose(
+                    text=self.prev_label_text
+                )
                 self.lastLabel = text
         else:
             text = self.default_label_text_line.text()
@@ -1213,8 +1250,6 @@ class MainWindow(QMainWindow, WindowMixin):
 
             if text not in self.label_hist:
                 self.label_hist.append(text)
-            if text not in self.candidate_labels:
-                self.candidate_labels.append(text)
         else:
             # self.canvas.undoLastLine()
             self.canvas.reset_all_lines()
@@ -1223,6 +1258,12 @@ class MainWindow(QMainWindow, WindowMixin):
         units = - delta / (8 * 15)
         bar = self.scroll_bars[orientation]
         bar.setValue(int(round(bar.value() + bar.singleStep() * units)))
+
+    def pan_request(self, delta_x, delta_y):
+        horizontal = self.scroll_bars[Qt.Horizontal]
+        vertical = self.scroll_bars[Qt.Vertical]
+        horizontal.setValue(horizontal.value() - delta_x)
+        vertical.setValue(vertical.value() - delta_y)
 
     def set_zoom(self, value):
         self.actions.fitWidth.setChecked(False)
@@ -1314,6 +1355,39 @@ class MainWindow(QMainWindow, WindowMixin):
         # Fix bug: An  index error after select a directory when open a new file.
         unicode_file_path = ustr(file_path)
         unicode_file_path = os.path.abspath(unicode_file_path)
+        annotation_path = None
+        try:
+            annotation_format = AnnotationFormat.from_path(
+                unicode_file_path
+            )
+        except AnnotationDocumentError:
+            annotation_format = None
+        if annotation_format is not None:
+            annotation_path = unicode_file_path
+            unicode_file_path = AnnotationDocument.image_path_hint(
+                annotation_path
+            )
+            if unicode_file_path is None:
+                annotation_stem = os.path.splitext(annotation_path)[0]
+                extensions = [
+                    '.%s' % image_format.data().decode("ascii").lower()
+                    for image_format in QImageReader.supportedImageFormats()
+                ]
+                unicode_file_path = next(
+                    (
+                        annotation_stem + extension
+                        for extension in extensions
+                        if os.path.isfile(annotation_stem + extension)
+                    ),
+                    None,
+                )
+            if unicode_file_path is None:
+                self.error_message(
+                    u'Error opening annotation document',
+                    u'<p>Could not locate its image.</p>',
+                )
+                return False
+
         # Tzutalin 20160906 : Add file list and dock to move faster
         # Highlight the file item
         if unicode_file_path and self.file_list_widget.count() > 0:
@@ -1326,28 +1400,11 @@ class MainWindow(QMainWindow, WindowMixin):
                 self.m_img_list.clear()
 
         if unicode_file_path and os.path.exists(unicode_file_path):
-            if LabelFile.is_label_file(unicode_file_path):
-                try:
-                    self.label_file = LabelFile(unicode_file_path)
-                except LabelFileError as e:
-                    self.error_message(u'Error opening file',
-                                       (u"<p><b>%s</b></p>"
-                                        u"<p>Make sure <i>%s</i> is a valid label file.")
-                                       % (e, unicode_file_path))
-                    self.status("Error reading %s" % unicode_file_path)
-                    return False
-                self.image_data = self.label_file.image_data
-                self.line_color = QColor(*self.label_file.lineColor)
-                self.fill_color = QColor(*self.label_file.fillColor)
-                self.canvas.verified = self.label_file.verified
-                self.canvas.questioned = self.label_file.questioned
-            else:
-                # Load image:
-                # read data first and store for saving into label file.
-                self.image_data = read(unicode_file_path, None)
-                self.label_file = None
-                self.canvas.verified = False
-                self.canvas.questioned = False
+            # Load image data first and retain it for annotation saving.
+            self.image_data = read(unicode_file_path, None)
+            self.annotation_document = None
+            self.canvas.verified = False
+            self.canvas.questioned = False
 
             if isinstance(self.image_data, QImage):
                 image = self.image_data
@@ -1362,23 +1419,34 @@ class MainWindow(QMainWindow, WindowMixin):
             self.image = image
             self.file_path = unicode_file_path
             self.canvas.load_pixmap(QPixmap.fromImage(image))
-            if self.label_file:
-                self.load_labels(self.label_file.shapes)
+            if annotation_path is not None:
+                try:
+                    document = AnnotationDocument.load(
+                        annotation_path,
+                        self.file_path,
+                        self.image_data,
+                    )
+                except AnnotationDocumentError as error:
+                    self.error_message(
+                        u'Error opening annotation document',
+                        u'<b>%s</b>' % error,
+                    )
+                    return False
+                self.set_format(document_format_name(annotation_format))
+                self.load_annotation_document(document)
             self.set_clean()
             self.canvas.setEnabled(True)
             self.adjust_scale(initial=True)
             self.paint_canvas()
             self.add_recent_file(self.file_path)
             self.toggle_actions(True)
-            self.show_bounding_box_from_annotation_file(file_path)
+            if annotation_path is None:
+                self.show_bounding_box_from_annotation_file(
+                    unicode_file_path
+                )
 
             counter = self.counter_str()
             self.setWindowTitle(__appname__ + ' ' + file_path + ' ' + counter)
-
-            # Default : select last item if there is at least one item
-            if self.label_list.count():
-                self.label_list.setCurrentItem(self.label_list.item(self.label_list.count() - 1))
-                self.label_list.item(self.label_list.count() - 1).setSelected(True)
 
             self.canvas.setFocus(True)
             return True
@@ -1391,29 +1459,26 @@ class MainWindow(QMainWindow, WindowMixin):
         return '[{} / {}]'.format(self.cur_img_idx + 1, self.img_count)
 
     def show_bounding_box_from_annotation_file(self, file_path):
-        if self.default_save_dir is not None:
-            basename = os.path.basename(os.path.splitext(file_path)[0])
-            xml_path = os.path.join(self.default_save_dir, basename + XML_EXT)
-            txt_path = os.path.join(self.default_save_dir, basename + TXT_EXT)
-            json_path = os.path.join(self.default_save_dir, basename + JSON_EXT)
-
-            """Annotation file priority:
-            PascalXML > YOLO
-            """
-            if os.path.isfile(xml_path):
-                self.load_pascal_xml_by_filename(xml_path)
-            elif os.path.isfile(txt_path):
-                self.load_yolo_txt_by_filename(txt_path)
-            elif os.path.isfile(json_path):
-                self.load_create_ml_json_by_filename(json_path, file_path)
-
-        else:
-            xml_path = os.path.splitext(file_path)[0] + XML_EXT
-            txt_path = os.path.splitext(file_path)[0] + TXT_EXT
-            if os.path.isfile(xml_path):
-                self.load_pascal_xml_by_filename(xml_path)
-            elif os.path.isfile(txt_path):
-                self.load_yolo_txt_by_filename(txt_path)
+        for annotation_path in self.annotation_paths_for_image(file_path):
+            if not os.path.isfile(annotation_path):
+                continue
+            annotation_format = AnnotationFormat.from_path(annotation_path)
+            try:
+                document = AnnotationDocument.load(
+                    annotation_path,
+                    file_path,
+                    self.image_data,
+                )
+            except AnnotationDocumentError as error:
+                self.status(
+                    "Error reading %s: %s"
+                    % (annotation_path, error)
+                )
+                return False
+            self.set_format(document_format_name(annotation_format))
+            self.load_annotation_document(document)
+            return True
+        return False
 
     def resizeEvent(self, event):
         if self.canvas and not self.image.isNull()\
@@ -1480,7 +1545,7 @@ class MainWindow(QMainWindow, WindowMixin):
         settings[SETTING_SINGLE_CLASS] = self.single_class_mode.isChecked()
         settings[SETTING_PAINT_LABEL] = self.display_label_option.isChecked()
         settings[SETTING_DRAW_SQUARE] = self.draw_squares_option.isChecked()
-        settings[SETTING_LABEL_FILE_FORMAT] = self.label_file_format
+        settings[SETTING_LABEL_FILE_FORMAT] = self.annotation_format
         settings.save()
 
     def load_recent(self, filename):
@@ -1501,50 +1566,24 @@ class MainWindow(QMainWindow, WindowMixin):
         return images
 
     def annotation_path_for_image(self, image_path):
-        return self.annotation_paths_for_image(image_path)[0]
+        return self.annotation_workspace.entry(image_path).path_for(
+            AnnotationFormat.PASCAL_VOC
+        )
 
     def annotation_paths_for_image(self, image_path):
-        basename = os.path.basename(os.path.splitext(image_path)[0])
-        if self.default_save_dir:
-            annotation_base = os.path.join(
-                ustr(self.default_save_dir),
-                basename,
-            )
-        else:
-            annotation_base = os.path.splitext(image_path)[0]
-        return [
-            annotation_base + extension
-            for extension in (XML_EXT, TXT_EXT, JSON_EXT)
-        ]
+        return list(self.annotation_workspace.entry(image_path).paths)
 
     def delete_annotation_files_for_image(self, image_path):
-        annotation_paths = self.annotation_paths_for_image(image_path)
-        for annotation_path in annotation_paths:
-            if os.path.isfile(annotation_path):
-                os.remove(annotation_path)
-
-        self.annotation_labels_by_path.pop(
-            self.annotation_cache_key(annotation_paths[0]),
-            None,
-        )
+        self.annotation_workspace.delete(image_path)
         self.refresh_candidate_labels()
 
     def file_list_item_text(self, image_path):
-        annotation_path = self.annotation_path_for_image(image_path)
-        has_annotations = False
-        verified = False
-        questioned = False
-        if os.path.isfile(annotation_path):
-            reader = PascalVocReader(annotation_path)
-            has_annotations = bool(reader.get_shapes())
-            verified = reader.verified
-            questioned = reader.questioned
-
-        if questioned:
+        status = self.annotation_workspace.entry(image_path).status
+        if status.questioned:
             return image_path + '  ' + FILE_LIST_QUESTIONED_MARK
-        if verified:
+        if status.verified:
             return image_path + '  ' + FILE_LIST_VERIFIED_MARK
-        if has_annotations:
+        if status.has_annotations:
             return image_path + '  ' + FILE_LIST_ANNOTATED_MARK
         return image_path
 
@@ -1562,61 +1601,28 @@ class MainWindow(QMainWindow, WindowMixin):
         for image_path in self.m_img_list:
             self.update_file_list_item_status(image_path)
 
-    @staticmethod
-    def annotation_cache_key(annotation_path):
-        return os.path.normcase(os.path.abspath(annotation_path))
-
     def refresh_candidate_labels(self):
-        discovered_labels = set()
-        for labels in self.annotation_labels_by_path.values():
-            discovered_labels.update(labels)
-
-        predefined_label_set = set(self.predefined_labels)
-        candidate_labels = list(self.predefined_labels)
-        candidate_labels.extend(sorted(
-            discovered_labels - predefined_label_set,
-            key=lambda label: label.casefold(),
-        ))
+        candidate_labels = list(
+            self.annotation_workspace.candidate_labels
+        )
         if candidate_labels == self.candidate_labels:
             return False
 
         self.candidate_labels[:] = candidate_labels
-
-        old_dialog = self.label_dialog
-        self.label_dialog = LabelDialog(
-            parent=self,
-            list_item=self.candidate_labels,
+        self.candidate_label_dialog.set_candidate_labels(
+            self.candidate_labels
         )
-        old_dialog.deleteLater()
         return True
 
     def load_candidate_labels_from_dir(self, dir_path):
-        self.annotation_labels_by_path.clear()
-        for root, _dirs, files in os.walk(dir_path):
-            for filename in files:
-                if not filename.lower().endswith(XML_EXT):
-                    continue
-                annotation_path = os.path.join(root, filename)
-                reader = PascalVocReader(annotation_path)
-                labels = set()
-                for shape in reader.get_shapes():
-                    label = ustr(shape[0]).strip()
-                    if label:
-                        labels.add(label)
-                self.annotation_labels_by_path[
-                    self.annotation_cache_key(annotation_path)
-                ] = labels
-
-        discovered_labels = set().union(
-            *self.annotation_labels_by_path.values()
-        ) if self.annotation_labels_by_path else set()
-        for label in sorted(
-                discovered_labels - set(self.label_hist),
-                key=lambda value: value.casefold()):
+        candidate_labels = self.annotation_workspace.scan(dir_path)
+        for label in candidate_labels:
+            if label in self.label_hist:
+                continue
             self.label_hist.append(label)
 
         self.refresh_candidate_labels()
-        return len(discovered_labels)
+        return len(candidate_labels)
 
     def change_save_dir_dialog(self, _value=False):
         if self.default_save_dir is not None:
@@ -1645,13 +1651,22 @@ class MainWindow(QMainWindow, WindowMixin):
 
         path = os.path.dirname(ustr(self.file_path))\
             if self.file_path else '.'
-        if self.label_file_format == LabelFileFormat.PASCAL_VOC:
-            filters = "Open Annotation XML file (%s)" % ' '.join(['*.xml'])
-            filename = ustr(QFileDialog.getOpenFileName(self, '%s - Choose a xml file' % __appname__, path, filters))
-            if filename:
-                if isinstance(filename, (tuple, list)):
-                    filename = filename[0]
-            self.load_pascal_xml_by_filename(filename)
+        filters = "Open Annotation file (%s)" % ' '.join(
+            '*%s' % annotation_format.extension
+            for annotation_format in AnnotationFormat
+        )
+        filename = ustr(
+            QFileDialog.getOpenFileName(
+                self,
+                '%s - Choose an annotation file' % __appname__,
+                path,
+                filters,
+            )
+        )
+        if filename and isinstance(filename, (tuple, list)):
+            filename = filename[0]
+        if filename:
+            self.load_annotation_by_filename(filename)
 
     def open_dir_dialog(self, _value=False, dir_path=None, silent=False):
         if not self.may_continue():
@@ -1698,22 +1713,22 @@ class MainWindow(QMainWindow, WindowMixin):
             self.actions.saveAs.setEnabled(False)
 
     def verify_image(self, _value=False):
-        self.toggle_image_status('toggle_verify')
+        self.toggle_image_status('toggle_verified')
 
     def question_image(self, _value=False):
-        self.toggle_image_status('toggle_question')
+        self.toggle_image_status('toggle_questioned')
 
     def toggle_image_status(self, toggle_method):
         if self.file_path is None:
             return
-        if self.label_file is None:
+        if self.annotation_document is None:
             self.save_file()
-        if self.label_file is None:
+        if self.annotation_document is None:
             return
 
-        getattr(self.label_file, toggle_method)()
-        self.canvas.verified = self.label_file.verified
-        self.canvas.questioned = self.label_file.questioned
+        getattr(self.annotation_document, toggle_method)()
+        self.canvas.verified = self.annotation_document.verified
+        self.canvas.questioned = self.annotation_document.questioned
         self.paint_canvas()
         self.save_file()
 
@@ -1775,7 +1790,13 @@ class MainWindow(QMainWindow, WindowMixin):
             return
         path = os.path.dirname(ustr(self.file_path)) if self.file_path else '.'
         formats = ['*.%s' % fmt.data().decode("ascii").lower() for fmt in QImageReader.supportedImageFormats()]
-        filters = "Image & Label files (%s)" % ' '.join(formats + ['*%s' % LabelFile.suffix])
+        filters = "Image & Annotation files (%s)" % ' '.join(
+            formats
+            + [
+                '*%s' % annotation_format.extension
+                for annotation_format in AnnotationFormat
+            ]
+        )
         filename = QFileDialog.getOpenFileName(self, '%s - Choose Image or Label file' % __appname__, path, filters)
         if filename:
             if isinstance(filename, (tuple, list)):
@@ -1796,7 +1817,7 @@ class MainWindow(QMainWindow, WindowMixin):
             image_file_name = os.path.basename(self.file_path)
             saved_file_name = os.path.splitext(image_file_name)[0]
             saved_path = os.path.join(image_file_dir, saved_file_name)
-            self._save_file(saved_path if self.label_file
+            self._save_file(saved_path if self.annotation_document
                             else self.save_file_dialog(remove_ext=False))
 
     def save_file_as(self, _value=False):
@@ -1805,10 +1826,10 @@ class MainWindow(QMainWindow, WindowMixin):
 
     def save_file_dialog(self, remove_ext=True):
         caption = '%s - Choose File' % __appname__
-        filters = 'File (*%s)' % LabelFile.suffix
+        filters = 'File (*%s)' % self.annotation_format.extension
         open_dialog_path = self.current_path()
         dlg = QFileDialog(self, caption, open_dialog_path, filters)
-        dlg.setDefaultSuffix(LabelFile.suffix[1:])
+        dlg.setDefaultSuffix(self.annotation_format.extension[1:])
         dlg.setAcceptMode(QFileDialog.AcceptSave)
         filename_without_extension = os.path.splitext(self.file_path)[0]
         dlg.selectFile(filename_without_extension)
@@ -1823,42 +1844,43 @@ class MainWindow(QMainWindow, WindowMixin):
 
     def _save_file(self, annotation_file_path):
         if annotation_file_path\
-                and self.label_file_format == LabelFileFormat.PASCAL_VOC\
+                and self.annotation_format == AnnotationFormat.PASCAL_VOC\
                 and not self.canvas.shapes:
             xml_path = annotation_file_path
-            if not xml_path.lower().endswith(XML_EXT):
-                xml_path += XML_EXT
+            if not xml_path.lower().endswith(
+                AnnotationFormat.PASCAL_VOC.extension
+            ):
+                xml_path += AnnotationFormat.PASCAL_VOC.extension
             if os.path.isfile(xml_path):
                 os.remove(xml_path)
                 self.statusBar().showMessage(
                     'Removed empty annotation file %s' % xml_path)
                 self.statusBar().show()
-            self.annotation_labels_by_path.pop(
-                self.annotation_cache_key(xml_path),
-                None,
-            )
+            self.annotation_workspace.record(xml_path, ())
             self.refresh_candidate_labels()
-            self.label_file = None
+            self.annotation_document = None
             self.set_clean()
             self.update_file_list_item_status(self.file_path)
             return
 
-        if annotation_file_path and self.save_labels(annotation_file_path):
-            if self.label_file_format == LabelFileFormat.PASCAL_VOC:
-                xml_path = annotation_file_path
-                if not xml_path.lower().endswith(XML_EXT):
-                    xml_path += XML_EXT
-                self.annotation_labels_by_path[
-                    self.annotation_cache_key(xml_path)
-                ] = {
+        saved_path = (
+            self.save_labels(annotation_file_path)
+            if annotation_file_path
+            else None
+        )
+        if saved_path:
+            self.annotation_workspace.record(
+                saved_path,
+                (
                     shape.label
                     for shape in self.canvas.shapes
                     if shape.label
-                }
-                self.refresh_candidate_labels()
+                ),
+            )
+            self.refresh_candidate_labels()
             self.set_clean()
             self.update_file_list_item_status(self.file_path)
-            self.statusBar().showMessage('Saved to  %s' % annotation_file_path)
+            self.statusBar().showMessage('Saved to  %s' % saved_path)
             self.statusBar().show()
 
     def close_file(self, _value=False):
@@ -1975,47 +1997,30 @@ class MainWindow(QMainWindow, WindowMixin):
                     else:
                         self.label_hist.append(line)
 
-    def load_pascal_xml_by_filename(self, xml_path):
+    def load_annotation_by_filename(self, annotation_path):
         if self.file_path is None:
-            return
-        if os.path.isfile(xml_path) is False:
-            return
+            return False
+        if not os.path.isfile(annotation_path):
+            return False
 
-        self.set_format(FORMAT_PASCALVOC)
+        annotation_format = AnnotationFormat.from_path(annotation_path)
+        try:
+            document = AnnotationDocument.load(
+                annotation_path,
+                self.file_path,
+                self.image_data,
+            )
+        except AnnotationDocumentError as error:
+            self.error_message(
+                u'Error opening annotation document',
+                u'<b>%s</b>' % error,
+            )
+            return False
 
-        t_voc_parse_reader = PascalVocReader(xml_path)
-        shapes = t_voc_parse_reader.get_shapes()
-        self.load_labels(shapes)
-        self.canvas.verified = t_voc_parse_reader.verified
-        self.canvas.questioned = t_voc_parse_reader.questioned
-
-    def load_yolo_txt_by_filename(self, txt_path):
-        if self.file_path is None:
-            return
-        if os.path.isfile(txt_path) is False:
-            return
-
-        self.set_format(FORMAT_YOLO)
-        t_yolo_parse_reader = YoloReader(txt_path, self.image)
-        shapes = t_yolo_parse_reader.get_shapes()
-        print(shapes)
-        self.load_labels(shapes)
-        self.canvas.verified = t_yolo_parse_reader.verified
-        self.canvas.questioned = t_yolo_parse_reader.questioned
-
-    def load_create_ml_json_by_filename(self, json_path, file_path):
-        if self.file_path is None:
-            return
-        if os.path.isfile(json_path) is False:
-            return
-
-        self.set_format(FORMAT_CREATEML)
-
-        create_ml_parse_reader = CreateMLReader(json_path, file_path)
-        shapes = create_ml_parse_reader.get_shapes()
-        self.load_labels(shapes)
-        self.canvas.verified = create_ml_parse_reader.verified
-        self.canvas.questioned = create_ml_parse_reader.questioned
+        self.clear_current_labels()
+        self.set_format(document_format_name(annotation_format))
+        self.load_annotation_document(document)
+        return True
 
     def format_shape_for_clipboard(self, shape):
         points = [(p.x(), p.y()) for p in shape.points]

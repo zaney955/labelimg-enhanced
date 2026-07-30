@@ -1,12 +1,18 @@
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt5.QtCore import QRect
 from PyQt5.QtGui import QColor, QImage, QPainter
-from PyQt5.QtWidgets import QApplication, QStyle, QStyleOptionViewItem
+from PyQt5.QtWidgets import (
+    QApplication,
+    QStyle,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
+)
 
 from labelimg.app import LabelListItemDelegate, MainWindow
 from labelimg.shape import Shape
@@ -69,22 +75,52 @@ class LabelListSortingTest(unittest.TestCase):
 
         self.assertEqual(self.label_names(), ["aardvark", "apple", "middle"])
 
-    def test_selected_label_keeps_its_background_and_gets_a_blue_border(self):
+    def test_selected_label_keeps_background_and_uses_theme_marker(self):
         self.window.add_label(Shape(label="apple"))
         item = self.window.label_list.item(0)
         item.setBackground(QColor(210, 160, 90))
 
         unselected_image = self.render_first_item(selected=False)
         selected_image = self.render_first_item(selected=True)
+        theme_color = self.window.label_list.palette().highlight().color()
 
         self.assertEqual(
             selected_image.pixelColor(160, 15),
             unselected_image.pixelColor(160, 15),
         )
         self.assertEqual(
-            selected_image.pixelColor(90, 1),
-            LabelListItemDelegate.selected_border_color,
+            selected_image.pixelColor(1, 15),
+            theme_color,
         )
+        self.assertEqual(
+            selected_image.pixelColor(1, 1),
+            unselected_image.pixelColor(1, 1),
+        )
+        self.assertEqual(
+            selected_image.pixelColor(90, 1),
+            unselected_image.pixelColor(90, 1),
+        )
+
+    def test_selected_label_text_is_bold(self):
+        self.window.add_label(Shape(label="apple"))
+        option = QStyleOptionViewItem()
+        option.rect = QRect(0, 0, 180, 30)
+        option.state = QStyle.State_Enabled | QStyle.State_Selected
+        option.widget = self.window.label_list
+
+        image = QImage(180, 30, QImage.Format_ARGB32)
+        image.fill(QColor("white"))
+        painter = QPainter(image)
+        with patch.object(QStyledItemDelegate, "paint") as base_paint:
+            self.window.label_list.itemDelegate().paint(
+                painter,
+                option,
+                self.window.label_list.model().index(0, 0),
+            )
+        painter.end()
+
+        painted_option = base_paint.call_args.args[1]
+        self.assertTrue(painted_option.font.bold())
 
 
 if __name__ == "__main__":

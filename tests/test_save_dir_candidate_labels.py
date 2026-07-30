@@ -84,9 +84,9 @@ class SaveDirCandidateLabelsTest(unittest.TestCase):
 
     def candidate_names(self):
         return [
-            self.window.label_dialog.list_widget.item(index).text()
+            self.window.candidate_label_dialog.list_widget.item(index).text()
             for index in range(
-                self.window.label_dialog.list_widget.count()
+                self.window.candidate_label_dialog.list_widget.count()
             )
         ]
 
@@ -97,6 +97,10 @@ class SaveDirCandidateLabelsTest(unittest.TestCase):
         ):
             self.window.change_save_dir_dialog()
 
+    def test_predefined_classes_are_not_candidate_labels(self):
+        self.assertEqual(self.window.label_hist, ["predefined"])
+        self.assertEqual(self.candidate_names(), [])
+
     def test_changing_save_dir_loads_existing_xml_labels(self):
         self.change_to_annotation_dir()
 
@@ -106,7 +110,7 @@ class SaveDirCandidateLabelsTest(unittest.TestCase):
         )
         self.assertEqual(
             self.candidate_names(),
-            ["apple", "middle", "predefined", "zebra"],
+            ["apple", "middle", "zebra"],
         )
 
     def test_startup_save_dir_preloads_existing_xml_labels(self):
@@ -119,17 +123,17 @@ class SaveDirCandidateLabelsTest(unittest.TestCase):
         )
         try:
             candidate_names = [
-                startup_window.label_dialog.list_widget.item(
+                startup_window.candidate_label_dialog.list_widget.item(
                     index
                 ).text()
                 for index in range(
-                    startup_window.label_dialog.list_widget.count()
+                    startup_window.candidate_label_dialog.list_widget.count()
                 )
             ]
 
             self.assertEqual(
                 candidate_names,
-                ["apple", "middle", "predefined", "zebra"],
+                ["apple", "middle", "zebra"],
             )
         finally:
             startup_window.deleteLater()
@@ -168,7 +172,7 @@ class SaveDirCandidateLabelsTest(unittest.TestCase):
         self.assertNotIn("zebra", self.candidate_names())
         self.assertEqual(
             self.candidate_names(),
-            ["apple", "middle", "predefined"],
+            ["apple", "middle"],
         )
 
     def test_label_used_by_another_xml_remains_a_candidate(self):

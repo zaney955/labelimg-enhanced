@@ -191,6 +191,18 @@ class FileListAnnotationStatusTest(unittest.TestCase):
         self.assertTrue(self.window.canvas.questioned)
         self.assertFalse(self.window.canvas.verified)
 
+    def test_opening_next_annotated_image_starts_without_selection(self):
+        self.window.open_next_image()
+        self.app.processEvents()
+
+        self.assertEqual(self.window.file_path, self.image_paths[1])
+        self.assertEqual(self.window.label_list.selectedItems(), [])
+        self.assertIsNone(self.window.label_list.currentItem())
+        self.assertEqual(self.window.canvas.selected_shapes, [])
+        self.assertFalse(self.window.actions.delete.isEnabled())
+        self.assertFalse(self.window.actions.copy.isEnabled())
+        self.assertFalse(self.window.actions.edit.isEnabled())
+
     def test_changing_save_dir_refreshes_all_status_marks(self):
         other_annotation_dir = os.path.join(
             self.temp_dir.name,

@@ -10,6 +10,12 @@ except ImportError:
 # from PyQt4.QtOpenGL import *
 
 from labelimg.shape import Shape
+from labelimg.selection import (
+    ChoiceMode,
+    ChooseIntent,
+    SceneIntent,
+    SelectionSet,
+)
 from labelimg.utils import distance
 
 CURSOR_DEFAULT = Qt.ArrowCursor
@@ -29,6 +35,9 @@ CURSOR_SIZE_BACKWARD_DIAGONAL = Qt.SizeBDiagCursor
 class Canvas(QWidget):
     zoomRequest = pyqtSignal(int)
     scrollRequest = pyqtSignal(int, int)
+    panRequest = pyqtSignal(int, int)
+    coordinatesChanged = pyqtSignal(str)
+    statusRequest = pyqtSignal(str)
     newShape = pyqtSignal()
     selectionChanged = pyqtSignal(bool)
     shapeMoved = pyqtSignal()
@@ -45,8 +54,7 @@ class Canvas(QWidget):
         self.mode = self.EDIT
         self.shapes = []
         self.current = None
-        self.selected_shapes = []
-        self.selected_shape = None
+        self._selection = SelectionSet()
         self.selected_shape_copy = None
         self.drawing_line_color = QColor(0, 0, 255)
         self.drawing_rect_color = QColor(0, 0, 255)
@@ -77,8 +85,6 @@ class Canvas(QWidget):
         self.selection_rect = None
         self.selection_before_drag = []
         self.selection_dragging = False
-        self.overlap_cycle_shapes = ()
-        self.overlap_cycle_index = -1
 
         # initialisation for panning
         self.pan_initial_pos = QPoint()
@@ -146,30 +152,58 @@ class Canvas(QWidget):
     def selection_count(self):
         return len(self.selected_shapes)
 
+    @property
+    def selected_shapes(self):
+        return list(self._selection.snapshot.selected)
+
+    @property
+    def selected_shape(self):
+        return self._selection.snapshot.active
+
     def reset_overlap_cycle(self):
-        self.overlap_cycle_shapes = ()
-        self.overlap_cycle_index = -1
+        before = self._selection.snapshot
+        self._selection.apply(
+            SceneIntent(
+                boxes=tuple(self.shapes),
+                select=before.selected,
+                active=before.active,
+            )
+        )
 
     def set_selected_shapes(self, shapes, active_shape=None,
-                            emit=True, reset_cycle=True):
-        requested = set(shape for shape in shapes if shape in self.shapes)
-        ordered = [shape for shape in self.shapes if shape in requested]
-        if active_shape not in requested:
-            active_shape = ordered[-1] if ordered else None
-
-        changed = (
-            ordered != self.selected_shapes
-            or active_shape is not self.selected_shape
-        )
-        for shape in self.shapes:
-            shape.selected = shape in requested
-        self.selected_shapes = ordered
-        self.selected_shape = active_shape
-        self.set_hiding(bool(ordered))
+                             emit=True, reset_cycle=True):
+        before = self._selection.snapshot
         if reset_cycle:
-            self.reset_overlap_cycle()
+            after = self._selection.apply(
+                SceneIntent(
+                    boxes=tuple(self.shapes),
+                    select=tuple(
+                        shape for shape in shapes if shape in self.shapes
+                    ),
+                    active=active_shape,
+                )
+            )
+        else:
+            after = self._selection.apply(
+                ChooseIntent(
+                    tuple(shape for shape in shapes if shape in self.shapes),
+                    ChoiceMode.REPLACE,
+                    active_shape,
+                )
+            )
+        self._project_selection(before, after, emit)
+
+    def _project_selection(self, before, after, emit=True):
+        selected_ids = {id(shape) for shape in after.selected}
+        for shape in self.shapes:
+            shape.selected = id(shape) in selected_ids
+        self.set_hiding(bool(after.selected))
+        changed = (
+            before.selected != after.selected
+            or before.active is not after.active
+        )
         if emit and changed:
-            self.selectionChanged.emit(bool(ordered))
+            self.selectionChanged.emit(bool(after.selected))
         self.update()
 
     def clear_selection(self, emit=True, reset_cycle=True):
@@ -283,47 +317,27 @@ class Canvas(QWidget):
             self.reset_overlap_cycle()
             return None
 
+        before = self._selection.snapshot
         if len(candidates) > 1:
-            if candidates == self.overlap_cycle_shapes:
-                self.overlap_cycle_index = (
-                    self.overlap_cycle_index + 1
-                ) % len(candidates)
-            else:
-                self.overlap_cycle_shapes = candidates
-                self.overlap_cycle_index = 0
-            shape = candidates[self.overlap_cycle_index]
-            self.set_selected_shapes(
-                [shape],
-                active_shape=shape,
-                reset_cycle=False,
+            after = self._selection.apply(
+                ChooseIntent(candidates, ChoiceMode.CYCLE)
             )
-            return shape
+            self._project_selection(before, after)
+            return after.active
 
-        self.reset_overlap_cycle()
         shape = candidates[0]
-        if shape in self.selected_shapes:
-            remaining = [
-                selected for selected in self.selected_shapes
-                if selected is not shape
-            ]
-            self.set_selected_shapes(remaining, reset_cycle=False)
-        else:
-            self.set_selected_shapes(
-                self.selected_shapes + [shape],
-                active_shape=shape,
-                reset_cycle=False,
-            )
+        after = self._selection.apply(
+            ChooseIntent((shape,), ChoiceMode.TOGGLE, active=shape)
+        )
+        self._project_selection(before, after)
         return shape
 
     def mouseMoveEvent(self, ev):
         """Update line with last point and current coordinates."""
         pos = self.transform_pos(ev.pos())
 
-        # Update coordinates in status bar if image is opened
-        window = self.parent().window()
-        if window.file_path is not None:
-            self.parent().window().label_coordinates.setText(
-                'X: %d; Y: %d' % (pos.x(), pos.y()))
+        if self.pixmap and not self.pixmap.isNull():
+            self._emit_coordinates(pos)
 
         if (
             self.selection_press_pos is not None
@@ -347,10 +361,7 @@ class Canvas(QWidget):
             self.override_cursor(CURSOR_DRAW)
             if self.current:
                 # Display annotation width and height while drawing
-                current_width = abs(self.current[0].x() - pos.x())
-                current_height = abs(self.current[0].y() - pos.y())
-                self.parent().window().label_coordinates.setText(
-                        'Width: %d, Height: %d / X: %d; Y: %d' % (current_width, current_height, pos.x(), pos.y()))
+                self._emit_coordinates(pos, self.current)
 
                 color = self.drawing_line_color
                 if self.out_of_pixmap(pos):
@@ -404,7 +415,11 @@ class Canvas(QWidget):
                         [self.right_press_shape],
                         active_shape=self.right_press_shape,
                     )
-                self.selected_shape = self.right_press_shape
+                else:
+                    self.set_selected_shapes(
+                        self.selected_shapes,
+                        active_shape=self.right_press_shape,
+                    )
                 self.selected_shape_copy = self.selected_shape.copy()
                 self.prev_point = QPointF(self.right_press_pos)
 
@@ -423,24 +438,14 @@ class Canvas(QWidget):
                 self.repaint()
 
                 # Display annotation width and height while moving vertex
-                point1 = self.h_shape[1]
-                point3 = self.h_shape[3]
-                current_width = abs(point1.x() - point3.x())
-                current_height = abs(point1.y() - point3.y())
-                self.parent().window().label_coordinates.setText(
-                        'Width: %d, Height: %d / X: %d; Y: %d' % (current_width, current_height, pos.x(), pos.y()))
+                self._emit_coordinates(pos, self.h_shape)
             elif self.selected_edge():
                 self.bounded_move_edge(pos)
                 self.shapeMoved.emit()
                 self.repaint()
 
                 # Display annotation width and height while moving edge
-                point1 = self.h_shape[1]
-                point3 = self.h_shape[3]
-                current_width = abs(point1.x() - point3.x())
-                current_height = abs(point1.y() - point3.y())
-                self.parent().window().label_coordinates.setText(
-                        'Width: %d, Height: %d / X: %d; Y: %d' % (current_width, current_height, pos.x(), pos.y()))
+                self._emit_coordinates(pos, self.h_shape)
             elif self.selected_shape and self.prev_point:
                 self.override_cursor(CURSOR_MOVE)
                 self.bounded_move_shape(self.selected_shape, pos)
@@ -448,12 +453,7 @@ class Canvas(QWidget):
                 self.repaint()
 
                 # Display annotation width and height while moving shape
-                point1 = self.selected_shape[1]
-                point3 = self.selected_shape[3]
-                current_width = abs(point1.x() - point3.x())
-                current_height = abs(point1.y() - point3.y())
-                self.parent().window().label_coordinates.setText(
-                        'Width: %d, Height: %d / X: %d; Y: %d' % (current_width, current_height, pos.x(), pos.y()))
+                self._emit_coordinates(pos, self.selected_shape)
             else:
                 # pan
                 delta = ev.globalPos() - self.pan_initial_pos
@@ -513,12 +513,7 @@ class Canvas(QWidget):
                     self.update()
 
                     # Display annotation width and height while hovering inside
-                    point1 = self.h_shape[1]
-                    point3 = self.h_shape[3]
-                    current_width = abs(point1.x() - point3.x())
-                    current_height = abs(point1.y() - point3.y())
-                    self.parent().window().label_coordinates.setText(
-                            'Width: %d, Height: %d / X: %d; Y: %d' % (current_width, current_height, pos.x(), pos.y()))
+                    self._emit_coordinates(pos, self.h_shape)
                     break
                 else:  # Nothing found, clear highlights, reset state.
                     if self.h_shape:
@@ -558,7 +553,10 @@ class Canvas(QWidget):
                         active_shape=shape,
                     )
                 else:
-                    self.selected_shape = shape
+                    self.set_selected_shapes(
+                        self.selected_shapes,
+                        active_shape=shape,
+                    )
                 self.calculate_offsets(shape, pos)
                 self.prev_point = pos
             self.right_press_pos = QPointF(pos)
@@ -847,12 +845,14 @@ class Canvas(QWidget):
             shape for shape in self.shapes
             if shape not in selected_set
         ]
-        self.selected_shapes = []
-        self.selected_shape = None
-        self.set_hiding(False)
-        self.reset_overlap_cycle()
-        self.selectionChanged.emit(False)
-        self.update()
+        before = self._selection.snapshot
+        after = self._selection.apply(
+            SceneIntent(
+                boxes=tuple(self.shapes),
+                select=(),
+            )
+        )
+        self._project_selection(before, after)
         return selected
 
     def copy_selected_shape(self):
@@ -975,11 +975,28 @@ class Canvas(QWidget):
         return QPointF(x, y)
 
     def pan_canvas(self, delta):
-        window = self.parent().window()
-        h_bar = window.scroll_bars[Qt.Horizontal]
-        v_bar = window.scroll_bars[Qt.Vertical]
-        h_bar.setValue(h_bar.value() - delta.x())
-        v_bar.setValue(v_bar.value() - delta.y())
+        self.panRequest.emit(int(delta.x()), int(delta.y()))
+
+    def _emit_coordinates(self, pos, shape=None):
+        if shape is None:
+            text = 'X: %d; Y: %d' % (pos.x(), pos.y())
+        else:
+            if len(shape) >= 4:
+                point1 = shape[1]
+                point3 = shape[3]
+            else:
+                point1 = shape[0]
+                point3 = pos
+            text = (
+                'Width: %d, Height: %d / X: %d; Y: %d'
+                % (
+                    abs(point1.x() - point3.x()),
+                    abs(point1.y() - point3.y()),
+                    pos.x(),
+                    pos.y(),
+                )
+            )
+        self.coordinatesChanged.emit(text)
 
     def out_of_pixmap(self, p):
         w, h = self.pixmap.width(), self.pixmap.height()
@@ -1063,9 +1080,9 @@ class Canvas(QWidget):
             )
             and len(self.selected_shapes) > 1
         ):
-            window = self.parent().window()
-            if hasattr(window, 'status'):
-                window.status('Arrow-key movement requires a single selected label')
+            self.statusRequest.emit(
+                'Arrow-key movement requires a single selected label'
+            )
             ev.accept()
         elif key == Qt.Key_Left and len(self.selected_shapes) == 1:
             self.move_one_pixel('Left')
@@ -1148,14 +1165,16 @@ class Canvas(QWidget):
         self.pixmap = pixmap
         self.shapes = []
         self.current = None
-        self.selected_shapes = []
-        self.selected_shape = None
         self.selected_shape_copy = None
         self.selection_press_pos = None
         self.selection_rect = None
         self.selection_before_drag = []
         self.selection_dragging = False
-        self.reset_overlap_cycle()
+        before = self._selection.snapshot
+        after = self._selection.apply(
+            SceneIntent(boxes=(), select=())
+        )
+        self._project_selection(before, after, emit=False)
         self.right_press_pos = None
         self.right_press_shape = None
         self.right_dragging = False
@@ -1172,14 +1191,19 @@ class Canvas(QWidget):
         for shape in self.shapes:
             shape.selected = False
         self.current = None
-        self.selected_shapes = []
-        self.selected_shape = None
         self.selected_shape_copy = None
         self.selection_press_pos = None
         self.selection_rect = None
         self.selection_before_drag = []
         self.selection_dragging = False
-        self.reset_overlap_cycle()
+        before = self._selection.snapshot
+        after = self._selection.apply(
+            SceneIntent(
+                boxes=tuple(self.shapes),
+                select=(),
+            )
+        )
+        self._project_selection(before, after)
         self.right_press_pos = None
         self.right_press_shape = None
         self.right_dragging = False
@@ -1187,7 +1211,6 @@ class Canvas(QWidget):
         self.h_vertex = None
         self.h_edge = None
         self.visible.clear()
-        self.selectionChanged.emit(False)
         self.repaint()
 
     def set_shape_visible(self, shape, value):
@@ -1216,14 +1239,16 @@ class Canvas(QWidget):
         self.pixmap = None
         self.shapes = []
         self.current = None
-        self.selected_shapes = []
-        self.selected_shape = None
         self.selected_shape_copy = None
         self.selection_press_pos = None
         self.selection_rect = None
         self.selection_before_drag = []
         self.selection_dragging = False
-        self.reset_overlap_cycle()
+        before = self._selection.snapshot
+        after = self._selection.apply(
+            SceneIntent(boxes=(), select=())
+        )
+        self._project_selection(before, after)
         self.right_press_pos = None
         self.right_press_shape = None
         self.right_dragging = False
@@ -1235,7 +1260,6 @@ class Canvas(QWidget):
         self.verified = False
         self.questioned = False
         self.visible.clear()
-        self.selectionChanged.emit(False)
         self.update()
 
     def set_drawing_shape_to_square(self, status):
