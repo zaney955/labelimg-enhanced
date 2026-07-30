@@ -1,15 +1,12 @@
 #!/usr/bin/env python
 import os
-import sys
-import time
+import tempfile
 import unittest
 
-__author__ = 'TzuTaLin'
+from labelimg.labelFile import LabelFileFormat
+from labelimg.settings import Settings
 
-dir_name = os.path.abspath(os.path.dirname(__file__))
-libs_path = os.path.join(dir_name, '..', 'libs')
-sys.path.insert(0, libs_path)
-from settings import Settings
+__author__ = 'TzuTaLin'
 
 class TestSettings(unittest.TestCase):
 
@@ -26,8 +23,28 @@ class TestSettings(unittest.TestCase):
         self.assertEqual(settings.get('test1'), 10)
 
         settings.reset()
-        
 
+    def test_loads_label_format_saved_by_legacy_libs_package(self):
+        legacy_settings = (
+            b'(dp0\nVlabelFileFormat\np1\n'
+            b'clibs.labelFile\nLabelFileFormat\np2\n'
+            b'(I2\ntp3\nRp4\ns.'
+        )
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            settings_path = os.path.join(
+                temporary_directory,
+                '.labelImgSettings.pkl',
+            )
+            with open(settings_path, 'wb') as settings_file:
+                settings_file.write(legacy_settings)
 
+            settings = Settings()
+            settings.path = settings_path
+
+            self.assertTrue(settings.load())
+            self.assertIs(
+                settings['labelFileFormat'],
+                LabelFileFormat.YOLO,
+            )
 if __name__ == '__main__':
     unittest.main()
