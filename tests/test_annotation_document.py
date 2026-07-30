@@ -1,4 +1,5 @@
 import os
+import shutil
 import tempfile
 import unittest
 
@@ -100,6 +101,31 @@ class AnnotationDocumentTest(unittest.TestCase):
         self.assertTrue(status.has_annotations)
         self.assertTrue(status.verified)
         self.assertEqual(status.labels, frozenset({"cat"}))
+
+    def test_format_adapters_keep_image_path_hint_behind_document_seam(self):
+        with tempfile.TemporaryDirectory() as directory:
+            hinted_image_path = os.path.join(
+                directory,
+                os.path.basename(self.image_path),
+            )
+            shutil.copyfile(self.image_path, hinted_image_path)
+            voc_path = self.document().save(
+                os.path.join(directory, "sample"),
+                AnnotationFormat.PASCAL_VOC,
+            )
+            create_ml_path = self.document().save(
+                os.path.join(directory, "annotations"),
+                AnnotationFormat.CREATE_ML,
+            )
+
+            self.assertEqual(
+                AnnotationDocument.image_path_hint(voc_path),
+                self.image_path,
+            )
+            self.assertEqual(
+                AnnotationDocument.image_path_hint(create_ml_path),
+                hinted_image_path,
+            )
 
 
 if __name__ == "__main__":

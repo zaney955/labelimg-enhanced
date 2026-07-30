@@ -170,6 +170,52 @@ class AnnotationWorkspaceTest(unittest.TestCase):
         self.assertTrue(status.questioned)
         self.assertEqual(status.labels, frozenset({"cat", "dog"}))
 
+    def test_save_and_load_for_image_cover_the_document_lifecycle(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = AnnotationWorkspace(save_dir=directory)
+
+            saved = workspace.save(
+                self.document("saved", verified=True),
+                AnnotationFormat.PASCAL_VOC,
+            )
+            loaded = workspace.load_for_image(
+                self.image_path,
+                self.image,
+            )
+
+        self.assertFalse(saved.removed)
+        self.assertEqual(saved.annotation_path[-4:], ".xml")
+        self.assertEqual(saved.document.boxes[0].label, "saved")
+        self.assertEqual(
+            loaded.annotation_format,
+            AnnotationFormat.PASCAL_VOC,
+        )
+        self.assertEqual(loaded.document.boxes[0].label, "saved")
+        self.assertTrue(loaded.document.verified)
+
+    def test_empty_pascal_document_removes_file_and_cached_labels(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = AnnotationWorkspace(save_dir=directory)
+            document = self.document("removed")
+            saved = workspace.save(
+                document,
+                AnnotationFormat.PASCAL_VOC,
+            )
+            empty_document = AnnotationDocument(
+                image_path=self.image_path,
+                image_data=self.image,
+            )
+
+            removed = workspace.save(
+                empty_document,
+                AnnotationFormat.PASCAL_VOC,
+            )
+
+            self.assertFalse(os.path.exists(saved.annotation_path))
+            self.assertTrue(removed.removed)
+            self.assertIsNone(removed.document)
+            self.assertEqual(workspace.candidate_labels, ())
+
 
 if __name__ == "__main__":
     unittest.main()
