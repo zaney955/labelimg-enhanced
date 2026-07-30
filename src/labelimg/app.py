@@ -1761,15 +1761,34 @@ class MainWindow(QMainWindow, WindowMixin):
         self.annotation_workspace.delete(image_path)
         self.refresh_candidate_labels()
 
+    def file_list_display_path(self, image_path):
+        if not self.dir_name:
+            return os.path.basename(image_path)
+
+        image_path = os.path.abspath(image_path)
+        display_root = os.path.abspath(self.dir_name)
+        try:
+            relative_path = os.path.relpath(image_path, display_root)
+        except ValueError:
+            return os.path.basename(image_path)
+
+        if (
+            relative_path == os.pardir
+            or relative_path.startswith(os.pardir + os.sep)
+        ):
+            return os.path.basename(image_path)
+        return relative_path
+
     def file_list_item_text(self, image_path):
+        display_path = self.file_list_display_path(image_path)
         status = self.annotation_workspace.entry(image_path).status
         if status.questioned:
-            return image_path + '  ' + FILE_LIST_QUESTIONED_MARK
+            return display_path + '  ' + FILE_LIST_QUESTIONED_MARK
         if status.verified:
-            return image_path + '  ' + FILE_LIST_VERIFIED_MARK
+            return display_path + '  ' + FILE_LIST_VERIFIED_MARK
         if status.has_annotations:
-            return image_path + '  ' + FILE_LIST_ANNOTATED_MARK
-        return image_path
+            return display_path + '  ' + FILE_LIST_ANNOTATED_MARK
+        return display_path
 
     def update_file_list_item_status(self, image_path):
         if not image_path or image_path not in self.m_img_list:
@@ -1780,6 +1799,7 @@ class MainWindow(QMainWindow, WindowMixin):
             return
         item.setData(Qt.UserRole, image_path)
         item.setText(self.file_list_item_text(image_path))
+        item.setToolTip(image_path)
 
     def refresh_file_list_statuses(self):
         for image_path in self.m_img_list:
@@ -1883,6 +1903,7 @@ class MainWindow(QMainWindow, WindowMixin):
         for imgPath in self.m_img_list:
             item = QListWidgetItem(self.file_list_item_text(imgPath))
             item.setData(Qt.UserRole, imgPath)
+            item.setToolTip(imgPath)
             self.file_list_widget.addItem(item)
 
         if self.img_count:
