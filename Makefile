@@ -1,35 +1,17 @@
 # ex: set ts=8 noet:
 
-all: qt5 test
+all: resources test build
 
-test: testpy3
+test:
+	QT_QPA_PLATFORM=offscreen PYTHONPATH=src python tools/run_tests.py
 
-testpy2:
-	python -m unittest discover tests
+resources:
+	pyrcc5 -o src/labelimg/resources.py resources.qrc
 
-testpy3:
-	python3 -m unittest discover tests
-
-qt4: qt4py2
-
-qt5: qt5py3
-
-qt4py2:
-	pyrcc4 -py2 -o libs/resources.py resources.qrc
-
-qt4py3:
-	pyrcc4 -py3 -o libs/resources.py resources.qrc
-
-qt5py3:
-	pyrcc5 -o libs/resources.py resources.qrc
+build:
+	python -m pip wheel . --no-deps --no-build-isolation
 
 clean:
-	rm -rf ~/.labelImgSettings.pkl *.pyc dist labelImg.egg-info __pycache__ build
+	rm -rf dist build src/*.egg-info
 
-pip_upload:
-	python3 setup.py upload
-
-long_description:
-	restview --long-description
-
-.PHONY: all
+.PHONY: all test resources build clean
