@@ -68,6 +68,10 @@ class FileListAnnotationStatusTest(unittest.TestCase):
             image.fill(QColor("white"))
             self.assertTrue(image.save(path))
             self.image_paths.append(os.path.abspath(path))
+        self.display_paths = [
+            os.path.relpath(path, self.image_dir)
+            for path in self.image_paths
+        ]
 
         write_pascal_voc(
             os.path.join(self.annotation_dir, "02_annotated.xml"),
@@ -118,24 +122,51 @@ class FileListAnnotationStatusTest(unittest.TestCase):
         return shape
 
     def test_list_marks_annotated_verified_and_questioned_images(self):
-        self.assertEqual(self.item(0).text(), self.image_paths[0])
+        self.assertEqual(self.item(0).text(), self.display_paths[0])
         self.assertEqual(
             self.item(1).text(),
-            self.image_paths[1] + "  ○",
+            self.display_paths[1] + "  ○",
         )
         self.assertEqual(
             self.item(2).text(),
-            self.image_paths[2] + "  ✓",
+            self.display_paths[2] + "  ✓",
         )
         self.assertEqual(
             self.item(3).text(),
-            self.image_paths[3] + "  ?",
+            self.display_paths[3] + "  ?",
         )
         for index, image_path in enumerate(self.image_paths):
             self.assertEqual(
                 self.item(index).data(Qt.UserRole),
                 image_path,
             )
+            self.assertEqual(self.item(index).toolTip(), image_path)
+
+    def test_nested_file_shows_relative_path_and_opens_absolute_path(self):
+        nested_dir = os.path.join(self.image_dir, "nested")
+        os.makedirs(nested_dir)
+        nested_path = os.path.abspath(
+            os.path.join(nested_dir, "child.png")
+        )
+        image = QImage(100, 100, QImage.Format_RGB32)
+        image.fill(QColor("white"))
+        self.assertTrue(image.save(nested_path))
+
+        self.window.import_dir_images(self.image_dir)
+        nested_item = next(
+            self.item(index)
+            for index in range(self.window.file_list_widget.count())
+            if self.item(index).data(Qt.UserRole) == nested_path
+        )
+
+        self.assertEqual(
+            nested_item.text(),
+            os.path.join("nested", "child.png"),
+        )
+        self.assertEqual(nested_item.toolTip(), nested_path)
+
+        self.window.file_item_double_clicked(nested_item)
+        self.assertEqual(self.window.file_path, nested_path)
 
     def test_double_click_uses_stored_path_instead_of_display_text(self):
         self.window.file_item_double_clicked(self.item(1))
@@ -182,7 +213,7 @@ class FileListAnnotationStatusTest(unittest.TestCase):
         self.assertFalse(self.window.canvas.verified)
         self.assertEqual(
             self.item(1).text(),
-            self.image_paths[1] + "  ?",
+            self.display_paths[1] + "  ?",
         )
 
     def test_loading_questioned_xml_restores_canvas_status(self):
@@ -223,24 +254,24 @@ class FileListAnnotationStatusTest(unittest.TestCase):
 
         self.assertEqual(
             self.item(0).text(),
-            self.image_paths[0] + "  ✓",
+            self.display_paths[0] + "  ✓",
         )
-        self.assertEqual(self.item(1).text(), self.image_paths[1])
-        self.assertEqual(self.item(2).text(), self.image_paths[2])
-        self.assertEqual(self.item(3).text(), self.image_paths[3])
+        self.assertEqual(self.item(1).text(), self.display_paths[1])
+        self.assertEqual(self.item(2).text(), self.display_paths[2])
+        self.assertEqual(self.item(3).text(), self.display_paths[3])
 
     def test_status_updates_after_save_verify_and_delete(self):
         shape = self.add_rectangle()
         self.window.save_file()
         self.assertEqual(
             self.item(0).text(),
-            self.image_paths[0] + "  ○",
+            self.display_paths[0] + "  ○",
         )
 
         self.window.question_image()
         self.assertEqual(
             self.item(0).text(),
-            self.image_paths[0] + "  ?",
+            self.display_paths[0] + "  ?",
         )
         root = ElementTree.parse(
             os.path.join(self.annotation_dir, "01_blank.xml")
@@ -256,7 +287,7 @@ class FileListAnnotationStatusTest(unittest.TestCase):
         self.window.verify_image()
         self.assertEqual(
             self.item(0).text(),
-            self.image_paths[0] + "  ✓",
+            self.display_paths[0] + "  ✓",
         )
         self.assertFalse(self.window.canvas.questioned)
         self.assertTrue(self.window.canvas.verified)
@@ -268,7 +299,7 @@ class FileListAnnotationStatusTest(unittest.TestCase):
         self.window.question_image()
         self.assertEqual(
             self.item(0).text(),
-            self.image_paths[0] + "  ?",
+            self.display_paths[0] + "  ?",
         )
         self.assertTrue(self.window.canvas.questioned)
         self.assertFalse(self.window.canvas.verified)
@@ -276,7 +307,7 @@ class FileListAnnotationStatusTest(unittest.TestCase):
         self.window.question_image()
         self.assertEqual(
             self.item(0).text(),
-            self.image_paths[0] + "  ○",
+            self.display_paths[0] + "  ○",
         )
         root = ElementTree.parse(
             os.path.join(self.annotation_dir, "01_blank.xml")
@@ -292,18 +323,18 @@ class FileListAnnotationStatusTest(unittest.TestCase):
         self.window.verify_image()
         self.assertEqual(
             self.item(0).text(),
-            self.image_paths[0] + "  ✓",
+            self.display_paths[0] + "  ✓",
         )
         self.window.verify_image()
         self.assertEqual(
             self.item(0).text(),
-            self.image_paths[0] + "  ○",
+            self.display_paths[0] + "  ○",
         )
 
         self.window.canvas.select_shape(shape)
         self.window.delete_selected_shape()
         self.window.save_file()
-        self.assertEqual(self.item(0).text(), self.image_paths[0])
+        self.assertEqual(self.item(0).text(), self.display_paths[0])
         self.assertFalse(os.path.exists(
             os.path.join(self.annotation_dir, "01_blank.xml")
         ))

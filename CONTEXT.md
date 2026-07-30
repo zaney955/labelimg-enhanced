@@ -83,3 +83,7 @@ _Avoid_: Label file, format file
 **Annotation workspace**:
 The images being annotated together with their corresponding annotation documents and the candidate labels discovered from them.
 _Avoid_: Image folder, save directory, dataset
+
+**File-list display path**:
+The image path shown in the file list relative to the opened annotation-workspace root. The root itself is omitted while nested folders remain visible; the full absolute path remains the image identity and is available on hover.
+_Avoid_: Absolute-path label, basename-only flattening
