@@ -21,6 +21,20 @@ class WorkspaceEntry:
         return self.paths[list(AnnotationFormat).index(annotation_format)]
 
 
+@dataclass(frozen=True)
+class WorkspaceDocument:
+    annotation_path: str
+    annotation_format: AnnotationFormat
+    document: AnnotationDocument
+
+
+@dataclass(frozen=True)
+class WorkspaceSave:
+    annotation_path: str
+    document: AnnotationDocument | None
+    removed: bool = False
+
+
 class AnnotationWorkspace:
     """Keep annotation workspace policies and derived state consistent."""
 
@@ -65,6 +79,72 @@ class AnnotationWorkspace:
             )
         status = _merge_statuses(statuses)
         return WorkspaceEntry(image_path, paths, status)
+
+    def load(self, annotation_path, image_path, image_data):
+        annotation_path = os.path.abspath(os.fspath(annotation_path))
+        annotation_format = AnnotationFormat.from_path(annotation_path)
+        document = AnnotationDocument.load(
+            annotation_path,
+            image_path,
+            image_data,
+        )
+        return WorkspaceDocument(
+            annotation_path,
+            annotation_format,
+            document,
+        )
+
+    def load_for_image(self, image_path, image_data):
+        for annotation_path in self.entry(image_path).paths:
+            if os.path.isfile(annotation_path):
+                try:
+                    return self.load(
+                        annotation_path,
+                        image_path,
+                        image_data,
+                    )
+                except AnnotationDocumentError as error:
+                    raise AnnotationDocumentError(
+                        "%s: %s" % (annotation_path, error)
+                    ) from error
+        return None
+
+    def save(
+        self,
+        document,
+        annotation_format,
+        annotation_path=None,
+    ):
+        if annotation_path is None:
+            annotation_path = self.entry(
+                document.image_path
+            ).path_for(annotation_format)
+        annotation_path = os.path.abspath(os.fspath(annotation_path))
+        if not annotation_path.lower().endswith(
+            annotation_format.extension
+        ):
+            annotation_path += annotation_format.extension
+
+        if (
+            annotation_format is AnnotationFormat.PASCAL_VOC
+            and not document.boxes
+        ):
+            removed = os.path.isfile(annotation_path)
+            if removed:
+                os.remove(annotation_path)
+            self.record(annotation_path, ())
+            return WorkspaceSave(
+                annotation_path,
+                None,
+                removed=removed,
+            )
+
+        saved_path = document.save(annotation_path, annotation_format)
+        self.record(
+            saved_path,
+            (box.label for box in document.boxes if box.label),
+        )
+        return WorkspaceSave(saved_path, document)
 
     def scan(self, directory):
         self._labels_by_path.clear()

@@ -61,8 +61,8 @@ The empty selection set established whenever an image becomes current, regardles
 _Avoid_: Last-label selection, carried selection
 
 **Visibility toggle**:
-The label-list checkbox that controls whether an annotation box is rendered on the canvas without changing the selection set. Hidden boxes cannot be hit on the canvas but remain selectable in the list and eligible for bulk selection actions.
-_Avoid_: Selection checkbox
+The right-aligned label-list eye control that changes whether an annotation box is rendered on the canvas without changing the selection set. An open eye means visible; a subdued eye-off means hidden. Hidden boxes cannot be hit on the canvas but remain selectable in the list and eligible for bulk selection actions.
+_Avoid_: Selection checkbox, disabled row
 
 **Label**:
 The object-class name assigned to an annotation box.

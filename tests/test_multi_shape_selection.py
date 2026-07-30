@@ -57,6 +57,7 @@ class CanvasMultiSelectionTest(unittest.TestCase):
     def tearDown(self):
         self.canvas.deleteLater()
         self.window.deleteLater()
+        QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
         self.app.processEvents()
 
     def ctrl_click(self, position):
@@ -293,6 +294,7 @@ class MainWindowMultiSelectionTest(unittest.TestCase):
 
     def tearDown(self):
         self.window.deleteLater()
+        QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
         self.app.processEvents()
         while QApplication.overrideCursor() is not None:
             QApplication.restoreOverrideCursor()
@@ -404,7 +406,7 @@ class MainWindowMultiSelectionTest(unittest.TestCase):
             shapes,
         )
 
-    def test_visibility_checkbox_does_not_change_selection(self):
+    def test_visibility_eye_at_right_does_not_change_selection(self):
         first = rectangle("first", 10, 10, 20, 20)
         second = rectangle("second", 30, 30, 40, 40)
         third = rectangle("third", 50, 50, 60, 60)
@@ -415,11 +417,15 @@ class MainWindowMultiSelectionTest(unittest.TestCase):
 
         third_item = self.window.shapes_to_items[third]
         third_index = self.window.label_list.indexFromItem(third_item)
-        checkbox_rect = self.window.label_list.checkbox_rect(third_index)
+        visibility_rect = self.window.label_list.visibility_rect(third_index)
+        self.assertGreater(
+            visibility_rect.center().x(),
+            self.window.label_list.viewport().width() // 2,
+        )
         QTest.mouseClick(
             self.window.label_list.viewport(),
             Qt.LeftButton,
-            pos=checkbox_rect.center(),
+            pos=visibility_rect.center(),
         )
         self.app.processEvents()
 

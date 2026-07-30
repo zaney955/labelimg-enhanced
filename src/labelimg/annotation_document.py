@@ -134,6 +134,13 @@ class AnnotationStatus:
     labels: frozenset
 
 
+@dataclass(frozen=True)
+class _LoadedAnnotation:
+    boxes: tuple
+    verified: bool
+    questioned: bool
+
+
 @dataclass
 class AnnotationDocument:
     image_path: str
@@ -166,35 +173,27 @@ class AnnotationDocument:
     def load(cls, annotation_path, image_path, image_data):
         annotation_format = AnnotationFormat.from_path(annotation_path)
         try:
-            if annotation_format is AnnotationFormat.PASCAL_VOC:
-                reader = PascalVocReader(os.fspath(annotation_path))
-            elif annotation_format is AnnotationFormat.YOLO:
-                reader = YoloReader(
-                    os.fspath(annotation_path),
-                    _as_qimage(image_path, image_data),
-                )
-            else:
-                reader = CreateMLReader(
-                    os.fspath(annotation_path),
-                    os.fspath(image_path),
-                )
+            loaded = _adapter_for(annotation_format).load(
+                os.fspath(annotation_path),
+                image_path,
+                image_data,
+            )
         except Exception as error:
+            if isinstance(error, AnnotationDocumentError):
+                raise
             raise AnnotationDocumentError(str(error)) from error
 
         return cls(
             image_path=os.fspath(image_path),
             image_data=image_data,
-            boxes=tuple(
-                AnnotationBox.from_reader_shape(shape)
-                for shape in reader.get_shapes()
-            ),
+            boxes=loaded.boxes,
             class_names=tuple(
                 _labels_in_order(
-                    shape[0] for shape in reader.get_shapes()
+                    box.label for box in loaded.boxes
                 )
             ),
-            verified=bool(reader.verified),
-            questioned=bool(reader.questioned),
+            verified=loaded.verified,
+            questioned=loaded.questioned,
         )
 
     @classmethod
@@ -202,82 +201,22 @@ class AnnotationDocument:
         """Return an image path named by an annotation document, if any."""
         annotation_path = os.path.abspath(os.fspath(annotation_path))
         annotation_format = AnnotationFormat.from_path(annotation_path)
-        directory = os.path.dirname(annotation_path)
         try:
-            if annotation_format is AnnotationFormat.PASCAL_VOC:
-                root = ElementTree.parse(annotation_path).getroot()
-                path_text = root.findtext("path")
-                filename = root.findtext("filename")
-                candidates = (path_text, filename)
-            elif annotation_format is AnnotationFormat.CREATE_ML:
-                with open(
-                    annotation_path,
-                    "r",
-                    encoding="utf8",
-                ) as annotation_file:
-                    images = json.load(annotation_file)
-                candidates = tuple(
-                    image.get("image")
-                    for image in images
-                    if image.get("image")
-                )
-            else:
-                candidates = ()
+            return _adapter_for(annotation_format).image_path_hint(
+                annotation_path
+            )
         except (OSError, ValueError, ElementTree.ParseError):
             return None
-
-        for candidate in candidates:
-            if not candidate:
-                continue
-            candidate = os.fspath(candidate)
-            if not os.path.isabs(candidate):
-                candidate = os.path.join(directory, candidate)
-            candidate = os.path.abspath(candidate)
-            if os.path.isfile(candidate):
-                return candidate
-        return None
 
     @classmethod
     def inspect(cls, annotation_path, image_path=None, image_data=None):
         annotation_format = AnnotationFormat.from_path(annotation_path)
         try:
-            if annotation_format is AnnotationFormat.PASCAL_VOC:
-                reader = PascalVocReader(os.fspath(annotation_path))
-                boxes = tuple(
-                    AnnotationBox.from_reader_shape(shape)
-                    for shape in reader.get_shapes()
-                )
-                return AnnotationStatus(
-                    has_annotations=bool(boxes),
-                    verified=bool(reader.verified),
-                    questioned=bool(reader.questioned),
-                    labels=frozenset(
-                        box.label for box in boxes if box.label
-                    ),
-                )
-            if annotation_format is AnnotationFormat.YOLO and image_data is None:
-                labels, has_annotations = _inspect_yolo(annotation_path)
-                return AnnotationStatus(
-                    has_annotations=has_annotations,
-                    verified=False,
-                    questioned=False,
-                    labels=frozenset(labels),
-                )
-            if annotation_format is AnnotationFormat.CREATE_ML and image_path is None:
-                labels, has_annotations = _inspect_create_ml(annotation_path)
-                return AnnotationStatus(
-                    has_annotations=has_annotations,
-                    verified=has_annotations,
-                    questioned=False,
-                    labels=frozenset(labels),
-                )
-
-            document = cls.load(
-                annotation_path,
-                image_path=image_path,
-                image_data=image_data,
+            return _adapter_for(annotation_format).inspect(
+                os.fspath(annotation_path),
+                image_path,
+                image_data,
             )
-            return document.status
         except (AnnotationDocumentError, OSError, ValueError, KeyError):
             return AnnotationStatus(False, False, False, frozenset())
 
@@ -305,56 +244,15 @@ class AnnotationDocument:
         ]
         folder_name = os.path.basename(os.path.dirname(self.image_path))
         file_name = os.path.basename(self.image_path)
-        writer_shapes = [box.to_writer_shape() for box in self.boxes]
 
         try:
-            if annotation_format is AnnotationFormat.PASCAL_VOC:
-                writer = PascalVocWriter(
-                    folder_name,
-                    file_name,
-                    image_shape,
-                    local_img_path=self.image_path,
-                )
-                _add_boxes(writer, self.boxes)
-                writer.verified = self.verified
-                writer.questioned = self.questioned
-                writer.save(target_file=target_path)
-            elif annotation_format is AnnotationFormat.YOLO:
-                writer = YOLOWriter(
-                    folder_name,
-                    file_name,
-                    image_shape,
-                    local_img_path=self.image_path,
-                )
-                _add_boxes(writer, self.boxes)
-                writer.verified = self.verified
-                writer.questioned = self.questioned
-                writer.save(
-                    target_file=target_path,
-                    class_list=list(
-                        _labels_in_order(
-                            list(self.class_names)
-                            + [box.label for box in self.boxes]
-                        )
-                    ),
-                )
-            elif annotation_format is AnnotationFormat.CREATE_ML:
-                writer = CreateMLWriter(
-                    folder_name,
-                    file_name,
-                    image_shape,
-                    writer_shapes,
-                    target_path,
-                    local_img_path=self.image_path,
-                )
-                writer.verified = self.verified
-                writer.questioned = self.questioned
-                writer.write()
-            else:
-                raise AnnotationDocumentError(
-                    "Unsupported annotation format: %r"
-                    % (annotation_format,)
-                )
+            _adapter_for(annotation_format).save(
+                self,
+                target_path,
+                folder_name,
+                file_name,
+                image_shape,
+            )
         except Exception as error:
             if isinstance(error, AnnotationDocumentError):
                 raise
@@ -380,6 +278,217 @@ class AnnotationDocument:
         self.questioned = not self.questioned
         if self.questioned:
             self.verified = False
+
+
+class _AnnotationFormatAdapter:
+    def image_path_hint(self, annotation_path):
+        return None
+
+    def inspect(self, annotation_path, image_path, image_data):
+        loaded = self.load(annotation_path, image_path, image_data)
+        return _status_for_loaded(loaded)
+
+
+class _PascalVocAdapter(_AnnotationFormatAdapter):
+    def load(self, annotation_path, image_path, image_data):
+        reader = PascalVocReader(annotation_path)
+        return _loaded_from_reader(reader)
+
+    def image_path_hint(self, annotation_path):
+        root = ElementTree.parse(annotation_path).getroot()
+        return _first_existing_image_path(
+            annotation_path,
+            (
+                root.findtext("path"),
+                root.findtext("filename"),
+            ),
+        )
+
+    def save(
+        self,
+        document,
+        target_path,
+        folder_name,
+        file_name,
+        image_shape,
+    ):
+        writer = PascalVocWriter(
+            folder_name,
+            file_name,
+            image_shape,
+            local_img_path=document.image_path,
+        )
+        _add_boxes(writer, document.boxes)
+        _set_writer_status(writer, document)
+        writer.save(target_file=target_path)
+
+
+class _YoloAdapter(_AnnotationFormatAdapter):
+    def load(self, annotation_path, image_path, image_data):
+        reader = YoloReader(
+            annotation_path,
+            _as_qimage(image_path, image_data),
+        )
+        return _loaded_from_reader(reader)
+
+    def inspect(self, annotation_path, image_path, image_data):
+        if image_data is not None:
+            return super().inspect(
+                annotation_path,
+                image_path,
+                image_data,
+            )
+        labels, has_annotations = _inspect_yolo(annotation_path)
+        return AnnotationStatus(
+            has_annotations=has_annotations,
+            verified=False,
+            questioned=False,
+            labels=frozenset(labels),
+        )
+
+    def save(
+        self,
+        document,
+        target_path,
+        folder_name,
+        file_name,
+        image_shape,
+    ):
+        writer = YOLOWriter(
+            folder_name,
+            file_name,
+            image_shape,
+            local_img_path=document.image_path,
+        )
+        _add_boxes(writer, document.boxes)
+        _set_writer_status(writer, document)
+        writer.save(
+            target_file=target_path,
+            class_list=list(
+                _labels_in_order(
+                    list(document.class_names)
+                    + [box.label for box in document.boxes]
+                )
+            ),
+        )
+
+
+class _CreateMLAdapter(_AnnotationFormatAdapter):
+    def load(self, annotation_path, image_path, image_data):
+        reader = CreateMLReader(
+            annotation_path,
+            os.fspath(image_path),
+        )
+        return _loaded_from_reader(reader)
+
+    def image_path_hint(self, annotation_path):
+        with open(
+            annotation_path,
+            "r",
+            encoding="utf8",
+        ) as annotation_file:
+            images = json.load(annotation_file)
+        return _first_existing_image_path(
+            annotation_path,
+            tuple(
+                image.get("image")
+                for image in images
+                if image.get("image")
+            ),
+        )
+
+    def inspect(self, annotation_path, image_path, image_data):
+        if image_path is not None:
+            return super().inspect(
+                annotation_path,
+                image_path,
+                image_data,
+            )
+        labels, has_annotations = _inspect_create_ml(annotation_path)
+        return AnnotationStatus(
+            has_annotations=has_annotations,
+            verified=has_annotations,
+            questioned=False,
+            labels=frozenset(labels),
+        )
+
+    def save(
+        self,
+        document,
+        target_path,
+        folder_name,
+        file_name,
+        image_shape,
+    ):
+        writer = CreateMLWriter(
+            folder_name,
+            file_name,
+            image_shape,
+            [box.to_writer_shape() for box in document.boxes],
+            target_path,
+            local_img_path=document.image_path,
+        )
+        _set_writer_status(writer, document)
+        writer.write()
+
+
+_FORMAT_ADAPTERS = {
+    AnnotationFormat.PASCAL_VOC: _PascalVocAdapter(),
+    AnnotationFormat.YOLO: _YoloAdapter(),
+    AnnotationFormat.CREATE_ML: _CreateMLAdapter(),
+}
+
+
+def _adapter_for(annotation_format):
+    try:
+        return _FORMAT_ADAPTERS[annotation_format]
+    except (KeyError, TypeError) as error:
+        raise AnnotationDocumentError(
+            "Unsupported annotation format: %r"
+            % (annotation_format,)
+        ) from error
+
+
+def _loaded_from_reader(reader):
+    boxes = tuple(
+        AnnotationBox.from_reader_shape(shape)
+        for shape in reader.get_shapes()
+    )
+    return _LoadedAnnotation(
+        boxes=boxes,
+        verified=bool(reader.verified),
+        questioned=bool(reader.questioned),
+    )
+
+
+def _status_for_loaded(loaded):
+    return AnnotationStatus(
+        has_annotations=bool(loaded.boxes),
+        verified=loaded.verified,
+        questioned=loaded.questioned,
+        labels=frozenset(
+            box.label for box in loaded.boxes if box.label
+        ),
+    )
+
+
+def _set_writer_status(writer, document):
+    writer.verified = document.verified
+    writer.questioned = document.questioned
+
+
+def _first_existing_image_path(annotation_path, candidates):
+    directory = os.path.dirname(os.path.abspath(annotation_path))
+    for candidate in candidates:
+        if not candidate:
+            continue
+        candidate = os.fspath(candidate)
+        if not os.path.isabs(candidate):
+            candidate = os.path.join(directory, candidate)
+        candidate = os.path.abspath(candidate)
+        if os.path.isfile(candidate):
+            return candidate
+    return None
 
 
 def _as_qimage(image_path, image_data):

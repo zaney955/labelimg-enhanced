@@ -1,10 +1,7 @@
 import unittest
 
 from labelimg.selection import (
-    ChoiceMode,
-    ChooseIntent,
     InvalidSelectionIntent,
-    SceneIntent,
     SelectionSet,
 )
 
@@ -15,17 +12,14 @@ class SelectionSetTest(unittest.TestCase):
         self.second = object()
         self.third = object()
         self.selection = SelectionSet()
-        self.selection.apply(
-            SceneIntent((self.first, self.second, self.third))
+        self.selection.set_scene(
+            (self.first, self.second, self.third)
         )
 
     def test_replace_normalises_to_scene_order_and_active_member(self):
-        snapshot = self.selection.apply(
-            ChooseIntent(
-                (self.third, self.first),
-                ChoiceMode.REPLACE,
-                active=self.first,
-            )
+        snapshot = self.selection.replace(
+            (self.third, self.first),
+            active=self.first,
         )
 
         self.assertEqual(snapshot.selected, (self.first, self.third))
@@ -34,17 +28,11 @@ class SelectionSetTest(unittest.TestCase):
         self.assertFalse(snapshot.capabilities.can_edit_single)
 
     def test_toggle_adds_and_removes_one_member(self):
-        self.selection.apply(
-            ChooseIntent((self.second,), ChoiceMode.TOGGLE)
-        )
-        snapshot = self.selection.apply(
-            ChooseIntent((self.first,), ChoiceMode.TOGGLE)
-        )
+        self.selection.toggle(self.second)
+        snapshot = self.selection.toggle(self.first)
         self.assertEqual(snapshot.selected, (self.first, self.second))
 
-        snapshot = self.selection.apply(
-            ChooseIntent((self.second,), ChoiceMode.TOGGLE)
-        )
+        snapshot = self.selection.toggle(self.second)
         self.assertEqual(snapshot.selected, (self.first,))
         self.assertIs(snapshot.active, self.first)
         self.assertTrue(snapshot.capabilities.can_edit_single)
@@ -52,32 +40,21 @@ class SelectionSetTest(unittest.TestCase):
     def test_overlap_cycle_selects_one_candidate_at_a_time(self):
         candidates = (self.third, self.first, self.second)
 
-        first = self.selection.apply(
-            ChooseIntent(candidates, ChoiceMode.CYCLE)
-        )
-        second = self.selection.apply(
-            ChooseIntent(candidates, ChoiceMode.CYCLE)
-        )
-        third = self.selection.apply(
-            ChooseIntent(candidates, ChoiceMode.CYCLE)
-        )
+        first = self.selection.cycle(candidates)
+        second = self.selection.cycle(candidates)
+        third = self.selection.cycle(candidates)
 
         self.assertEqual(first.selected, (self.third,))
         self.assertEqual(second.selected, (self.first,))
         self.assertEqual(third.selected, (self.second,))
 
     def test_scene_change_preserves_only_surviving_selection(self):
-        self.selection.apply(
-            ChooseIntent(
-                (self.first, self.third),
-                ChoiceMode.REPLACE,
-                active=self.third,
-            )
+        self.selection.replace(
+            (self.first, self.third),
+            active=self.third,
         )
 
-        snapshot = self.selection.apply(
-            SceneIntent((self.first, self.second))
-        )
+        snapshot = self.selection.set_scene((self.first, self.second))
 
         self.assertEqual(snapshot.selected, (self.first,))
         self.assertIs(snapshot.active, self.first)
@@ -86,11 +63,20 @@ class SelectionSetTest(unittest.TestCase):
         before = self.selection.snapshot
 
         with self.assertRaises(InvalidSelectionIntent):
-            self.selection.apply(
-                ChooseIntent((object(),), ChoiceMode.REPLACE)
-            )
+            self.selection.replace((object(),))
 
         self.assertIs(self.selection.snapshot, before)
+
+    def test_explicit_scene_selection_clears_previous_members(self):
+        self.selection.replace((self.first, self.second))
+
+        snapshot = self.selection.set_scene(
+            (self.first, self.second, self.third),
+            selected=(),
+        )
+
+        self.assertEqual(snapshot.selected, ())
+        self.assertIsNone(snapshot.active)
 
 
 if __name__ == "__main__":

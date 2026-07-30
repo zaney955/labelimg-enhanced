@@ -124,9 +124,19 @@ class LabelListItemDelegate(QStyledItemDelegate):
     selection_marker_width = 3
     selection_marker_inset = 4
     selection_marker_radius = 1.5
+    visibility_area_width = 24
+    visibility_icon_size = 16
+    visible_icon_opacity = 0.8
+    hidden_icon_opacity = 0.35
+    hovered_icon_opacity = 1.0
+
+    def initStyleOption(self, option, index):
+        super(LabelListItemDelegate, self).initStyleOption(option, index)
+        option.features &= ~QStyleOptionViewItem.HasCheckIndicator
 
     def paint(self, painter, option, index):
         paint_option = QStyleOptionViewItem(option)
+        row_rect = self.visible_row_rect(option)
         selected = bool(option.state & QStyle.State_Selected)
         if selected:
             paint_option.state &= ~QStyle.State_Selected
@@ -134,6 +144,16 @@ class LabelListItemDelegate(QStyledItemDelegate):
             paint_option.state &= ~QStyle.State_MouseOver
             paint_option.font.setBold(True)
 
+        background = index.data(Qt.BackgroundRole)
+        if isinstance(background, QBrush) and background.style() != Qt.NoBrush:
+            painter.fillRect(row_rect, background)
+
+        paint_option.rect = row_rect.adjusted(
+            0,
+            0,
+            -self.visibility_area_width,
+            0,
+        )
         super(LabelListItemDelegate, self).paint(
             painter,
             paint_option,
@@ -150,12 +170,12 @@ class LabelListItemDelegate(QStyledItemDelegate):
             painter.setPen(Qt.NoPen)
             painter.setBrush(palette.color(QPalette.Highlight))
             marker_rect = QRectF(
-                option.rect.left(),
-                option.rect.top() + self.selection_marker_inset,
+                row_rect.left(),
+                row_rect.top() + self.selection_marker_inset,
                 self.selection_marker_width,
                 max(
                     0,
-                    option.rect.height()
+                    row_rect.height()
                     - (2 * self.selection_marker_inset),
                 ),
             )
@@ -166,25 +186,186 @@ class LabelListItemDelegate(QStyledItemDelegate):
             )
             painter.restore()
 
+        self.paint_visibility_icon(painter, option, index, row_rect)
+
+    def visible_row_rect(self, option):
+        row_rect = QRect(option.rect)
+        if option.widget is not None and hasattr(option.widget, 'viewport'):
+            row_rect.setRight(
+                min(
+                    row_rect.right(),
+                    option.widget.viewport().width() - 1,
+                )
+            )
+        return row_rect
+
+    def paint_visibility_icon(self, painter, option, index, row_rect):
+        checked = index.data(Qt.CheckStateRole) == Qt.Checked
+        hovered = (
+            option.widget is not None
+            and hasattr(option.widget, 'visibility_icon_hovered')
+            and option.widget.visibility_icon_hovered(index)
+        )
+        if hovered:
+            opacity = self.hovered_icon_opacity
+        elif checked:
+            opacity = self.visible_icon_opacity
+        else:
+            opacity = self.hidden_icon_opacity
+
+        palette = (
+            option.widget.palette()
+            if option.widget is not None
+            else option.palette
+        )
+        icon_rect = self.visibility_icon_rect(row_rect)
+        center = icon_rect.center()
+        left = icon_rect.left() + 1.5
+        right = icon_rect.right() - 1.5
+        top = center.y() - 4
+        bottom = center.y() + 4
+
+        eye_path = QPainterPath()
+        eye_path.moveTo(left, center.y())
+        eye_path.cubicTo(
+            left + 3,
+            top,
+            right - 3,
+            top,
+            right,
+            center.y(),
+        )
+        eye_path.cubicTo(
+            right - 3,
+            bottom,
+            left + 3,
+            bottom,
+            left,
+            center.y(),
+        )
+
+        color = palette.color(QPalette.Text)
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setOpacity(opacity)
+        painter.setPen(
+            QPen(
+                color,
+                1.5,
+                Qt.SolidLine,
+                Qt.RoundCap,
+                Qt.RoundJoin,
+            )
+        )
+        painter.setBrush(Qt.NoBrush)
+        painter.drawPath(eye_path)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(color)
+        painter.drawEllipse(center, 2.25, 2.25)
+
+        if not checked:
+            painter.setPen(
+                QPen(
+                    color,
+                    2,
+                    Qt.SolidLine,
+                    Qt.RoundCap,
+                    Qt.RoundJoin,
+                )
+            )
+            painter.drawLine(
+                QPointF(icon_rect.left() + 2, icon_rect.top() + 2),
+                QPointF(icon_rect.right() - 2, icon_rect.bottom() - 2),
+            )
+        painter.restore()
+
+    def visibility_icon_rect(self, row_rect):
+        area_left = (
+            row_rect.x()
+            + row_rect.width()
+            - self.visibility_area_width
+        )
+        icon_left = area_left + (
+            self.visibility_area_width - self.visibility_icon_size
+        ) / 2.0
+        icon_top = row_rect.y() + (
+            row_rect.height() - self.visibility_icon_size
+        ) / 2.0
+        return QRectF(
+            icon_left,
+            icon_top,
+            self.visibility_icon_size,
+            self.visibility_icon_size,
+        )
+
 
 class LabelListWidget(QListWidget):
     """Label list with Explorer-style selection and independent visibility checks."""
 
     def __init__(self, *args, **kwargs):
         super(LabelListWidget, self).__init__(*args, **kwargs)
-        self._checkbox_press_item = None
+        self._visibility_press_item = None
+        self._visibility_hover_index = QPersistentModelIndex()
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setTextElideMode(Qt.ElideRight)
+        self.setMouseTracking(True)
+        self.viewport().setMouseTracking(True)
 
-    def checkbox_rect(self, index):
-        item = self.itemFromIndex(index)
-        option = self.viewOptions()
-        option.rect = self.visualRect(index)
-        option.features |= QStyleOptionViewItem.HasCheckIndicator
-        option.checkState = item.checkState()
-        return self.style().subElementRect(
-            QStyle.SE_ItemViewItemCheckIndicator,
-            option,
-            self,
+    def visibility_rect(self, index):
+        row_rect = self.visualRect(index)
+        visible_right = min(
+            row_rect.right(),
+            self.viewport().width() - 1,
         )
+        return QRect(
+            visible_right
+            - LabelListItemDelegate.visibility_area_width
+            + 1,
+            row_rect.y(),
+            LabelListItemDelegate.visibility_area_width,
+            row_rect.height(),
+        )
+
+    def visibility_icon_hovered(self, index):
+        return (
+            self._visibility_hover_index.isValid()
+            and self._visibility_hover_index == index
+        )
+
+    def set_visibility_hover_index(self, index):
+        persistent_index = (
+            QPersistentModelIndex(index)
+            if index.isValid()
+            else QPersistentModelIndex()
+        )
+        if persistent_index == self._visibility_hover_index:
+            return
+
+        previous = self._visibility_hover_index
+        self._visibility_hover_index = persistent_index
+        if previous.isValid():
+            self.viewport().update(
+                self.visualRect(QModelIndex(previous))
+            )
+        if persistent_index.isValid():
+            self.viewport().update(
+                self.visualRect(QModelIndex(persistent_index))
+            )
+
+    def mouseMoveEvent(self, event):
+        index = self.indexAt(event.pos())
+        if (
+            index.isValid()
+            and self.visibility_rect(index).contains(event.pos())
+        ):
+            self.set_visibility_hover_index(index)
+        else:
+            self.set_visibility_hover_index(QModelIndex())
+        super(LabelListWidget, self).mouseMoveEvent(event)
+
+    def leaveEvent(self, event):
+        self.set_visibility_hover_index(QModelIndex())
+        super(LabelListWidget, self).leaveEvent(event)
 
     def mousePressEvent(self, event):
         index = self.indexAt(event.pos())
@@ -193,9 +374,9 @@ class LabelListWidget(QListWidget):
             if (
                 event.button() == Qt.LeftButton
                 and item.flags() & Qt.ItemIsUserCheckable
-                and self.checkbox_rect(index).contains(event.pos())
+                and self.visibility_rect(index).contains(event.pos())
             ):
-                self._checkbox_press_item = item
+                self._visibility_press_item = item
                 item.setCheckState(
                     Qt.Unchecked
                     if item.checkState() == Qt.Checked
@@ -213,8 +394,8 @@ class LabelListWidget(QListWidget):
         super(LabelListWidget, self).mousePressEvent(event)
 
     def mouseReleaseEvent(self, event):
-        if self._checkbox_press_item is not None:
-            self._checkbox_press_item = None
+        if self._visibility_press_item is not None:
+            self._visibility_press_item = None
             event.accept()
             return
         super(LabelListWidget, self).mouseReleaseEvent(event)
@@ -997,13 +1178,14 @@ class MainWindow(QMainWindow, WindowMixin):
     def button_state(self, item=None):
         """ Function to handle difficult examples
         Update on each object """
+        selection = self.canvas.selection_snapshot
         if (
             not self.canvas.editing()
-            or len(self.canvas.selected_shapes) != 1
+            or not selection.capabilities.can_edit_single
         ):
             return
 
-        shape = self.canvas.selected_shapes[0]
+        shape = selection.active
         difficult = self.diffc_button.isChecked()
         if difficult != shape.difficult:
             shape.difficult = difficult
@@ -1011,14 +1193,15 @@ class MainWindow(QMainWindow, WindowMixin):
 
     # React to canvas signals.
     def shape_selection_changed(self, selected=False):
+        selection = self.canvas.selection_snapshot
         blocker = QSignalBlocker(self.label_list)
         self.label_list.clearSelection()
-        for shape in self.canvas.selected_shapes:
+        for shape in selection.selected:
             item = self.shapes_to_items.get(shape)
             if item is not None:
                 item.setSelected(True)
         active_item = self.shapes_to_items.get(
-            self.canvas.selected_shape
+            selection.active
         )
         if active_item is not None:
             self.label_list.setCurrentItem(
@@ -1028,7 +1211,7 @@ class MainWindow(QMainWindow, WindowMixin):
         else:
             self.label_list.setCurrentItem(None)
         del blocker
-        self.update_selection_actions()
+        self.update_selection_actions(selection)
 
     def selected_label_shapes(self):
         return [
@@ -1038,23 +1221,27 @@ class MainWindow(QMainWindow, WindowMixin):
             if item.isSelected() and item in self.items_to_shapes
         ]
 
-    def update_selection_actions(self):
-        count = len(self.canvas.selected_shapes)
-        has_selection = count > 0
-        single_selection = count == 1
+    def update_selection_actions(self, selection=None):
+        if selection is None:
+            selection = self.canvas.selection_snapshot
+        capabilities = selection.capabilities
 
-        self.actions.delete.setEnabled(has_selection)
-        self.actions.copy.setEnabled(has_selection)
-        self.actions.copyAnnotations.setEnabled(has_selection)
-        self.actions.edit.setEnabled(single_selection)
-        self.actions.shapeLineColor.setEnabled(single_selection)
-        self.actions.shapeFillColor.setEnabled(single_selection)
-        self.diffc_button.setEnabled(single_selection)
+        self.actions.delete.setEnabled(capabilities.can_bulk)
+        self.actions.copy.setEnabled(capabilities.can_bulk)
+        self.actions.copyAnnotations.setEnabled(capabilities.can_bulk)
+        self.actions.edit.setEnabled(capabilities.can_edit_single)
+        self.actions.shapeLineColor.setEnabled(
+            capabilities.can_edit_single
+        )
+        self.actions.shapeFillColor.setEnabled(
+            capabilities.can_edit_single
+        )
+        self.diffc_button.setEnabled(capabilities.can_edit_single)
 
         blocker = QSignalBlocker(self.diffc_button)
-        if single_selection:
+        if capabilities.can_edit_single:
             self.diffc_button.setChecked(
-                self.canvas.selected_shapes[0].difficult
+                selection.active.difficult
             )
         else:
             self.diffc_button.setChecked(False)
@@ -1154,18 +1341,20 @@ class MainWindow(QMainWindow, WindowMixin):
             questioned=self.canvas.questioned,
         )
         try:
-            saved_path = document.save(
-                annotation_file_path,
+            saved = self.annotation_workspace.save(
+                document,
                 self.annotation_format,
+                annotation_path=annotation_file_path,
             )
-            self.annotation_document = document
-            print(
-                'Image:{0} -> Annotation:{1}'.format(
-                    self.file_path,
-                    saved_path,
+            self.annotation_document = saved.document
+            if saved.document is not None:
+                print(
+                    'Image:{0} -> Annotation:{1}'.format(
+                        self.file_path,
+                        saved.annotation_path,
+                    )
                 )
-            )
-            return saved_path
+            return saved
         except AnnotationDocumentError as e:
             self.error_message(u'Error saving label data', u'<b>%s</b>' % e)
             return None
@@ -1421,7 +1610,7 @@ class MainWindow(QMainWindow, WindowMixin):
             self.canvas.load_pixmap(QPixmap.fromImage(image))
             if annotation_path is not None:
                 try:
-                    document = AnnotationDocument.load(
+                    loaded = self.annotation_workspace.load(
                         annotation_path,
                         self.file_path,
                         self.image_data,
@@ -1432,8 +1621,10 @@ class MainWindow(QMainWindow, WindowMixin):
                         u'<b>%s</b>' % error,
                     )
                     return False
-                self.set_format(document_format_name(annotation_format))
-                self.load_annotation_document(document)
+                self.set_format(
+                    document_format_name(loaded.annotation_format)
+                )
+                self.load_annotation_document(loaded.document)
             self.set_clean()
             self.canvas.setEnabled(True)
             self.adjust_scale(initial=True)
@@ -1459,26 +1650,19 @@ class MainWindow(QMainWindow, WindowMixin):
         return '[{} / {}]'.format(self.cur_img_idx + 1, self.img_count)
 
     def show_bounding_box_from_annotation_file(self, file_path):
-        for annotation_path in self.annotation_paths_for_image(file_path):
-            if not os.path.isfile(annotation_path):
-                continue
-            annotation_format = AnnotationFormat.from_path(annotation_path)
-            try:
-                document = AnnotationDocument.load(
-                    annotation_path,
-                    file_path,
-                    self.image_data,
-                )
-            except AnnotationDocumentError as error:
-                self.status(
-                    "Error reading %s: %s"
-                    % (annotation_path, error)
-                )
-                return False
-            self.set_format(document_format_name(annotation_format))
-            self.load_annotation_document(document)
-            return True
-        return False
+        try:
+            loaded = self.annotation_workspace.load_for_image(
+                file_path,
+                self.image_data,
+            )
+        except AnnotationDocumentError as error:
+            self.status("Error reading %s" % error)
+            return False
+        if loaded is None:
+            return False
+        self.set_format(document_format_name(loaded.annotation_format))
+        self.load_annotation_document(loaded.document)
+        return True
 
     def resizeEvent(self, event):
         if self.canvas and not self.image.isNull()\
@@ -1843,45 +2027,26 @@ class MainWindow(QMainWindow, WindowMixin):
         return ''
 
     def _save_file(self, annotation_file_path):
-        if annotation_file_path\
-                and self.annotation_format == AnnotationFormat.PASCAL_VOC\
-                and not self.canvas.shapes:
-            xml_path = annotation_file_path
-            if not xml_path.lower().endswith(
-                AnnotationFormat.PASCAL_VOC.extension
-            ):
-                xml_path += AnnotationFormat.PASCAL_VOC.extension
-            if os.path.isfile(xml_path):
-                os.remove(xml_path)
-                self.statusBar().showMessage(
-                    'Removed empty annotation file %s' % xml_path)
-                self.statusBar().show()
-            self.annotation_workspace.record(xml_path, ())
-            self.refresh_candidate_labels()
-            self.annotation_document = None
-            self.set_clean()
-            self.update_file_list_item_status(self.file_path)
-            return
-
-        saved_path = (
+        saved = (
             self.save_labels(annotation_file_path)
             if annotation_file_path
             else None
         )
-        if saved_path:
-            self.annotation_workspace.record(
-                saved_path,
-                (
-                    shape.label
-                    for shape in self.canvas.shapes
-                    if shape.label
-                ),
-            )
+        if saved:
             self.refresh_candidate_labels()
             self.set_clean()
             self.update_file_list_item_status(self.file_path)
-            self.statusBar().showMessage('Saved to  %s' % saved_path)
-            self.statusBar().show()
+            if saved.removed:
+                self.statusBar().showMessage(
+                    'Removed empty annotation file %s'
+                    % saved.annotation_path
+                )
+                self.statusBar().show()
+            elif saved.document is not None:
+                self.statusBar().showMessage(
+                    'Saved to  %s' % saved.annotation_path
+                )
+                self.statusBar().show()
 
     def close_file(self, _value=False):
         if not self.may_continue():
@@ -1958,22 +2123,24 @@ class MainWindow(QMainWindow, WindowMixin):
                 action.setEnabled(False)
 
     def choose_shape_line_color(self):
-        if len(self.canvas.selected_shapes) != 1:
+        selection = self.canvas.selection_snapshot
+        if not selection.capabilities.can_edit_single:
             return
         color = self.color_dialog.getColor(self.line_color, u'Choose Line Color',
                                            default=DEFAULT_LINE_COLOR)
         if color:
-            self.canvas.selected_shape.line_color = color
+            selection.active.line_color = color
             self.canvas.update()
             self.set_dirty()
 
     def choose_shape_fill_color(self):
-        if len(self.canvas.selected_shapes) != 1:
+        selection = self.canvas.selection_snapshot
+        if not selection.capabilities.can_edit_single:
             return
         color = self.color_dialog.getColor(self.fill_color, u'Choose Fill Color',
                                            default=DEFAULT_FILL_COLOR)
         if color:
-            self.canvas.selected_shape.fill_color = color
+            selection.active.fill_color = color
             self.canvas.update()
             self.set_dirty()
 
@@ -2003,9 +2170,8 @@ class MainWindow(QMainWindow, WindowMixin):
         if not os.path.isfile(annotation_path):
             return False
 
-        annotation_format = AnnotationFormat.from_path(annotation_path)
         try:
-            document = AnnotationDocument.load(
+            loaded = self.annotation_workspace.load(
                 annotation_path,
                 self.file_path,
                 self.image_data,
@@ -2018,8 +2184,8 @@ class MainWindow(QMainWindow, WindowMixin):
             return False
 
         self.clear_current_labels()
-        self.set_format(document_format_name(annotation_format))
-        self.load_annotation_document(document)
+        self.set_format(document_format_name(loaded.annotation_format))
+        self.load_annotation_document(loaded.document)
         return True
 
     def format_shape_for_clipboard(self, shape):
