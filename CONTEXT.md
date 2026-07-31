@@ -8,6 +8,166 @@ This context defines the project identity and the language used for selecting an
 The independently maintained derivative whose GitHub repository and Python distribution are named `labelimg-enhanced`, whose import package is `labelimg`, and whose application name and command remain `LabelImg` and `labelImg`. Its first independent release is version `1.9.0`, continuing from the upstream `v1.8.6` baseline.
 _Avoid_: Upstream LabelImg, GitHub fork, `libs` distribution
 
+**Undo**:
+A request to reverse the most recent reversible change in the applicable editing history.
+_Avoid_: Recall, withdraw, rollback
+
+**Redo**:
+A request to reapply the most recently undone change while no newer reversible change has replaced that image's history branch. A new reversible annotation change discards only that image's redo branch; saving and view-state changes do not.
+_Avoid_: Repeat command, restore from recycle bin
+
+**Annotation edit history**:
+The ordered reversible changes to one image's annotation document that are targeted by Undo and Redo. Each image retains its own history while the same annotation workspace remains open; the history does not contain file selection changes or cross-file operations.
+_Avoid_: Application history, workspace history, file-operation log
+
+**Annotation history snapshot**:
+An immutable history state containing annotation boxes, stored properties, annotation order, review state, and session annotation identities. It shares only the current image's read-only identity and dimensions and never copies pixel buffers, so history retention accounts for annotation state rather than repeated image data.
+_Avoid_: Canvas screenshot, copied image, serialized annotation file
+
+**Annotation edit transaction**:
+The single mutation boundary used by every user-committed annotation change. It captures the complete pre-edit snapshot, accepts one committed post-edit snapshot plus action metadata and affected identities, and either records the whole non-no-op transition or restores the pre-edit state. Nested annotation transactions are invalid.
+_Avoid_: Direct `set_dirty`, per-event history write, partially recorded edit
+
+**History projection**:
+The guarded replacement of the Canvas shapes, label-list rows, review state, and result selection from one annotation history snapshot. Projection blocks widget mutation signals, preserves eligible view state by session identity, resets stale hover and overlap-cycle state, and never creates another history entry.
+_Avoid_: User edit, recursive history record, incremental best-effort rebuild
+
+**Reversible annotation change**:
+A user-committed change to the current image's annotation boxes, their stored properties, or its review state. Box creation, removal, duplication, paste, geometry adjustment, property editing, previous-image copying, and current-image review changes all qualify. Load-time geometry normalization is a deliberate non-history exception.
+_Avoid_: View change, selection change, cross-file operation
+
+**Atomic annotation edit**:
+One complete user intention recorded as a single reversible annotation change. A drag gesture, review toggle, bulk operation, or one direction-key hold from press through release is atomic regardless of its internal event count or number of affected annotation boxes. Confirming an edit to an existing annotation records all label and property changes made through that confirmation as one entry; canceling it, or confirming without a content change, creates no entry. Candidate labels react only to the resulting committed annotation document. Redo restores the recorded completed document state rather than rerunning interaction algorithms; geometry therefore returns to its exact recorded coordinates regardless of later zoom, snapping, or view configuration.
+_Avoid_: Mouse-move event, per-box batch entry, partial bulk undo
+
+**History result selection**:
+The view-state selection derived after Undo or Redo. For an entry that affects annotation boxes, the current selection is replaced by the affected boxes that exist in the resulting document; affected boxes removed by the result are absent, and unrelated prior selections are cleared. One surviving affected box becomes active; among multiple survivors, the last box in annotation order, and therefore the topmost drawing layer, becomes active; no survivor leaves no active box. The label list scrolls enough to reveal the active box but does not take keyboard focus, and canvas zoom and pan remain unchanged. For an entry such as a review-state change that affects no boxes, the current selection and active box remain unchanged. This feedback is not itself an annotation edit.
+_Avoid_: Restored historical selection, selection history entry
+
+**Session annotation identity**:
+A stable identity assigned to an annotation box only for one workspace editing session, allowing history application to preserve view state for boxes that continue to exist without writing that identity into annotation documents. A create, paste, duplicate, or previous-image copy assigns each result a unique identity once, and every later Undo or Redo restoration of that result reuses it rather than generating another identity. Newly restored boxes use default view state.
+_Avoid_: Persistent annotation ID, geometric matching, list-row identity
+
+**Annotation order**:
+The ordering of annotation boxes that determines label-list position, drawing layer, overlap hit priority, and overlap-cycle sequence. Undo and Redo restore this order exactly, including the relative positions of every box in a bulk edit.
+_Avoid_: Unordered box set, append-on-restore, selection order
+
+**View state**:
+Transient interaction state such as selections, annotation visibility, zoom, pan, filters, editing modes, default drawing style, overlap-cycle position, and canvas hover targets that does not alter an annotation document. View-state changes are not part of the annotation edit history and do not make the current annotation document dirty. A successful Undo or Redo resets the overlap-cycle cursor and clears any hovered box, vertex, or edge because the scene or annotation order may have changed; hover is recomputed on later pointer movement without otherwise changing the result selection.
+_Avoid_: Annotation content, reversible annotation change
+
+**Default drawing style**:
+The application preference used to initialize colors or appearance for future annotation boxes. Changing it affects neither existing annotation boxes nor their saved document and therefore creates no history entry and no save-required state; changing one existing box's line or fill color remains a reversible annotation change.
+_Avoid_: Box color edit, annotation property, document dirty state
+
+**Pending drawing**:
+An annotation shape currently being drawn that has not yet become a valid annotation box. Undo cancels it before consulting the annotation edit history, and the canceled drawing cannot be redone. Redo is unavailable until the drawing is completed or canceled and does not modify the pending drawing.
+_Avoid_: Created annotation, reversible annotation change
+
+**Pending annotation gesture**:
+A geometry-changing mouse gesture, such as moving, resizing, or dragging a vertex or edge, that has started but has not yet been committed by mouse release. Undo cancels the gesture, restores the complete geometry from mouse press, creates no Undo or Redo entry, and does not continue into the preceding committed history. Redo is unavailable until the gesture is committed or canceled and neither commits nor cancels it.
+_Avoid_: Atomic annotation edit, live history entry, partial drag undo
+
+**Load-time geometry normalization**:
+The silent clamping of annotation coordinates to image bounds while a stored document is loaded. It is not an atomic annotation edit, creates no Undo or Redo entry, cannot be reversed through annotation history, and becomes the clean in-memory representation paired with the original stored-file fingerprint. It neither makes the image appear unsaved nor triggers a write by itself; a later real edit and save may persist the normalized coordinates, while a reload repeats the same normalization.
+_Avoid_: Adjust-out-of-bounds history entry, user geometry edit, load confirmation
+
+**Committed annotation creation**:
+One atomic annotation edit formed only after a pending drawing has valid geometry and its label is confirmed, including default-label and single-class flows. Canceling label confirmation discards the pending drawing without creating history.
+_Avoid_: Geometry-only creation, label-only creation, canceled annotation
+
+**Workspace editing session**:
+The period during which one image directory and one global annotation save directory remain open as a single annotation workspace. Switching among its images preserves their independent in-memory annotation edit histories. Opening another image directory, changing the global annotation save directory, or restarting LabelImg ends the session after unresolved dirty states and conflicts are handled; the newly scanned stored annotation documents become fresh baselines and all prior in-memory histories are cleared. A global save-directory switch is transactional: the new directory and current image document are preflighted before commit, and any scan or load failure leaves the original directory, canvas, candidate labels, and histories unchanged. After a successful switch, the current image immediately loads its corresponding document from the new directory, or a clean empty baseline when none exists; content from the old directory is never carried across as an unsaved canvas. Saving one image to a different target does not by itself redefine the whole workspace.
+_Avoid_: Application lifetime, image visit, saved-file version
+
+**Saved annotation baseline**:
+The independently retained identity of the clean in-memory annotation revision corresponding to a stored document, paired with the annotation storage target and fingerprint of its physical representation. The in-memory representation may include deterministic load-time normalization or differ because a format quantizes geometry or omits in-memory-only details. The image is clean only when both its current in-memory revision and current storage target match this baseline. Saving never replaces the canvas with a round-tripped parse or creates a history entry; an explicit reload may apply that representation and then rebase history. Each manual or automatic save binds to the immutable document revision and storage target present when that write was requested; confirmed success moves the baseline only to the revision and target actually written, without clearing Undo or Redo. Writes are serialized by every physical storage resource they touch, including a shared CreateML collection, YOLO class vocabulary, or identical annotation path; only resource-disjoint writes may run concurrently. Requests arriving during an active write are coalesced into a follow-up write of the latest requested revisions. If editing, Undo, Redo, or a storage-target change has already moved the current state elsewhere, that current state remains dirty and a fresh autosave may be scheduled. A failed write leaves the prior baseline, dirty state, and history intact and reports the failure. Undo and Redo invalidate any previously scheduled autosave request so that a later write can consume only the then-current document state. Returning to the complete saved baseline cancels the unnecessary pending write; landing on a different dirty state schedules that current state instead. The baseline remains authoritative even when retention limits evict the history position that once represented it.
+_Avoid_: History reset, undo boundary, application checkpoint
+
+**Annotation storage resource**:
+A physical file or shared metadata object touched by an annotation save, such as one Pascal VOC file, one YOLO annotation file plus its shared class vocabulary, or one CreateML collection. Save operations that share any resource are serialized under the same coordination boundary to prevent lost read-modify-write updates. Pending writes to one shared CreateML collection coalesce the latest requested revision for each affected image into one transactional collection update. The complete collection is written to a temporary file and atomically replaces the prior file; failure preserves the old collection and advances none of the included baselines. Only the exact revisions included in a fully successful batch advance their per-image saved baselines, while newer revisions wait for a later batch.
+_Avoid_: Image-only save lock, independent CreateML record, uncoordinated classes file
+
+**Annotation storage target**:
+The annotation format and destination path selected for storing one image's current annotation document. Changing the target makes the image require saving but is not a reversible annotation change, so Undo and Redo neither switch formats nor change paths. A successful save updates the target paired with the saved annotation baseline without clearing annotation history. Saving to another format creates or updates that target and makes it the active annotation document for the session without deleting the prior format representation.
+_Avoid_: Annotation content, Undoable format change, history branch
+
+**Active annotation document**:
+The one stored annotation representation selected as the baseline source for an image in the current workspace session. When multiple supported formats exist for the same image, the application does not silently apply format precedence: on first access it presents each format, path, and modification time for explicit selection, remembers that choice for the session, and leaves the unchosen files untouched. A successful save to another format makes the new representation active for the remainder of the session while preserving the old representation; a later session presents the resulting multi-format choice again. Canceling document selection cancels the entire image navigation, preserving the prior current image, canvas, history, and file-list multi-selection while the target remains unresolved.
+_Avoid_: First-found document, merged formats, automatic conversion
+
+**Empty annotation baseline**:
+A successfully stored annotation state with no boxes and no retained review flag. The physical representation follows the active format's existing policy, including absence of a Pascal VOC file. Undo and Redo may move into or out of this state and autosave may remove or recreate the physical annotation file without creating a file-operation recovery entry.
+_Avoid_: Missing-data error, explicit clear-annotations operation, file deletion recovery
+
+**Discard unsaved changes**:
+An explicit replacement of one image's in-memory annotation document with the externally verified stored document represented by its saved annotation baseline, followed by history rebase. If the stored document no longer matches the retained baseline fingerprint, the external annotation conflict flow applies before replacement. Discard cannot be undone or redone; canceling the discard prompt changes neither content nor history.
+_Avoid_: Undo all, history navigation, temporary rollback
+
+**History rebase**:
+Replacement of an image's annotation edit history with a new baseline after a successful external document replacement or mutation, including explicitly loading another annotation document, annotation clearing, or cross-file review-state editing. Image renaming transfers the existing history to the renamed identity, while image deletion removes it.
+_Avoid_: Undo, save, redo-branch discard
+
+**External annotation conflict**:
+A mismatch between an annotation storage resource on disk and the version underlying its in-memory annotation histories. An automatic save that detects a conflict pauses autosave for every image depending on that resource, preserves their current editing histories, and presents persistent non-modal warnings rather than interrupting an active drawing flow. For an independent per-image resource this affects one image. For a shared CreateML collection it marks every related image and conflict resolution targets the complete collection: loading the external version replaces the retained collection model and rebases every related image history, while overwriting applies current in-memory edits to the complete retained pre-conflict collection snapshot and atomically writes it, explicitly discarding every external collection change. Per-record mixing is unavailable. A collection-level resolution that discards multiple images' in-memory edits or external changes requires a second confirmation showing the total affected image count, dirty image count, and which side will be discarded; a single-image conflict uses only its normal conflict choice confirmation. The user may navigate away while those conflict, dirty-state, and history records remain retained and visibly marked in the file list. The conflict remains unresolved until an explicit save or reload requires a choice, and every conflict must be resolved before closing the workspace or application. Closing with multiple independent conflicts opens one summary in which each image or shared resource explicitly chooses rebase from the external version or overwrite with the in-memory version; no choice is preselected, although the user may explicitly apply one choice to all. Resolutions commit independently per resource: successful rows remain resolved if a later row fails, no cross-resource rollback is attempted, and the next attempt addresses only unresolved rows. The workspace closes only after every chosen resolution succeeds, and cancel or failure leaves it open. Conflicts are never silently merged, discarded, or overwritten.
+_Avoid_: Live file watching, automatic merge, silent history reuse
+
+**History retention limit**:
+The bounded portion of a workspace editing session retained for Undo and Redo: at most 100 atomic edits per image and a soft target of approximately 256 MiB across the workspace. Least-recently-used inactive image histories are trimmed first while retaining a contiguous window around each current cursor: the farthest Undo-side edge is removed before a farthest Redo-side edge, and an atomic edit is never partially retained. If one newest atomic entry alone exceeds the soft target, it may remain as the sole retained entry after other history is evicted; failure to allocate that complete entry instead fails and rolls back the edit atomically. Eviction shortens only the reachable Undo or Redo window; it neither invents a new saved baseline nor makes dirty-state detection approximate. Cleanup is silent when it occurs, but attempting to continue Undo past an evicted boundary produces a non-modal status-bar explanation; an image that never had earlier history simply presents Undo as unavailable.
+_Avoid_: Persistent archive, unlimited history, partial batch history
+
+**Annotation history shortcut context**:
+The focus context in which annotation Undo and Redo shortcuts apply: the canvas, label list, and non-text main-window areas. Text controls retain native text history, file-list focus performs no annotation history action, and modal dialogs suspend main-window history shortcuts. Ctrl+Z, Ctrl+Y, and Ctrl+Shift+Z ignore keyboard auto-repeat so that each physical key press advances exactly one history step; this does not alter direction-key hold coalescing.
+_Avoid_: Application-wide shortcut, file-operation undo, text-field override
+
+**History action presentation**:
+The Edit-menu and status-bar representation of the next available annotation Undo or Redo, named after its concrete atomic edit and disabled when unavailable or outside the annotation history shortcut context. Action labels remain concise and include affected-box counts where useful. A label change presents safely rendered, elided old and new values such as `Undo Change label: cat → dog`, while the status bar may show the complete values; other actions use the operation and count rather than verbose payloads. Undo uses Ctrl+Z; Redo accepts Ctrl+Y and Ctrl+Shift+Z; the initial feature has no history panel, preview, or arbitrary multi-step jump. While a drawing or annotation gesture is pending, Redo is disabled and its shortcut only reports that the current operation must first be completed or canceled.
+_Avoid_: Hidden unavailable action, unlabeled generic history button, toolbar history controls
+
+**Atomic history execution**:
+Application of one Undo or Redo that either completes and advances the history position or restores the complete pre-attempt state without advancing. When restoration succeeds after an application failure, the failed entry remains available for an explicit retry and the UI reports the concrete action and error; it is not silently discarded. A later new edit follows normal branch rules. If both application and restoration fail, only that image's history is cleared. The application first reloads a fingerprint-checked stored document as a clean new baseline; if no trustworthy stored document can be loaded, it retains the last constructible in-memory snapshot as dirty, pauses autosave, and requires an explicit Save As, reload, or close decision rather than claiming that uncertain state is saved.
+_Avoid_: Partial undo, optimistic cursor advance, workspace-wide reset
+
+**Degraded annotation state**:
+The protected per-image state entered when neither a history action nor restoration of its pre-attempt snapshot can complete and no trustworthy stored document can be loaded. The last constructible in-memory document remains visible and dirty, annotation history and all annotation mutations are unavailable, and autosave is paused until explicit recovery. View operations, selection, copying, Save As, reload, and close remain available so the visible content can be inspected or rescued. Recovery Save As requires a previously nonexistent target and cannot overwrite another annotation file. Its success establishes the visible document as a clean baseline with empty new history, unlocks editing, and leaves the original file untouched; failure preserves the degraded state.
+_Avoid_: Clean rebase, automatic overwrite, workspace-wide failure
+
+**File operation recovery**:
+A session-scoped recovery mechanism for successfully completed parts of cross-file deletion, annotation clearing, renaming, and review-state changes. Its newest-first list allows any entry that passes current preflight rather than enforcing stack order, uses explicit confirmation, and never uses annotation Undo or Redo shortcuts.
+_Avoid_: Global Undo, annotation Redo
+
+**File operation recovery entry**:
+One recoverable file operation retained among the 20 most recent entries of a workspace editing session. It records only the successfully changed targets, becomes non-repeatable after successful recovery, and may outlive neither a workspace switch nor an application restart.
+_Avoid_: Persistent audit log, annotation history entry, repeatable restore
+
+**Recovered file selection**:
+The file selection set produced after deleted images are restored: every restored image is selected while the current image remains unchanged, unless the workspace previously had no image to display. Restored images use their recovered documents as new annotation-history baselines.
+_Avoid_: Automatic recovered-image navigation, old row restoration, deleted in-memory history
+
+**File recovery conflict**:
+Any occupied original path or changed target document that prevents a file operation recovery entry from being restored exactly. One conflict blocks the entire recovery until resolved; recovery never overwrites, assigns conflict suffixes, or restores only a subset automatically, while rename recovery may carry later content edits through its inverse mapping.
+_Avoid_: Best-effort restore, overwrite confirmation, automatic conflict suffix
+
+**Rename recovery**:
+An inverse synchronized rename that returns images, associated annotation documents, current-image identity, file selection, and annotation edit histories to their former paths while preserving content edited under the newer names. It requires a complete unique reverse mapping and unoccupied former paths.
+_Avoid_: Old-byte restoration, content rollback, partial reverse rename
+
+**Review-state recovery**:
+A field-level reversal of one cross-file review-state operation that preserves later annotation-box content. Every affected image must still have the operation's resulting review state; successful recovery restores the prior states atomically and rebases the affected annotation edit histories.
+_Avoid_: Whole-document restoration, box rollback, partial review recovery
+
+**Cleared-annotation recovery**:
+Exact restoration of annotation documents removed by one clear operation, allowed only while every target remains in the empty annotation state produced by that operation. New stored annotations or unsaved canvas annotations create a conflict; old and new annotations are never overwritten or merged automatically.
+_Avoid_: Annotation merge, overwrite restore, partial clear recovery
+
+**Manual trash recovery**:
+The fallback for a platform that can move data to its system trash but cannot return a stable recovery identity. The destructive operation remains allowed with an explicit warning, but its recovery entry is non-actionable in LabelImg; permanent deletion is never used when system trash is unavailable.
+_Avoid_: Application recovery, permanent-delete fallback, silent degradation
+
+**Trash recovery identity**:
+An opaque session-scoped handle returned by the platform trash adapter for one successfully recycled path. On Windows it is derived from the Recycle Bin `IShellItem` reported by `IFileOperationProgressSink::PostDeleteItem`; on platforms where Qt returns a usable path in trash, that path forms the identity. The application never derives identities by matching only names or deletion timestamps.
+_Avoid_: Original path, filename search, guessed recycle-bin path
+
 **Temporary multi-selection mode**:
 A transient canvas state entered while Ctrl is held, shown with a crosshair cursor, in which a click toggles one annotation box and a drag creates a selection region without moving an annotation box. Releasing Ctrl ends the mode but preserves the selection set.
 _Avoid_: Square-drawing mode, generic selection mode
@@ -29,8 +189,12 @@ A copy operation that creates slightly offset annotation boxes in the current im
 _Avoid_: Clipboard copy, paste
 
 **Clipboard selection**:
-A snapshot of every annotation box in the selection set, retained for pasting into another image.
+A snapshot of every annotation box in the selection set, retained for pasting into another image. Paste history captures the boxes actually created, so Undo does not change the clipboard and Redo never rereads it.
 _Avoid_: In-image duplication, all image labels
+
+**Previous-image annotation copy**:
+An atomic annotation edit that replaces the current image's box set with copies from the previous image's current session document, or its selected active stored document when no in-memory state exists. Its history entry retains the boxes actually created, including their properties and annotation order, so Redo restores that captured result without rereading the source image. Later edits, renames, or deletion of the source image cannot change the result.
+_Avoid_: Live link, source-dependent Redo, clipboard paste
 
 **Append paste**:
 A paste operation that adds the clipboard selection to the target image without removing its existing annotation boxes. The newly pasted boxes replace the prior selection set.
@@ -81,8 +245,12 @@ The object-class name assigned to an annotation box.
 _Avoid_: Tag, category text
 
 **Candidate label**:
-A previously known label offered for reuse while creating or editing an annotation box.
-_Avoid_: Option, list item, tag
+A label derived from the classes currently used by committed annotation boxes anywhere in the open workspace and offered for reuse while creating or editing a box. Its scope includes unambiguous stored annotations for images that have not yet been opened, selected active annotation documents, and committed but not-yet-saved annotations in memory. An image with multiple formats and no selected active document contributes no candidates and remains visibly marked as awaiting document selection. A conflicted image contributes its current in-memory labels until conflict resolution: rebasing to the external document replaces its contribution, while overwriting preserves it. Candidates retain the existing case-insensitive alphabetical ordering, with the exact original label text as a deterministic secondary key. Labels that differ only by letter case remain distinct annotation classes and are never merged or renamed by Undo or Redo. Undo and Redo recompute membership without introducing operation-order sorting: if Undo removes the last committed use of a class across the whole scope, that class disappears; Redo makes it reappear at its deterministic sorted position. Merely typing, previously using, or predefining a label does not keep it in the candidate set when no committed annotation currently uses it.
+_Avoid_: Session label history, predefined class list, option, list item, tag
+
+**YOLO class index vocabulary**:
+The storage metadata that maps YOLO class names to stable numeric indices. It is independent of the visible candidate-label set. A new class appends an index when its first annotation is confirmed as a committed edit; typing and canceling does not reserve one. Once appended, the mapping remains stable for the workspace session and later YOLO saves even if Undo removes every current box of that class. A reservation that has never been written and is no longer used does not by itself make an image dirty or force a save; it is persisted opportunistically by a later YOLO save or expires with the session when no stored annotation references it. Undo and Redo never remove, reorder, or renumber an established mapping when the class disappears from candidate labels.
+_Avoid_: Candidate labels, sorted class list, compacted indices
 
 **Candidate area**:
 The portion of the label-entry dialog that presents candidate labels.
@@ -93,7 +261,7 @@ The annotation boxes and review status associated with one image, whether stored
 _Avoid_: Label file, format file
 
 **CreateML annotation collection**:
-A physical CreateML JSON file that may contain annotation-document records for multiple images. File operations target the uniquely matching image record and remove the physical collection only when no records remain; before destructive record removal rewrites a retained collection, its complete prior version is preserved in the system recycle bin.
+A physical CreateML JSON file that may contain annotation-document records for multiple images. File operations target the uniquely matching image record and remove the physical collection only when no records remain; recovery restores the complete prior collection only while the retained post-operation collection remains unchanged.
 _Avoid_: Single-image JSON document, delete-whole-file-by-default
 
 **Annotation workspace**:
