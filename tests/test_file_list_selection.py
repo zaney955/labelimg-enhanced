@@ -1,4 +1,5 @@
 import os
+import shutil
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -17,11 +18,31 @@ from PyQt5.QtWidgets import (
 )
 
 from labelimg.app import MainWindow
+from labelimg.file_recovery import TrashIdentity
 from labelimg.file_list import (
     BatchRenameDialog,
     CURRENT_IMAGE_ROLE,
     PRESERVED_SELECTION_APPEARANCE_ROLE,
 )
+
+
+class FakeTrashAdapter:
+    def __init__(self, directory):
+        self.directory = directory
+        self.paths = {}
+
+    def move(self, path):
+        token = str(len(self.paths) + 1)
+        destination = os.path.join(self.directory, token)
+        shutil.move(path, destination)
+        self.paths[token] = destination
+        return TrashIdentity("path", destination, path)
+
+    def exists(self, identity):
+        return os.path.exists(identity.token)
+
+    def restore(self, identity, destination):
+        shutil.move(identity.token, destination)
 
 
 class FileListSelectionTest(unittest.TestCase):
@@ -46,6 +67,9 @@ class FileListSelectionTest(unittest.TestCase):
         self.window = MainWindow(
             default_prefdef_class_file=classes,
         )
+        trash_dir = os.path.join(self.temporary.name, "trash")
+        os.makedirs(trash_dir)
+        self.window.system_trash = FakeTrashAdapter(trash_dir)
         self.window.import_dir_images(self.image_dir)
         self.window.show()
         self.window.file_list_widget.setFocus()

@@ -38,6 +38,9 @@ class Canvas(QWidget):
     selectionChanged = pyqtSignal(bool)
     shapeMoved = pyqtSignal()
     drawingPolygon = pyqtSignal(bool)
+    annotationGestureStarted = pyqtSignal(str)
+    annotationGestureFinished = pyqtSignal(str)
+    annotationGestureCanceled = pyqtSignal(str)
 
     CREATE, EDIT = list(range(2))
 
@@ -75,6 +78,9 @@ class Canvas(QWidget):
         self.questioned = False
         self.draw_square = False
         self.multi_selection_mode = False
+        self._annotation_gesture_description = None
+        self._annotation_gesture_source = None
+        self._held_arrow_keys = set()
 
         # initialisation for panning
         self.pan_initial_pos = QPoint()
@@ -99,6 +105,18 @@ class Canvas(QWidget):
     def focusOutEvent(self, ev):
         self.multi_selection_mode = False
         self.restore_cursor()
+        if self._held_arrow_keys:
+            self._held_arrow_keys.clear()
+            self._finish_annotation_gesture()
+        super(Canvas, self).focusOutEvent(ev)
+
+    def event(self, ev):
+        if (
+            ev.type() == QEvent.UngrabMouse
+            and self._annotation_gesture_source == "mouse"
+        ):
+            self.cancel_annotation_gesture()
+        return super(Canvas, self).event(ev)
 
     def isVisible(self, shape):
         return self.visible.get(shape, True)
@@ -587,6 +605,15 @@ class Canvas(QWidget):
             else:
                 selection = self.select_shape_point(pos)
                 self.prev_point = pos
+                if selection is not None:
+                    description = (
+                        "Resize box"
+                        if self.selected_vertex() or self.selected_edge()
+                        else "Move box"
+                    )
+                    self._begin_annotation_gesture(
+                        description, source="mouse"
+                    )
 
                 if selection is None:
                     # pan
@@ -646,6 +673,8 @@ class Canvas(QWidget):
             else:
                 # pan
                 QApplication.restoreOverrideCursor()
+        if ev.button() == Qt.LeftButton:
+            self._finish_annotation_gesture()
 
     def end_move(self, copy=False):
         assert self.selected_shape and self.selected_shape_copy
@@ -1147,12 +1176,16 @@ class Canvas(QWidget):
             )
             ev.accept()
         elif key == Qt.Key_Left and len(self.selected_shapes) == 1:
+            self._begin_arrow_gesture(ev)
             self.move_one_pixel('Left')
         elif key == Qt.Key_Right and len(self.selected_shapes) == 1:
+            self._begin_arrow_gesture(ev)
             self.move_one_pixel('Right')
         elif key == Qt.Key_Up and len(self.selected_shapes) == 1:
+            self._begin_arrow_gesture(ev)
             self.move_one_pixel('Up')
         elif key == Qt.Key_Down and len(self.selected_shapes) == 1:
+            self._begin_arrow_gesture(ev)
             self.move_one_pixel('Down')
 
     def keyReleaseEvent(self, ev):
@@ -1160,7 +1193,45 @@ class Canvas(QWidget):
             self.set_multi_selection_mode(False)
             ev.accept()
             return
+        if (
+            ev.key() in self._held_arrow_keys
+            and not ev.isAutoRepeat()
+        ):
+            self._held_arrow_keys.discard(ev.key())
+            if not self._held_arrow_keys:
+                self._finish_annotation_gesture()
+            ev.accept()
+            return
         super(Canvas, self).keyReleaseEvent(ev)
+
+    def _begin_annotation_gesture(self, description, source=None):
+        if self._annotation_gesture_description is not None:
+            return
+        self._annotation_gesture_description = description
+        self._annotation_gesture_source = source
+        self.annotationGestureStarted.emit(description)
+
+    def _finish_annotation_gesture(self):
+        description = self._annotation_gesture_description
+        if description is None:
+            return
+        self._annotation_gesture_description = None
+        self._annotation_gesture_source = None
+        self.annotationGestureFinished.emit(description)
+
+    def cancel_annotation_gesture(self):
+        description = self._annotation_gesture_description
+        if description is None:
+            return
+        self._annotation_gesture_description = None
+        self._annotation_gesture_source = None
+        self._held_arrow_keys.clear()
+        self.annotationGestureCanceled.emit(description)
+
+    def _begin_arrow_gesture(self, event):
+        if not event.isAutoRepeat():
+            self._held_arrow_keys.add(event.key())
+        self._begin_annotation_gesture("Move box", source="keyboard")
 
     def move_one_pixel(self, direction):
         # print(self.selectedShape.points)
@@ -1222,6 +1293,15 @@ class Canvas(QWidget):
         self.current = None
         self.drawingPolygon.emit(False)
         self.update()
+
+    def cancel_current_drawing(self, force=False):
+        """Finish the drawing lifecycle after a projected cancellation."""
+        was_drawing = self.current is not None
+        self.current = None
+        self.line.points = []
+        self.update()
+        if was_drawing or force:
+            self.drawingPolygon.emit(False)
 
     def load_pixmap(self, pixmap):
         self.pixmap = pixmap
@@ -1290,6 +1370,9 @@ class Canvas(QWidget):
 
     def _reset_transient_interaction(self):
         self.selected_shape_copy = None
+        self._annotation_gesture_description = None
+        self._annotation_gesture_source = None
+        self._held_arrow_keys.clear()
         self._interaction.reset()
 
     def set_drawing_shape_to_square(self, status):

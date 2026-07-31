@@ -80,7 +80,7 @@ class RealtimeAutoSaveTest(unittest.TestCase):
 
     def test_explicit_save_can_create_the_first_annotation_file(self):
         self.add_rectangle()
-        self.window.dirty = True
+        self.window.set_dirty()
 
         self.window.save_file()
 
@@ -114,7 +114,7 @@ class RealtimeAutoSaveTest(unittest.TestCase):
         self.assertFalse(os.path.exists(self.annotation_path))
 
     def test_explicit_save_without_shapes_does_not_create_an_xml_file(self):
-        self.window.dirty = True
+        self.window.set_dirty()
 
         self.window.save_file()
 
