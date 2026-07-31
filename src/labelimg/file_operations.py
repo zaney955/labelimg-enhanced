@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import ctypes
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 import json
 import os
@@ -14,12 +14,26 @@ from xml.etree import ElementTree
 
 from PyQt5.QtCore import QFile
 
+from labelimg.annotation_storage import (
+    MISSING_FINGERPRINT,
+    fingerprint_path,
+)
+from labelimg.file_recovery import TrashIdentity, TrashedResource
+
 
 ANNOTATION_EXTENSIONS = (".xml", ".txt", ".json")
 
 
 class FileOperationError(RuntimeError):
     pass
+
+
+class _NullLease:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        return False
 
 
 @dataclass(frozen=True)
@@ -35,6 +49,7 @@ class FileOperationResult:
     failed_images: list[str] = field(default_factory=list)
     affected_paths: list[str] = field(default_factory=list)
     failures: list[OperationFailure] = field(default_factory=list)
+    trashed_resources: list[TrashedResource] = field(default_factory=list)
     canceled: bool = False
 
     def add_failure(self, image_path, path, error):
@@ -54,54 +69,125 @@ def move_to_recycle_bin(path):
     if not os.path.lexists(path):
         return
     if platform.system() == "Windows":
-        _windows_move_to_recycle_bin(path)
-        return
+        return _windows_move_to_recycle_bin(path)
     if not hasattr(QFile, "moveToTrash"):
         raise FileOperationError(
             "The system does not expose a recycle-bin operation."
         )
+    return _qt_move_to_recycle_bin(path)
+
+
+def _qt_move_to_recycle_bin(path):
     result = QFile.moveToTrash(path)
     succeeded = result[0] if isinstance(result, tuple) else result
     if not succeeded or os.path.lexists(path):
         raise FileOperationError(
             "The system recycle bin could not accept this path."
         )
+    trash_path = (
+        os.fspath(result[1])
+        if isinstance(result, tuple)
+        and len(result) > 1
+        and result[1]
+        else None
+    )
+    return TrashIdentity(
+        backend="qt",
+        token=trash_path,
+        original_path=path,
+        actionable=bool(trash_path),
+    )
 
 
 def _windows_move_to_recycle_bin(path):
-    class SHFILEOPSTRUCTW(ctypes.Structure):
-        _fields_ = [
-            ("hwnd", ctypes.c_void_p),
-            ("wFunc", ctypes.c_uint),
-            ("pFrom", ctypes.c_wchar_p),
-            ("pTo", ctypes.c_wchar_p),
-            ("fFlags", ctypes.c_ushort),
-            ("fAnyOperationsAborted", ctypes.c_bool),
-            ("hNameMappings", ctypes.c_void_p),
-            ("lpszProgressTitle", ctypes.c_wchar_p),
-        ]
-
-    operation = SHFILEOPSTRUCTW()
-    operation.wFunc = 3  # FO_DELETE
-    operation.pFrom = path + "\0"
-    operation.pTo = None
-    operation.fFlags = (
-        0x0040  # FOF_ALLOWUNDO
-        | 0x0010  # FOF_NOCONFIRMATION
-        | 0x0004  # FOF_SILENT
-        | 0x0400  # FOF_NOERRORUI
-    )
-    result = ctypes.windll.shell32.SHFileOperationW(
-        ctypes.byref(operation)
-    )
-    if (
-        result != 0
-        or operation.fAnyOperationsAborted
-        or os.path.lexists(path)
-    ):
+    try:
+        from labelimg.windows_trash import delete_to_recycle_bin
+        token = delete_to_recycle_bin(path)
+    except Exception as error:
         raise FileOperationError(
-            "The Windows recycle bin could not accept this path "
-            "(error %s)." % result
+            "The Windows recycle bin could not accept this path: %s"
+            % error
+        ) from error
+    if os.path.lexists(path) or token is None:
+        raise FileOperationError(
+            "The Windows recycle bin did not return a restorable item."
+        )
+    return TrashIdentity(
+        backend="windows-shell",
+        token=token,
+        original_path=path,
+        actionable=True,
+    )
+
+
+def _windows_restore_recycle_identity(token, destination):
+    try:
+        from labelimg.windows_trash import restore_recycle_item
+        restore_recycle_item(token, destination)
+    except Exception as error:
+        raise FileOperationError(
+            "The Windows recycle bin item could not be restored: %s"
+            % error
+        ) from error
+
+
+class SystemTrashAdapter:
+    def move(self, path):
+        return move_to_recycle_bin(path)
+
+    def exists(self, identity):
+        if not identity.actionable:
+            return False
+        if identity.backend in ("qt", "path"):
+            return bool(
+                identity.token
+                and os.path.lexists(os.fspath(identity.token))
+            )
+        if identity.backend == "windows-shell":
+            try:
+                from labelimg.windows_trash import recycle_item_exists
+                return recycle_item_exists(identity.token)
+            except Exception:
+                return False
+        return False
+
+    def preflight(self, paths):
+        if platform.system() != "Windows":
+            return
+        try:
+            from labelimg.windows_trash import probe_recycle_support
+            for path in dict.fromkeys(
+                os.path.abspath(os.fspath(path)) for path in paths
+            ):
+                probe_recycle_support(path)
+        except Exception as error:
+            raise FileOperationError(
+                "Recycle Bin preflight failed before any file was changed: %s"
+                % error
+            ) from error
+
+    def restore(self, identity, destination):
+        destination = os.path.abspath(os.fspath(destination))
+        if os.path.lexists(destination):
+            raise FileOperationError(
+                "Recovery destination already exists: %s" % destination
+            )
+        if identity.backend in ("qt", "path"):
+            source = os.fspath(identity.token)
+            if not os.path.lexists(source):
+                raise FileOperationError(
+                    "Trash item is no longer available."
+                )
+            shutil.move(source, destination)
+            return
+        if identity.backend == "windows-shell":
+            _windows_restore_recycle_identity(
+                identity.token,
+                destination,
+            )
+            return
+        raise FileOperationError(
+            "This trash entry cannot be restored automatically."
         )
 
 
@@ -131,23 +217,39 @@ def exact_annotation_paths(image_path, save_dir=None):
 
 
 class AnnotationFileService:
-    def __init__(self, save_dir=None, trash=move_to_recycle_bin):
+    def __init__(
+        self,
+        save_dir=None,
+        trash=move_to_recycle_bin,
+        storage_coordinator=None,
+    ):
         self.save_dir = (
             os.path.abspath(os.fspath(save_dir))
             if save_dir
             else None
         )
         self.trash = trash
+        self.storage_coordinator = storage_coordinator
 
     def clear_annotations(self, image_paths, should_continue=None):
+        image_paths = tuple(
+            os.path.abspath(os.fspath(path)) for path in image_paths
+        )
+        self._preflight_trash_operation(
+            image_paths, include_images=False
+        )
         result = FileOperationResult()
         for image_path in image_paths:
             if should_continue is not None and not should_continue():
                 result.canceled = True
                 break
             image_path = os.path.abspath(os.fspath(image_path))
-            affected, failures = self._clear_image_annotations(image_path)
+            with self._stable_lease(image_path):
+                affected, failures, trashed = (
+                    self._clear_image_annotations(image_path)
+                )
             result.affected_paths.extend(affected)
+            result.trashed_resources.extend(trashed)
             for path, error in failures:
                 result.add_failure(image_path, path, error)
             if not failures:
@@ -155,27 +257,113 @@ class AnnotationFileService:
         return result
 
     def delete_images(self, image_paths, should_continue=None):
+        image_paths = tuple(
+            os.path.abspath(os.fspath(path)) for path in image_paths
+        )
+        self._preflight_trash_operation(
+            image_paths, include_images=True
+        )
         result = FileOperationResult()
         for image_path in image_paths:
             if should_continue is not None and not should_continue():
                 result.canceled = True
                 break
             image_path = os.path.abspath(os.fspath(image_path))
-            affected, failures = self._clear_image_annotations(image_path)
-            result.affected_paths.extend(affected)
-            for path, error in failures:
-                result.add_failure(image_path, path, error)
-            if failures:
-                continue
-            try:
-                if not os.path.isfile(image_path):
-                    raise FileOperationError("Image file does not exist.")
-                self.trash(image_path)
-                result.affected_paths.append(image_path)
-                result.succeeded_images.append(image_path)
-            except Exception as error:
-                result.add_failure(image_path, image_path, error)
+            with self._stable_lease(image_path):
+                affected, failures, trashed = (
+                    self._clear_image_annotations(image_path)
+                )
+                result.affected_paths.extend(affected)
+                result.trashed_resources.extend(trashed)
+                for path, error in failures:
+                    result.add_failure(image_path, path, error)
+                if failures:
+                    continue
+                try:
+                    if not os.path.isfile(image_path):
+                        raise FileOperationError(
+                            "Image file does not exist."
+                        )
+                    identity = _trash_identity(
+                        image_path,
+                        self.trash(image_path),
+                    )
+                    result.affected_paths.append(image_path)
+                    result.trashed_resources.append(
+                        TrashedResource(
+                            image_path,
+                            identity,
+                            MISSING_FINGERPRINT,
+                        )
+                    )
+                    result.succeeded_images.append(image_path)
+                except Exception as error:
+                    result.add_failure(image_path, image_path, error)
         return result
+
+    def _operation_resources(self, image_path, candidates):
+        resources = list(
+            exact_annotation_paths(image_path, self.save_dir)
+        )
+        resources.extend(candidates)
+        resources.append(image_path)
+        resources.extend(
+            os.path.join(directory, "classes.txt")
+            for directory in annotation_directories(
+                image_path,
+                self.save_dir,
+            )
+        )
+        return tuple(dict.fromkeys(resources))
+
+    @contextmanager
+    def _stable_lease(self, image_path):
+        if self.storage_coordinator is None:
+            yield
+            return
+        for _attempt in range(5):
+            candidates = self._annotation_candidates(image_path)
+            locked_keys = {
+                os.path.normcase(os.path.abspath(path))
+                for path in candidates
+            }
+            lease = self.storage_coordinator.lease(
+                self._operation_resources(image_path, candidates)
+            )
+            lease.__enter__()
+            current = self._annotation_candidates(image_path)
+            current_keys = {
+                os.path.normcase(os.path.abspath(path))
+                for path in current
+            }
+            if current_keys.issubset(locked_keys):
+                try:
+                    yield
+                finally:
+                    lease.__exit__(None, None, None)
+                return
+            lease.__exit__(None, None, None)
+        raise FileOperationError(
+            "Annotation resources kept changing while acquiring locks."
+        )
+
+    def _preflight_trash_operation(
+        self, image_paths, include_images
+    ):
+        owner = getattr(self.trash, "__self__", None)
+        preflight = getattr(owner, "preflight", None)
+        if preflight is None:
+            return
+        paths = []
+        for image_path in image_paths:
+            paths.extend(
+                path
+                for path in self._annotation_candidates(image_path)
+                if os.path.isfile(path)
+            )
+            if include_images and os.path.isfile(image_path):
+                paths.append(image_path)
+        preflight(paths)
 
     def annotation_count(self, image_paths):
         found = set()
@@ -220,6 +408,7 @@ class AnnotationFileService:
     def _clear_image_annotations(self, image_path):
         affected = []
         failures = []
+        trashed = []
         exact = {
             os.path.normcase(os.path.abspath(path))
             for path in exact_annotation_paths(image_path, self.save_dir)
@@ -234,13 +423,25 @@ class AnnotationFileService:
             seen.add(key)
             try:
                 if not path.lower().endswith(".json"):
-                    self.trash(path)
+                    identity = _trash_identity(
+                        path,
+                        self.trash(path),
+                    )
+                    trashed.append(
+                        TrashedResource(path, identity)
+                    )
                     affected.append(path)
                     continue
 
                 if os.path.getsize(path) == 0:
                     if key in exact:
-                        self.trash(path)
+                        identity = _trash_identity(
+                            path,
+                            self.trash(path),
+                        )
+                        trashed.append(
+                            TrashedResource(path, identity)
+                        )
                         affected.append(path)
                     continue
 
@@ -259,7 +460,13 @@ class AnnotationFileService:
                     )
                 if not matches:
                     if key in exact and not entries:
-                        self.trash(path)
+                        identity = _trash_identity(
+                            path,
+                            self.trash(path),
+                        )
+                        trashed.append(
+                            TrashedResource(path, identity)
+                        )
                         affected.append(path)
                     elif key in exact:
                         raise FileOperationError(
@@ -268,22 +475,35 @@ class AnnotationFileService:
                         )
                     continue
                 if len(entries) == 1:
-                    self.trash(path)
+                    identity = _trash_identity(
+                        path,
+                        self.trash(path),
+                    )
+                    trashed.append(
+                        TrashedResource(path, identity)
+                    )
                 else:
                     retained = [
                         entry
                         for index, entry in enumerate(entries)
                         if index != matches[0]
                     ]
-                    _recoverable_json_rewrite(
+                    identity = _recoverable_json_rewrite(
                         path,
                         retained,
                         self.trash,
                     )
+                    trashed.append(
+                        TrashedResource(
+                            path,
+                            _trash_identity(path, identity),
+                            fingerprint_path(path),
+                        )
+                    )
                 affected.append(path)
             except Exception as error:
                 failures.append((path, error))
-        return affected, failures
+        return affected, failures, trashed
 
     def _annotation_candidates(self, image_path):
         candidates = list(
@@ -306,12 +526,15 @@ class AnnotationFileService:
 
 
 class SynchronizedRenamer:
-    def __init__(self, save_dir=None):
+    def __init__(self, save_dir=None, storage_coordinator=None):
         self.save_dir = (
             os.path.abspath(os.fspath(save_dir))
             if save_dir
             else None
         )
+        self.storage_coordinator = storage_coordinator
+        self.last_fingerprints = {}
+        self.last_resource_bytes = {}
 
     def rename(self, mapping):
         mapping = {
@@ -323,13 +546,78 @@ class SynchronizedRenamer:
         }
         if not mapping:
             return {}
-        self._validate_image_mapping(mapping)
-        move_outputs, byte_outputs, sources = self._collect_outputs(
-            mapping
+        for _attempt in range(5):
+            json_paths = self._json_candidates(mapping)
+            locked_json = {
+                os.path.normcase(os.path.abspath(path))
+                for path in json_paths
+            }
+            lease = (
+                self.storage_coordinator.lease(
+                    self._rename_resources(mapping) + list(json_paths)
+                )
+                if self.storage_coordinator is not None
+                else _NullLease()
+            )
+            with lease:
+                current_json = self._json_candidates(mapping)
+                if not {
+                    os.path.normcase(os.path.abspath(path))
+                    for path in current_json
+                }.issubset(locked_json):
+                    continue
+                self._validate_image_mapping(mapping)
+                move_outputs, byte_outputs, sources = (
+                    self._collect_outputs(mapping, json_paths)
+                )
+                self._validate_outputs(
+                    move_outputs, byte_outputs, sources
+                )
+                self._execute_transaction(
+                    move_outputs,
+                    byte_outputs,
+                    sources,
+                )
+                touched = set(sources)
+                touched.update(move_outputs.values())
+                touched.update(byte_outputs)
+                touched.update(self._rename_resources(mapping))
+                self.last_fingerprints = {
+                    os.path.normcase(os.path.abspath(path)):
+                    fingerprint_path(path)
+                    for path in touched
+                }
+                self.last_resource_bytes = {}
+                for path in touched:
+                    key = os.path.normcase(os.path.abspath(path))
+                    try:
+                        with open(path, "rb") as source:
+                            self.last_resource_bytes[key] = source.read()
+                    except FileNotFoundError:
+                        self.last_resource_bytes[key] = None
+                return mapping
+        raise FileOperationError(
+            "Annotation resources kept changing while acquiring locks."
         )
-        self._validate_outputs(move_outputs, byte_outputs, sources)
-        self._execute_transaction(move_outputs, byte_outputs, sources)
-        return mapping
+
+    def _rename_resources(self, mapping):
+        resources = []
+        for source, target in mapping.items():
+            resources.extend((source, target))
+            resources.extend(
+                exact_annotation_paths(source, self.save_dir)
+            )
+            resources.extend(
+                exact_annotation_paths(target, self.save_dir)
+            )
+            resources.extend(
+                os.path.join(directory, "classes.txt")
+                for directory in annotation_directories(
+                    source,
+                    self.save_dir,
+                )
+            )
+        return resources
 
     def _validate_image_mapping(self, mapping):
         targets = set()
@@ -364,7 +652,7 @@ class SynchronizedRenamer:
                     "Target image already exists: %s" % target
                 )
 
-    def _collect_outputs(self, mapping):
+    def _collect_outputs(self, mapping, json_paths=None):
         move_outputs = {}
         byte_outputs = {}
         sources = set(mapping)
@@ -405,7 +693,8 @@ class SynchronizedRenamer:
                             )
                         )
 
-        json_paths = self._json_candidates(mapping)
+        if json_paths is None:
+            json_paths = self._json_candidates(mapping)
         json_base_outputs = {}
         json_contributions = {}
         basename_mapping = self._basename_mapping(mapping)
@@ -724,9 +1013,10 @@ def _recoverable_json_rewrite(path, entries, trash):
     directory = os.path.dirname(path)
     temporary = _write_temporary_bytes(directory, _json_bytes(entries))
     backup = _temporary_peer_path(path, "backup")
+    trash_result = None
     try:
         shutil.copy2(path, backup)
-        trash(path)
+        trash_result = trash(path)
         os.replace(temporary, path)
         temporary = None
     except Exception:
@@ -740,6 +1030,25 @@ def _recoverable_json_rewrite(path, entries, trash):
                     os.remove(candidate)
                 except OSError:
                     pass
+    return trash_result
+
+
+def _trash_identity(original_path, result):
+    if isinstance(result, TrashIdentity):
+        return result
+    if result:
+        return TrashIdentity(
+            backend="path",
+            token=os.fspath(result),
+            original_path=os.path.abspath(original_path),
+            actionable=True,
+        )
+    return TrashIdentity(
+        backend="manual",
+        token=None,
+        original_path=os.path.abspath(original_path),
+        actionable=False,
+    )
 
 
 def _renamed_pascal_voc(annotation_path, new_image_path):

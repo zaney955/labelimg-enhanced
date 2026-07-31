@@ -8,10 +8,12 @@ import re
 import sys
 import subprocess
 import shutil
+import tempfile
 import webbrowser as wb
 
 from functools import cmp_to_key, partial
 from collections import defaultdict
+from dataclasses import dataclass, field
 
 try:
     from PyQt5.QtGui import *
@@ -40,11 +42,27 @@ from labelimg.zoomWidget import ZoomWidget
 from labelimg.candidate_label_dialog import CandidateLabelDialog
 from labelimg.colorDialog import ColorDialog
 from labelimg.annotation_document import (
+    AnnotationBox,
     AnnotationDocument,
     AnnotationDocumentError,
     AnnotationFormat,
 )
-from labelimg.annotation_workspace import AnnotationWorkspace
+from labelimg.annotation_workspace import (
+    AmbiguousAnnotationDocuments,
+    AnnotationWorkspace,
+    annotation_resources,
+)
+from labelimg.annotation_editing import (
+    AnnotationEditingController,
+    AnnotationHistoryShortcutFilter,
+    CanvasAnnotationScene,
+    ProjectionFailed,
+)
+from labelimg.annotation_history import UnknownImageHistory
+from labelimg.annotation_storage import (
+    AnnotationStorageConflict,
+    fingerprint_path,
+)
 from labelimg.toolBar import ToolBar
 from labelimg.ustr import ustr
 from labelimg.hashableQListWidgetItem import HashableQListWidgetItem
@@ -52,6 +70,7 @@ from labelimg.file_list import (
     BatchRenameDialog,
     CURRENT_IMAGE_ROLE,
     FILE_ANNOTATION_STATE_ROLE,
+    FILE_PERSISTENCE_FLAGS_ROLE,
     FileListItemDelegate,
     FileListWidget,
     validate_base_name,
@@ -60,13 +79,28 @@ from labelimg.file_list import (
 from labelimg.file_operations import (
     AnnotationFileService,
     FileOperationError,
+    SystemTrashAdapter,
     SynchronizedRenamer,
+)
+from labelimg.file_recovery import (
+    FileRecoveryCenter,
+    FileRecoveryConflict,
+    FileRecoveryError,
+    ReviewRecoveryRecord,
 )
 
 __appname__ = 'labelImg'
 FILE_LIST_ANNOTATED_MARK = '\u25cb'
 FILE_LIST_VERIFIED_MARK = '\u2713'
 FILE_LIST_QUESTIONED_MARK = '?'
+
+
+@dataclass
+class AnnotationResourceConflictState:
+    resource: str
+    error: object
+    image_keys: set = field(default_factory=set)
+    affected_count: int = 1
 
 
 def document_format_name(annotation_format):
@@ -481,6 +515,10 @@ class MainWindow(QMainWindow, WindowMixin):
 
         # Whether we need to save or not.
         self.dirty = False
+        self.annotation_conflicts = {}
+        self._autosave_request = False
+        self.file_recovery = FileRecoveryCenter()
+        self.system_trash = SystemTrashAdapter()
 
         self._beginner = True
         self.screencast = "https://youtu.be/p0nR2YsCY_U"
@@ -617,10 +655,31 @@ class MainWindow(QMainWindow, WindowMixin):
         self.canvas.panRequest.connect(self.pan_request)
         self.canvas.statusRequest.connect(self.status)
 
+        self.annotation_scene = CanvasAnnotationScene(
+            self.canvas,
+            on_project=self._project_annotation_history,
+        )
+        self.annotation_editing = AnnotationEditingController(
+            self.annotation_scene.capture,
+            self.annotation_scene.project,
+            on_degraded=self._annotation_projection_degraded,
+        )
         self.canvas.newShape.connect(self.new_shape)
-        self.canvas.shapeMoved.connect(self.set_dirty)
+        self.canvas.shapeMoved.connect(self._legacy_shape_moved)
         self.canvas.selectionChanged.connect(self.shape_selection_changed)
         self.canvas.drawingPolygon.connect(self.toggle_drawing_sensitive)
+        self.canvas.drawingPolygon.connect(
+            self._annotation_drawing_state_changed
+        )
+        self.canvas.annotationGestureStarted.connect(
+            self._begin_annotation_gesture
+        )
+        self.canvas.annotationGestureFinished.connect(
+            self._finish_annotation_gesture
+        )
+        self.canvas.annotationGestureCanceled.connect(
+            self._cancel_annotation_gesture
+        )
 
         self.setCentralWidget(scroll)
         self.addDockWidget(Qt.RightDockWidgetArea, self.dock)
@@ -695,6 +754,13 @@ class MainWindow(QMainWindow, WindowMixin):
         close = action(get_str('closeCur'), self.close_file, 'Ctrl+W', 'close', get_str('closeCurDetail'))
 
         delete_image = action(get_str('deleteImg'), self.delete_image, 'Ctrl+Delete', 'close', get_str('deleteImgDetail'))
+        recent_file_operations = QAction(
+            'Recent File Operations\u2026',
+            self,
+        )
+        recent_file_operations.triggered.connect(
+            self.open_file_recovery_center
+        )
 
         reset_all = action(get_str('resetAll'), self.reset_all, None, 'resetall', get_str('resetAllDetail'))
 
@@ -760,6 +826,16 @@ class MainWindow(QMainWindow, WindowMixin):
             self.MANUAL_ZOOM: lambda: 1,
         }
 
+        undo_annotation = QAction('Undo\tCtrl+Z', self)
+        undo_annotation.setEnabled(False)
+        undo_annotation.triggered.connect(self.undo_annotation)
+        redo_annotation = QAction(
+            'Redo\tCtrl+Y / Ctrl+Shift+Z',
+            self,
+        )
+        redo_annotation.setEnabled(False)
+        redo_annotation.triggered.connect(self.redo_annotation)
+
         edit = action(get_str('editLabel'), self.edit_label,
                       'Ctrl+E', 'edit', get_str('editLabelDetail'),
                       enabled=False)
@@ -793,6 +869,9 @@ class MainWindow(QMainWindow, WindowMixin):
         # Store actions for further handling.
         self.actions = Struct(save=save, save_format=save_format, saveAs=save_as, open=open, close=close, resetAll=reset_all, deleteImg=delete_image,
                               verify=verify, question=question,
+                              undoAnnotation=undo_annotation,
+                              redoAnnotation=redo_annotation,
+                              recentFileOperations=recent_file_operations,
                               lineColor=color1, create=create, delete=delete, edit=edit, copy=copy,
                               copyAnnotations=copy_annotations, pasteAnnotations=paste_annotations,
                               createMode=create_mode, editMode=edit_mode, advancedMode=advanced_mode,
@@ -804,7 +883,8 @@ class MainWindow(QMainWindow, WindowMixin):
                               fileMenuActions=(
                                   open, open_dir, save, save_as, close, reset_all, quit),
                               beginner=(), advanced=(),
-                              editMenu=(edit, copy_annotations, paste_annotations, copy, delete,
+                              editMenu=(undo_annotation, redo_annotation, None,
+                                        edit, copy_annotations, paste_annotations, copy, delete,
                                         None, color1, self.draw_squares_option),
                               beginnerContext=(create, edit, copy, delete),
                               advancedContext=(create_mode, edit_mode, edit, copy,
@@ -845,7 +925,7 @@ class MainWindow(QMainWindow, WindowMixin):
         add_actions(self.menus.file,
                     (open, open_dir, change_save_dir, open_annotation, copy_annotations, paste_annotations,
                      copy_prev_bounding, self.menus.recentFiles, save, save_format, save_as, close,
-                     reset_all, delete_image, quit))
+                     reset_all, delete_image, recent_file_operations, quit))
         add_actions(self.menus.help, (help_default, show_info, show_shortcut))
         add_actions(self.menus.view, (
             self.auto_saving,
@@ -857,6 +937,15 @@ class MainWindow(QMainWindow, WindowMixin):
             fit_window, fit_width))
 
         self.menus.file.aboutToShow.connect(self.update_file_menu)
+        self._history_shortcuts = AnnotationHistoryShortcutFilter(
+            self,
+            self.undo_annotation,
+            self.redo_annotation,
+            self.file_list_widget,
+        )
+        QApplication.instance().installEventFilter(
+            self._history_shortcuts.qobject
+        )
 
         # Custom context menu for the canvas widget:
         add_actions(self.canvas.menus[0], self.actions.beginnerContext)
@@ -1006,7 +1095,14 @@ class MainWindow(QMainWindow, WindowMixin):
             self.set_format(FORMAT_PASCALVOC)
         else:
             raise ValueError('Unknown label file format.')
-        self.set_dirty()
+        if self.annotation_editing.view is not None:
+            self.annotation_editing.set_target(
+                self.file_path,
+                self._current_annotation_target(),
+            )
+            self._sync_annotation_history_ui()
+        else:
+            self.set_dirty()
 
     def no_shapes(self):
         return not self.items_to_shapes
@@ -1045,18 +1141,516 @@ class MainWindow(QMainWindow, WindowMixin):
         self.tools.clear()
         add_actions(self.tools, self.actions.advanced)
 
+    def _current_annotation_target(self):
+        if not self.file_path:
+            return None
+        return self.annotation_workspace.entry(
+            self.file_path
+        ).path_for(self.annotation_format)
+
+    def _activate_annotation_history(self):
+        if not self.file_path:
+            return
+        image_key = os.path.abspath(self.file_path)
+        try:
+            view = self.annotation_editing.view_image(image_key)
+        except UnknownImageHistory:
+            snapshot = self.annotation_scene.capture(image_key)
+            target = self._current_annotation_target()
+            view = self.annotation_editing.open_image(
+                image_key,
+                snapshot,
+                saved_baseline=self._annotation_baseline(target),
+            )
+        else:
+            self.annotation_editing.select_image(image_key)
+            if self.annotation_scene.capture(image_key) != view.snapshot:
+                self.annotation_scene.project(
+                    self._history_projection_request(
+                        view.snapshot,
+                        direction='activate',
+                        preserve_selection=True,
+                    )
+                )
+        self._sync_annotation_history_ui()
+
+    @staticmethod
+    def _history_projection_request(
+        snapshot,
+        affected_ids=(),
+        direction='project',
+        preserve_selection=False,
+    ):
+        from labelimg.annotation_editing import ProjectionRequest
+        return ProjectionRequest(
+            snapshot=snapshot,
+            affected_ids=tuple(affected_ids),
+            direction=direction,
+            preserve_selection=preserve_selection,
+        )
+
+    def _project_annotation_history(
+        self,
+        snapshot,
+        shapes,
+        active_shape,
+    ):
+        focus = QApplication.focusWidget()
+        blocker = QSignalBlocker(self.label_list)
+        self.items_to_shapes.clear()
+        self.shapes_to_items.clear()
+        self.label_list.clear()
+        self.combo_box.cb.clear()
+        for shape in shapes:
+            self.add_label(shape)
+            item = self.shapes_to_items[shape]
+            item.setCheckState(
+                Qt.Checked
+                if self.canvas.isVisible(shape)
+                else Qt.Unchecked
+            )
+        self.update_combo_box()
+        del blocker
+        self.shape_selection_changed(bool(self.canvas.selected_shapes))
+        if active_shape is not None:
+            active_item = self.shapes_to_items.get(active_shape)
+            if active_item is not None:
+                self.label_list.scrollToItem(
+                    active_item,
+                    QAbstractItemView.EnsureVisible,
+                )
+        if focus is not None:
+            focus.setFocus(Qt.OtherFocusReason)
+
+    def _annotation_projection_degraded(
+        self,
+        image_key,
+        target_error,
+        rollback_error,
+    ):
+        try:
+            view = self.annotation_editing.view_image(
+                image_key, touch=False
+            )
+            baseline = view.saved_baseline
+            if (
+                baseline is not None
+                and baseline.target
+                and self._baseline_is_current(baseline)
+                and os.path.isfile(baseline.target)
+            ):
+                loaded = self.annotation_workspace.load(
+                    baseline.target,
+                    image_key,
+                    self.image_data,
+                )
+                self.clear_current_labels()
+                self.load_annotation_document(loaded.document)
+                snapshot = self.annotation_scene.capture(image_key)
+                self.annotation_editing.rebase_image(
+                    image_key,
+                    snapshot,
+                    baseline=(baseline.target, baseline.fingerprint),
+                )
+                self.annotation_editing.clear_degraded(image_key)
+                self.status(
+                    'History projection failed; reloaded the verified '
+                    'stored annotation document',
+                    10000,
+                )
+                return
+        except Exception:
+            pass
+        self.status(
+            'Annotation history failed for %s; editing is disabled'
+            % os.path.basename(image_key),
+            10000,
+        )
+        for action in (
+            self.actions.create,
+            self.actions.createMode,
+            self.actions.editMode,
+            self.actions.delete,
+            self.actions.copy,
+            self.actions.pasteAnnotations,
+            self.actions.undoAnnotation,
+            self.actions.redoAnnotation,
+        ):
+            action.setEnabled(False)
+
+    def _begin_annotation_gesture(self, description):
+        if not self.file_path or self.annotation_editing.edit_open:
+            return
+        self.annotation_editing.begin_edit(description)
+        self.annotation_editing.set_pending(
+            description,
+            self.canvas.cancel_annotation_gesture,
+        )
+        self._sync_annotation_history_ui()
+
+    def _finish_annotation_gesture(self, _description):
+        if not self.annotation_editing.edit_open:
+            return
+        self.annotation_editing.clear_pending()
+        affected_ids = tuple(
+            shape.session_id
+            for shape in self.canvas.selected_shapes
+            if shape.session_id is not None
+        )
+        self.annotation_editing.commit_edit(affected_ids)
+        self._after_annotation_edit()
+
+    def _cancel_annotation_gesture(self, _description):
+        if not self.annotation_editing.edit_open:
+            return
+        self.annotation_editing.clear_pending()
+        self.annotation_editing.cancel_edit(restore=True)
+        self._sync_annotation_history_ui()
+
+    def _annotation_drawing_state_changed(self, drawing):
+        if not self.file_path:
+            return
+        if drawing:
+            if not self.annotation_editing.edit_open:
+                self.annotation_editing.begin_edit('Create box')
+                self.annotation_editing.set_pending(
+                    'Drawing',
+                    self._cancel_pending_drawing,
+                )
+        elif (
+            self.annotation_editing.edit_open
+            and self.canvas.current is None
+        ):
+            self.annotation_editing.clear_pending()
+            self.annotation_editing.cancel_edit(restore=False)
+        self._sync_annotation_history_ui()
+
+    def _cancel_pending_drawing(self):
+        self.annotation_editing.cancel_edit(restore=True)
+        self.canvas.cancel_current_drawing(force=True)
+
+    def _after_annotation_edit(self):
+        self._sync_annotation_history_ui()
+        if self.annotation_editing.view is not None:
+            if self.annotation_editing.view.dirty:
+                self._hold_history_resources(
+                    self.annotation_editing.view
+                )
+            else:
+                self._release_history_resources(
+                    self.annotation_editing.view
+                )
+        target = self._current_annotation_target()
+        if target:
+            self.annotation_workspace.record_document(
+                self.file_path,
+                target,
+                (
+                    shape.label
+                    for shape in self.canvas.shapes
+                    if shape.label
+                ),
+            )
+            self.refresh_candidate_labels()
+        self.update_file_list_item_status(self.file_path)
+
+    def _perform_annotation_edit(
+        self,
+        description,
+        mutation,
+        affected=None,
+        old_label=None,
+        new_label=None,
+    ):
+        if self.annotation_editing.view is None:
+            result = mutation()
+            self.set_dirty()
+            return result
+        self.annotation_editing.begin_edit(
+            description,
+            old_label=old_label,
+            new_label=new_label,
+        )
+        try:
+            result = mutation()
+            for shape in self.canvas.shapes:
+                self.annotation_scene.identities.assign(shape)
+            affected_shapes = (
+                affected(result)
+                if callable(affected)
+                else affected
+            )
+            if affected_shapes is None:
+                affected_shapes = self.canvas.selected_shapes
+            affected_ids = tuple(
+                shape.session_id
+                for shape in affected_shapes
+                if shape is not None
+                and getattr(shape, 'session_id', None) is not None
+            )
+            self.annotation_editing.commit_edit(affected_ids)
+        except Exception:
+            if self.annotation_editing.edit_open:
+                self.annotation_editing.cancel_edit(restore=True)
+            raise
+        self._after_annotation_edit()
+        return result
+
+    def _sync_annotation_history_ui(self):
+        view = self.annotation_editing.view
+        if view is None:
+            self.actions.undoAnnotation.setEnabled(False)
+            self.actions.redoAnnotation.setEnabled(False)
+            return
+        self.dirty = view.dirty
+        self.actions.save.setEnabled(
+            self.dirty and not self.annotation_editing.degraded
+        )
+        if self.annotation_editing.degraded:
+            self.actions.saveAs.setEnabled(True)
+        undo = view.undo_transition
+        redo = view.redo_transition
+        if self.annotation_editing.pending:
+            self.actions.undoAnnotation.setText(
+                'Cancel %s\tCtrl+Z'
+                % self.annotation_editing.pending_kind
+            )
+        else:
+            self.actions.undoAnnotation.setText(
+                self._history_action_text('Undo', undo, 'Ctrl+Z')
+            )
+        self.actions.redoAnnotation.setText(
+            self._history_action_text(
+                'Redo',
+                redo,
+                'Ctrl+Y / Ctrl+Shift+Z',
+            )
+        )
+        self.actions.undoAnnotation.setEnabled(
+            (view.can_undo or self.annotation_editing.pending)
+            and not self.annotation_editing.degraded
+        )
+        self.actions.redoAnnotation.setEnabled(
+            view.can_redo
+            and not self.annotation_editing.pending
+            and not self.annotation_editing.degraded
+        )
+        if (
+            self.dirty
+            and self.auto_saving.isChecked()
+            and self.default_save_dir
+            and os.path.isdir(ustr(self.default_save_dir))
+        ):
+            self.auto_save_timer.start()
+        elif not self.dirty:
+            self.auto_save_timer.stop()
+
+    def _mark_current_history_saved(
+        self,
+        annotation_path,
+        revision_id=None,
+        fingerprints=None,
+    ):
+        if self.annotation_editing.view is None:
+            self.set_clean()
+            return
+        view = self.annotation_editing.view
+        revision_id = (
+            view.revision_id
+            if revision_id is None
+            else revision_id
+        )
+        fingerprint = (
+            tuple(fingerprints)
+            if fingerprints is not None
+            else fingerprint_path(annotation_path)
+        )
+        self.annotation_editing.mark_saved(
+            revision_id,
+            annotation_path,
+            fingerprint,
+        )
+        self._release_history_resources(view)
+        if fingerprints is not None:
+            self._propagate_resource_fingerprints(fingerprints)
+        self._sync_annotation_history_ui()
+
+    def _propagate_resource_fingerprints(self, fingerprints):
+        current = {
+            self._resource_key(path): fingerprint
+            for path, fingerprint in fingerprints
+        }
+        if not current:
+            return
+        for image_key in self.annotation_editing.image_keys:
+            view = self.annotation_editing.view_image(
+                image_key, touch=False
+            )
+            baseline = view.saved_baseline
+            if baseline is None or not view.current_target:
+                continue
+            try:
+                annotation_format = AnnotationFormat.from_path(
+                    view.current_target
+                )
+            except AnnotationDocumentError:
+                continue
+            resources = annotation_resources(
+                annotation_format, view.current_target
+            )
+            if not any(
+                self._resource_key(resource) in current
+                for resource in resources
+            ):
+                continue
+            if isinstance(baseline.fingerprint, tuple):
+                old = {
+                    self._resource_key(path): value
+                    for path, value in baseline.fingerprint
+                }
+                refreshed = tuple(
+                    (
+                        resource,
+                        current.get(
+                            self._resource_key(resource),
+                            old.get(
+                                self._resource_key(resource),
+                                fingerprint_path(resource),
+                            ),
+                        ),
+                    )
+                    for resource in resources
+                )
+            else:
+                target_key = self._resource_key(view.current_target)
+                if target_key not in current:
+                    continue
+                refreshed = current[target_key]
+            self.annotation_editing.update_baseline_fingerprint(
+                image_key, refreshed
+            )
+
+    def _document_from_snapshot(self, snapshot, image_data=None):
+        return AnnotationDocument(
+            image_path=snapshot.image_key,
+            image_data=(
+                self.image_data
+                if image_data is None
+                and snapshot.image_key == self.file_path
+                else image_data
+            ),
+            boxes=tuple(
+                AnnotationBox(
+                    label=box.label,
+                    points=box.points,
+                    line_color=box.line_rgba,
+                    fill_color=box.fill_rgba,
+                    difficult=box.difficult,
+                )
+                for box in snapshot.boxes
+            ),
+            class_names=tuple(self.label_hist),
+            verified=snapshot.verified,
+            questioned=snapshot.questioned,
+        )
+
+    def _rebase_current_history(self, annotation_path):
+        if self.annotation_editing.view is None:
+            self.set_clean()
+            return
+        snapshot = self.annotation_scene.capture(self.file_path)
+        self.annotation_editing.rebase_image(
+            self.file_path,
+            snapshot,
+            baseline=self._annotation_baseline(annotation_path),
+        )
+        self.annotation_editing.select_image(self.file_path)
+        self._sync_annotation_history_ui()
+
+    def _annotation_baseline(self, annotation_path):
+        annotation_path = os.path.abspath(
+            os.fspath(annotation_path)
+        )
+        annotation_format = AnnotationFormat.from_path(annotation_path)
+        return (
+            annotation_path,
+            tuple(
+                (resource, fingerprint_path(resource))
+                for resource in annotation_resources(
+                    annotation_format, annotation_path
+                )
+            ),
+        )
+
+    @staticmethod
+    def _history_action_text(prefix, transition, shortcut):
+        description = transition.description if transition else ''
+        count = transition.affected_count if transition else 0
+        if count > 1 and str(count) not in description:
+            description = '%s %d boxes' % (description, count)
+        text = prefix + ((' ' + description) if description else '')
+        return '%s\t%s' % (text, shortcut)
+
+    def undo_annotation(self, _checked=False):
+        if self.annotation_editing.view is None:
+            return
+        try:
+            result = self.annotation_editing.undo()
+        except ProjectionFailed as error:
+            self.error_message(
+                'Undo failed',
+                '<p>%s</p>' % error,
+            )
+            return
+        self._after_annotation_edit()
+        self.status(result.message)
+
+    def redo_annotation(self, _checked=False):
+        if self.annotation_editing.view is None:
+            return
+        try:
+            result = self.annotation_editing.redo()
+        except ProjectionFailed as error:
+            self.error_message(
+                'Redo failed',
+                '<p>%s</p>' % error,
+            )
+            return
+        self._after_annotation_edit()
+        self.status(result.message)
+
     def set_dirty(self):
+        if (
+            hasattr(self, 'annotation_editing')
+            and self.annotation_editing.view is not None
+            and not self.annotation_editing.edit_open
+            and not self.annotation_editing.pending
+        ):
+            self.annotation_editing.record_external_edit(
+                'Edit annotations'
+            )
+            self._after_annotation_edit()
+            return
         self.dirty = True
         self.actions.save.setEnabled(True)
         if self.auto_saving.isChecked() and self.default_save_dir\
                 and os.path.isdir(ustr(self.default_save_dir)):
             self.auto_save_timer.start()
 
+    def _legacy_shape_moved(self):
+        if self.annotation_editing.edit_open:
+            return
+        self.set_dirty()
+
     def save_dirty_annotations(self):
         if self.dirty and self.auto_saving.isChecked()\
                 and self.default_save_dir\
                 and os.path.isdir(ustr(self.default_save_dir)):
-            self.save_file()
+            self._autosave_request = True
+            try:
+                self.save_file()
+            finally:
+                self._autosave_request = False
 
     def set_clean(self):
         self.auto_save_timer.stop()
@@ -1187,6 +1781,614 @@ class MainWindow(QMainWindow, WindowMixin):
                 icon, '&%d %s' % (i + 1, QFileInfo(f).fileName()), self)
             action.triggered.connect(partial(self.load_recent, f))
             menu.addAction(action)
+
+    def open_file_recovery_center(self, _checked=False):
+        dialog = QDialog(self)
+        dialog.setWindowTitle('Recent File Operations')
+        layout = QVBoxLayout(dialog)
+        table = QTableWidget(len(self.file_recovery.entries), 5, dialog)
+        table.setHorizontalHeaderLabels(
+            ('Time', 'Operation', 'Targets', 'Status', '')
+        )
+        table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeToContents
+        )
+        table.horizontalHeader().setStretchLastSection(True)
+        for row, entry in enumerate(self.file_recovery.entries):
+            values = (
+                entry.created_at.astimezone().strftime('%H:%M:%S'),
+                entry.operation,
+                str(entry.target_count),
+                entry.status.value,
+            )
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+                if entry.detail:
+                    item.setToolTip(entry.detail)
+                table.setItem(row, column, item)
+            recover = QPushButton('Recover', table)
+            recover.setEnabled(entry.recoverable)
+            recover.clicked.connect(
+                partial(
+                    self._confirm_file_recovery,
+                    entry.entry_id,
+                    dialog,
+                )
+            )
+            table.setCellWidget(row, 4, recover)
+        layout.addWidget(table)
+        buttons = QDialogButtonBox(QDialogButtonBox.Close, dialog)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        dialog.resize(680, 360)
+        dialog.exec_()
+
+    def _confirm_file_recovery(
+        self,
+        entry_id,
+        dialog=None,
+        _checked=False,
+    ):
+        entry = next(
+            item
+            for item in self.file_recovery.entries
+            if item.entry_id == entry_id
+        )
+        answer = QMessageBox.question(
+            self,
+            'Recover file operation',
+            (
+                'Recover the complete “%s” operation affecting %d '
+                'target(s)? Existing paths will never be overwritten.'
+            ) % (entry.operation, entry.target_count),
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+        selected_before = tuple(self.selected_file_paths())
+        if (
+            entry.operation == 'clear'
+            and self.file_path
+            and (self.dirty or self.canvas.shapes)
+        ):
+            current_resources = {
+                os.path.normcase(path)
+                for path in self.annotation_paths_for_image(
+                    self.file_path
+                )
+            }
+            if any(
+                os.path.normcase(resource.original_path)
+                in current_resources
+                for resource in entry.payload
+            ):
+                QMessageBox.warning(
+                    self,
+                    'Recovery blocked',
+                    'The current image has in-memory annotation content.',
+                )
+                return
+        try:
+            resources = (
+                tuple(
+                    resource.original_path
+                    for resource in entry.payload
+                )
+                if entry.operation in ('delete', 'clear')
+                else ()
+            )
+            with self.annotation_workspace.storage_coordinator.lease(
+                resources
+            ):
+                self.file_recovery.recover(
+                    entry_id,
+                    trash_adapter=self.system_trash,
+                    context=self,
+                )
+        except Exception as error:
+            QMessageBox.warning(
+                self,
+                'Recovery failed',
+                str(error),
+            )
+            return
+
+        restored_images = []
+        if entry.operation in ('delete', 'clear'):
+            image_extensions = {
+                '.%s' % value.data().decode('ascii').lower()
+                for value in QImageReader.supportedImageFormats()
+            }
+            restored_images = [
+                resource.original_path
+                for resource in entry.payload
+                if os.path.splitext(resource.original_path)[1].lower()
+                in image_extensions
+            ]
+        if self.dir_name and os.path.isdir(self.dir_name):
+            self.populate_file_list(self.scan_all_images(self.dir_name))
+            selected_after = set(selected_before)
+            if entry.operation == 'rename':
+                inverse = {
+                    destination: source
+                    for source, destination in entry.payload
+                }
+                selected_after = {
+                    inverse.get(path, path)
+                    for path in selected_after
+                }
+            selected_after.update(restored_images)
+            for row in range(self.file_list_widget.count()):
+                item = self.file_list_widget.item(row)
+                if item.data(Qt.UserRole) in selected_after:
+                    item.setSelected(True)
+        self.rescan_annotation_workspace()
+        self.refresh_file_list_statuses()
+        if self.file_path is None and restored_images:
+            self.load_file(restored_images[0])
+        elif (
+            entry.operation == 'clear'
+            and self.file_path
+            and any(
+                os.path.normcase(resource.original_path)
+                in {
+                    os.path.normcase(path)
+                    for path in self.annotation_paths_for_image(
+                        self.file_path
+                    )
+                }
+                for resource in entry.payload
+            )
+        ):
+            self.load_file(self.file_path)
+        self.status('Recovered file operation')
+        if dialog is not None:
+            dialog.accept()
+
+    def recover_rename(self, forward_mapping):
+        if self.annotation_conflicts:
+            raise FileRecoveryConflict(
+                'Resolve annotation conflicts before recovering a rename.'
+            )
+        inverse = {
+            destination: source
+            for source, destination in forward_mapping.items()
+        }
+        renamer = SynchronizedRenamer(
+            save_dir=self.default_save_dir,
+            storage_coordinator=(
+                self.annotation_workspace.storage_coordinator
+            ),
+        )
+        restored = renamer.rename(inverse)
+        self._migrate_renamed_annotation_state(
+            restored,
+            renamer.last_fingerprints,
+            renamer.last_resource_bytes,
+        )
+        if self.file_path in restored:
+            self.file_path = restored[self.file_path]
+
+    def _migrate_renamed_annotation_state(
+        self,
+        renamed,
+        transaction_fingerprints=None,
+        transaction_contents=None,
+    ):
+        transaction_fingerprints = transaction_fingerprints or {}
+        transaction_contents = transaction_contents or {}
+        self.annotation_workspace.apply_transaction_resources(
+            transaction_fingerprints,
+            transaction_contents,
+        )
+
+        def transaction_fingerprint(path):
+            key = self._resource_key(path)
+            if key in transaction_fingerprints:
+                return transaction_fingerprints[key]
+            return fingerprint_path(path)
+        history_mapping = {
+            source: destination
+            for source, destination in renamed.items()
+            if self.annotation_editing.has_image(source)
+        }
+        target_mapping = {}
+        fingerprint_mapping = {}
+        resource_mapping = {}
+        dirty_migrated = []
+        for source, destination in history_mapping.items():
+            view = self.annotation_editing.view_image(
+                source, touch=False
+            )
+            if view.dirty:
+                dirty_migrated.append((source, destination, view))
+            old_target = view.current_target
+            if not old_target:
+                continue
+            annotation_format = AnnotationFormat.from_path(old_target)
+            new_target = old_target
+            exact_create_ml = (
+                annotation_format is AnnotationFormat.CREATE_ML
+                and os.path.splitext(
+                    os.path.basename(old_target)
+                )[0].casefold()
+                == os.path.splitext(
+                    os.path.basename(source)
+                )[0].casefold()
+            )
+            if (
+                annotation_format is not AnnotationFormat.CREATE_ML
+                or exact_create_ml
+            ):
+                new_target = os.path.join(
+                    os.path.dirname(old_target),
+                    os.path.splitext(os.path.basename(destination))[0]
+                    + annotation_format.extension,
+                )
+            target_mapping[source] = new_target
+            if view.saved_baseline is not None:
+                new_resources = annotation_resources(
+                    annotation_format, new_target
+                )
+                fingerprint_mapping[source] = (
+                    tuple(
+                        (
+                            resource,
+                            transaction_fingerprint(resource),
+                        )
+                        for resource in new_resources
+                    )
+                    if isinstance(
+                        view.saved_baseline.fingerprint, tuple
+                    )
+                    else transaction_fingerprint(new_target)
+                )
+            for old_resource, new_resource in zip(
+                annotation_resources(annotation_format, old_target),
+                annotation_resources(annotation_format, new_target),
+            ):
+                resource_mapping[
+                    self._resource_key(old_resource)
+                ] = self._resource_key(new_resource)
+        if history_mapping:
+            for _source, _destination, view in dirty_migrated:
+                self._release_history_resources(view)
+            try:
+                self.annotation_editing.migrate_images(
+                    history_mapping,
+                    target_mapping=target_mapping,
+                    fingerprint_mapping=fingerprint_mapping,
+                )
+                self.annotation_workspace.migrate_images(
+                    history_mapping, target_mapping=target_mapping
+                )
+            except Exception:
+                for _source, _destination, view in dirty_migrated:
+                    self._hold_history_resources(view)
+                raise
+            for _source, destination, _view in dirty_migrated:
+                migrated_view = self.annotation_editing.view_image(
+                    destination, touch=False
+                )
+                self._hold_history_resources(migrated_view)
+            for source in history_mapping:
+                self.annotation_scene.forget_image(source)
+        for image_key in self.annotation_editing.image_keys:
+            if image_key in history_mapping.values():
+                continue
+            view = self.annotation_editing.view_image(
+                image_key, touch=False
+            )
+            baseline = view.saved_baseline
+            if baseline is None or not view.current_target:
+                continue
+            try:
+                annotation_format = AnnotationFormat.from_path(
+                    view.current_target
+                )
+            except AnnotationDocumentError:
+                continue
+            resources = annotation_resources(
+                annotation_format, view.current_target
+            )
+            if not any(
+                self._resource_key(resource)
+                in transaction_fingerprints
+                for resource in resources
+            ):
+                continue
+            fingerprint = (
+                tuple(
+                    (
+                        resource,
+                        transaction_fingerprint(resource),
+                    )
+                    for resource in resources
+                )
+                if isinstance(baseline.fingerprint, tuple)
+                else transaction_fingerprint(view.current_target)
+            )
+            self.annotation_editing.update_baseline_fingerprint(
+                image_key, fingerprint
+            )
+        if self.annotation_conflicts:
+            migrated_conflicts = {}
+            for resource, conflict in self.annotation_conflicts.items():
+                new_resource = resource_mapping.get(resource, resource)
+                conflict.resource = new_resource
+                conflict.image_keys = {
+                    renamed.get(image_key, image_key)
+                    for image_key in conflict.image_keys
+                }
+                migrated_conflicts[new_resource] = conflict
+            self.annotation_conflicts = migrated_conflicts
+
+    def recover_review(self, changes):
+        prepared = []
+        for change in changes:
+            target = None
+            if self.annotation_editing.has_image(change.image_path):
+                target = self.annotation_editing.view_image(
+                    change.image_path, touch=False
+                ).current_target
+            if target is None:
+                target = self.annotation_workspace.active_document_path(
+                    change.image_path
+                )
+            if target is None:
+                choices = self.annotation_workspace.document_choices(
+                    change.image_path
+                )
+                if len(choices) != 1:
+                    raise FileRecoveryConflict(
+                        'Review resource is ambiguous for %s'
+                        % change.image_path
+                    )
+                target = choices[0].annotation_path
+            annotation_format = AnnotationFormat.from_path(target)
+            image_data = (
+                self.image_data
+                if change.image_path == self.file_path
+                else read(change.image_path, None)
+            )
+            document = self.annotation_workspace.load(
+                target, change.image_path, image_data
+            ).document
+            if (
+                document.verified != change.result_verified
+                or document.questioned != change.result_questioned
+            ):
+                raise FileRecoveryConflict(
+                    'Review state changed again for %s'
+                    % change.image_path
+                )
+            prepared.append(
+                (change, document, annotation_format, target)
+            )
+
+        rewritten_histories = []
+        try:
+            for change, _document, _format, _target in prepared:
+                if not self.annotation_editing.has_image(
+                    change.image_path
+                ):
+                    continue
+                view = self.annotation_editing.view_image(
+                    change.image_path, touch=False
+                )
+                old_fingerprint = (
+                    view.saved_baseline.fingerprint
+                    if view.saved_baseline is not None
+                    else None
+                )
+                self.annotation_editing.rewrite_review_state(
+                    change.image_path,
+                    (
+                        change.result_verified,
+                        change.result_questioned,
+                    ),
+                    (
+                        change.prior_verified,
+                        change.prior_questioned,
+                    ),
+                    old_fingerprint,
+                )
+                rewritten_histories.append(
+                    (change, old_fingerprint)
+                )
+        except Exception as error:
+            for rewritten, old_fingerprint in reversed(
+                rewritten_histories
+            ):
+                self.annotation_editing.rewrite_review_state(
+                    rewritten.image_path,
+                    (
+                        rewritten.prior_verified,
+                        rewritten.prior_questioned,
+                    ),
+                    (
+                        rewritten.result_verified,
+                        rewritten.result_questioned,
+                    ),
+                    old_fingerprint,
+                )
+            raise FileRecoveryConflict(str(error)) from error
+
+        resources = tuple(
+            dict.fromkeys(
+                resource
+                for _change, _document, annotation_format, target
+                in prepared
+                for resource in annotation_resources(
+                    annotation_format, target
+                )
+            )
+        )
+        before_resources = {
+            resource: self._read_resource_bytes(resource)
+            for resource in resources
+        }
+        completed = []
+        disk_rolled_back = True
+        try:
+            with self.annotation_workspace.storage_coordinator.lease(
+                resources
+            ):
+                try:
+                    create_ml_groups = defaultdict(list)
+                    ordinary = []
+                    for item in prepared:
+                        change, document, annotation_format, target = item
+                        document.verified = change.prior_verified
+                        document.questioned = change.prior_questioned
+                        if annotation_format is AnnotationFormat.CREATE_ML:
+                            create_ml_groups[
+                                self._resource_key(target)
+                            ].append(item)
+                        else:
+                            ordinary.append(item)
+                    if ordinary or create_ml_groups:
+                        disk_rolled_back = False
+                    for (
+                        change,
+                        document,
+                        annotation_format,
+                        target,
+                    ) in ordinary:
+                        saved = self.annotation_workspace.save(
+                            document,
+                            annotation_format,
+                            annotation_path=target,
+                        )
+                        completed.append((change, document, saved))
+                    for target, group in create_ml_groups.items():
+                        saves = (
+                            self.annotation_workspace.save_createml_batch(
+                                tuple(
+                                    (1, document)
+                                    for (
+                                        _change,
+                                        document,
+                                        _format,
+                                        _target,
+                                    ) in group
+                                ),
+                                target,
+                            )
+                        )
+                        completed.extend(
+                            (change, document, saved)
+                            for (
+                                change,
+                                document,
+                                _format,
+                                _target,
+                            ), saved in zip(group, saves)
+                        )
+                except Exception as write_error:
+                    rollback_errors = []
+                    for resource, content in before_resources.items():
+                        try:
+                            self._restore_resource_bytes(
+                                resource, content
+                            )
+                        except Exception as rollback_error:
+                            rollback_errors.append(
+                                '%s: %s'
+                                % (resource, rollback_error)
+                            )
+                    disk_rolled_back = True
+                    if rollback_errors:
+                        raise FileRecoveryError(
+                            'Review recovery rollback failed: %s'
+                            % '; '.join(rollback_errors)
+                        ) from write_error
+                    raise
+        except Exception as error:
+            rollback_errors = []
+            if not disk_rolled_back:
+                rollback_errors.append(
+                    'disk rollback did not complete under the resource lease'
+                )
+            for change, old_fingerprint in reversed(
+                rewritten_histories
+            ):
+                try:
+                    self.annotation_editing.rewrite_review_state(
+                        change.image_path,
+                        (
+                            change.prior_verified,
+                            change.prior_questioned,
+                        ),
+                        (
+                            change.result_verified,
+                            change.result_questioned,
+                        ),
+                        old_fingerprint,
+                    )
+                except Exception as rollback_error:
+                    rollback_errors.append(
+                        '%s history: %s'
+                        % (change.image_path, rollback_error)
+                    )
+            self.rescan_annotation_workspace()
+            if rollback_errors:
+                raise FileRecoveryError(
+                    'Review recovery rollback failed: %s'
+                    % '; '.join(rollback_errors)
+                ) from error
+            raise FileRecoveryError(str(error)) from error
+
+        for change, document, saved in completed:
+            self._propagate_resource_fingerprints(saved.fingerprints)
+            if self.annotation_editing.has_image(change.image_path):
+                self.annotation_editing.update_baseline_fingerprint(
+                    change.image_path,
+                    tuple(saved.fingerprints),
+                )
+                view = self.annotation_editing.view_image(
+                    change.image_path, touch=False
+                )
+                if change.image_path == self.file_path:
+                    self.annotation_scene.project(
+                        self._history_projection_request(
+                            view.snapshot,
+                            direction='recover-review',
+                            preserve_selection=True,
+                        )
+                    )
+            if change.image_path == self.file_path:
+                self.annotation_document = saved.document
+                self._sync_annotation_history_ui()
+
+    @staticmethod
+    def _read_resource_bytes(path):
+        try:
+            with open(path, 'rb') as source:
+                return source.read()
+        except FileNotFoundError:
+            return None
+
+    @staticmethod
+    def _restore_resource_bytes(path, content):
+        if content is None:
+            if os.path.exists(path):
+                os.remove(path)
+            return
+        directory = os.path.dirname(path) or os.curdir
+        descriptor, staged = tempfile.mkstemp(
+            prefix='.labelimg-review-rollback-',
+            dir=directory,
+        )
+        try:
+            with os.fdopen(descriptor, 'wb') as output:
+                output.write(content)
+            os.replace(staged, path)
+        finally:
+            if os.path.exists(staged):
+                os.remove(staged)
 
     def pop_label_list_menu(self, point):
         self.menus.labelList.exec_(self.label_list.mapToGlobal(point))
@@ -1428,6 +2630,10 @@ class MainWindow(QMainWindow, WindowMixin):
     def file_annotation_service(self):
         return AnnotationFileService(
             save_dir=self.default_save_dir,
+            trash=self.system_trash.move,
+            storage_coordinator=(
+                self.annotation_workspace.storage_coordinator
+            ),
         )
 
     def set_selected_review_state(self, state, _checked=False):
@@ -1456,14 +2662,23 @@ class MainWindow(QMainWindow, WindowMixin):
                 return
 
         failures = []
+        recovery_changes = []
         if self.file_path in paths and self.dirty:
             if not self.save_current_annotations_directly():
                 return
         for image_path in paths:
             try:
+                if self.annotation_editing.has_image(image_path):
+                    review_view = self.annotation_editing.view_image(
+                        image_path, touch=False
+                    )
+                    self._verify_snapshot_image(review_view.snapshot)
+                    self._verify_history_baseline(review_view)
                 document = self.annotation_document_for_path(
                     image_path
                 )
+                prior_verified = document.verified
+                prior_questioned = document.questioned
                 document.verified = state == 'verified'
                 document.questioned = state == 'questioned'
                 saved = self.annotation_workspace.save(
@@ -1473,16 +2688,32 @@ class MainWindow(QMainWindow, WindowMixin):
                         image_path
                     ).path_for(AnnotationFormat.PASCAL_VOC),
                 )
+                self._propagate_resource_fingerprints(
+                    saved.fingerprints
+                )
                 if image_path == self.file_path:
                     self.annotation_document = saved.document
                     self.canvas.verified = document.verified
                     self.canvas.questioned = document.questioned
-                    self.set_clean()
+                    self._rebase_current_history(
+                        saved.annotation_path
+                    )
                     self.paint_canvas()
+                recovery_changes.append(
+                    ReviewRecoveryRecord(
+                        image_path=image_path,
+                        prior_verified=prior_verified,
+                        prior_questioned=prior_questioned,
+                        result_verified=document.verified,
+                        result_questioned=document.questioned,
+                    )
+                )
             except Exception as error:
                 failures.append((image_path, error))
         self.refresh_file_list_statuses()
         self.refresh_candidate_labels()
+        if recovery_changes:
+            self.file_recovery.record_review(recovery_changes)
         if failures:
             self.show_file_operation_failures(
                 '部分复核状态未能保存',
@@ -1519,23 +2750,19 @@ class MainWindow(QMainWindow, WindowMixin):
         if self.file_path is None:
             return True
         try:
-            document = AnnotationDocument.from_shapes(
-                image_path=self.file_path,
-                image_data=self.image_data,
-                shapes=self.canvas.shapes,
-                class_names=self.label_hist,
-                verified=self.canvas.verified,
-                questioned=self.canvas.questioned,
-            )
-            saved = self.annotation_workspace.save(
-                document,
-                self.annotation_format,
-                annotation_path=self.annotation_workspace.entry(
+            saved = self.save_labels(
+                self.annotation_workspace.entry(
                     self.file_path
-                ).path_for(self.annotation_format),
+                ).path_for(self.annotation_format)
             )
+            if saved is None:
+                return False
             self.annotation_document = saved.document
-            self.set_clean()
+            self._mark_current_history_saved(
+                saved.annotation_path,
+                saved.revision_id,
+                saved.fingerprints,
+            )
             self.update_file_list_item_status(self.file_path)
             return True
         except Exception as error:
@@ -1569,6 +2796,26 @@ class MainWindow(QMainWindow, WindowMixin):
             '正在清除标注…',
             self.file_annotation_service().clear_annotations,
         )
+        self.file_recovery.record_trash_operation(
+            'clear',
+            result.trashed_resources,
+            target_count=len(result.succeeded_images),
+        )
+        histories = tuple(
+            path
+            for path in result.succeeded_images
+            if self.annotation_editing.has_image(path)
+        )
+        if histories:
+            for path in histories:
+                self._release_history_resources(
+                    self.annotation_editing.view_image(
+                        path, touch=False
+                    )
+                )
+            self.annotation_editing.remove_images(histories)
+            for path in histories:
+                self.annotation_scene.forget_image(path)
         self.rescan_annotation_workspace()
         self.refresh_file_list_statuses()
         processed = set(
@@ -1612,6 +2859,26 @@ class MainWindow(QMainWindow, WindowMixin):
             '正在删除文件…',
             self.file_annotation_service().delete_images,
         )
+        self.file_recovery.record_trash_operation(
+            'delete',
+            result.trashed_resources,
+            target_count=len(result.succeeded_images),
+        )
+        histories = tuple(
+            path
+            for path in result.succeeded_images
+            if self.annotation_editing.has_image(path)
+        )
+        if histories:
+            for path in histories:
+                self._release_history_resources(
+                    self.annotation_editing.view_image(
+                        path, touch=False
+                    )
+                )
+            self.annotation_editing.remove_images(histories)
+            for path in histories:
+                self.annotation_scene.forget_image(path)
         self.rebuild_file_list_after_deletion(
             before,
             old_current,
@@ -1789,15 +3056,26 @@ class MainWindow(QMainWindow, WindowMixin):
         self.execute_file_rename({source: target})
 
     def execute_file_rename(self, mapping):
+        if self.annotation_conflicts:
+            QMessageBox.warning(
+                self,
+                '重命名暂不可用',
+                '请先解决标注资源冲突，再重命名文件。',
+            )
+            return
         if self.file_path in mapping and self.dirty:
             if not self.save_current_annotations_directly():
                 return
         old_current = self.file_path
         selected_before = self.selected_file_paths()
         try:
-            renamed = SynchronizedRenamer(
+            renamer = SynchronizedRenamer(
                 save_dir=self.default_save_dir,
-            ).rename(mapping)
+                storage_coordinator=(
+                    self.annotation_workspace.storage_coordinator
+                ),
+            )
+            renamed = renamer.rename(mapping)
         except FileOperationError as error:
             QMessageBox.warning(
                 self,
@@ -1807,6 +3085,13 @@ class MainWindow(QMainWindow, WindowMixin):
             return
 
         current_after = renamed.get(old_current, old_current)
+        self._migrate_renamed_annotation_state(
+            renamed,
+            renamer.last_fingerprints,
+            renamer.last_resource_bytes,
+        )
+        if renamed:
+            self.file_recovery.record_rename(renamed)
         selected_after = {
             renamed.get(path, path)
             for path in selected_before
@@ -1837,7 +3122,6 @@ class MainWindow(QMainWindow, WindowMixin):
         if text is not None:
             item.setText(text)
             item.setBackground(generate_color_by_text(text))
-            self.set_dirty()
             self.update_combo_box()
 
     # Tzutalin 20160906 : Add file list and dock to move faster
@@ -1867,8 +3151,11 @@ class MainWindow(QMainWindow, WindowMixin):
         shape = selection.active
         difficult = self.diffc_button.isChecked()
         if difficult != shape.difficult:
-            shape.difficult = difficult
-            self.set_dirty()
+            self._perform_annotation_edit(
+                'Change difficult flag',
+                lambda: setattr(shape, 'difficult', difficult),
+                affected=(shape,),
+            )
 
     # React to canvas signals.
     def shape_selection_changed(self, selected=False):
@@ -1957,8 +3244,6 @@ class MainWindow(QMainWindow, WindowMixin):
         for x, y in points:
             # Ensure the labels are within the bounds of the image. If not, fix them.
             x, y, snapped = self.canvas.snap_point_to_canvas(x, y)
-            if snapped:
-                self.set_dirty()
             shape.add_point(QPointF(x, y))
         shape.difficult = difficult
         shape.close()
@@ -1995,8 +3280,6 @@ class MainWindow(QMainWindow, WindowMixin):
         self.annotation_document = document
         self.canvas.verified = document.verified
         self.canvas.questioned = document.questioned
-        if snapped:
-            self.set_dirty()
 
     def update_combo_box(self):
         # Get the unique labels and add them to the Combobox.
@@ -2011,19 +3294,27 @@ class MainWindow(QMainWindow, WindowMixin):
 
     def save_labels(self, annotation_file_path):
         annotation_file_path = ustr(annotation_file_path)
-        document = AnnotationDocument.from_shapes(
-            image_path=self.file_path,
-            image_data=self.image_data,
-            shapes=self.canvas.shapes,
-            class_names=self.label_hist,
-            verified=self.canvas.verified,
-            questioned=self.canvas.questioned,
-        )
+        view = self.annotation_editing.view
+        if view is None:
+            return None
+        target = annotation_file_path
+        if not target.lower().endswith(self.annotation_format.extension):
+            target += self.annotation_format.extension
+        target = os.path.abspath(target)
+        if view.current_target != target:
+            view = self.annotation_editing.set_target(
+                self.file_path, target
+            )
+        revision_id = view.revision_id
+        document = self._document_from_snapshot(view.snapshot)
         try:
+            self._verify_snapshot_image(view.snapshot)
+            self._verify_history_baseline(view)
             saved = self.annotation_workspace.save(
                 document,
                 self.annotation_format,
                 annotation_path=annotation_file_path,
+                revision_id=revision_id,
             )
             self.annotation_document = saved.document
             if saved.document is not None:
@@ -2034,18 +3325,206 @@ class MainWindow(QMainWindow, WindowMixin):
                     )
                 )
             return saved
+        except AnnotationStorageConflict as error:
+            conflict_path = annotation_file_path
+            if not conflict_path.lower().endswith(
+                self.annotation_format.extension
+            ):
+                conflict_path += self.annotation_format.extension
+            return self._handle_annotation_storage_conflict(
+                error,
+                document,
+                conflict_path,
+                revision_id,
+            )
         except AnnotationDocumentError as e:
             self.error_message(u'Error saving label data', u'<b>%s</b>' % e)
             return None
 
+    def _handle_annotation_storage_conflict(
+        self,
+        error,
+        document,
+        annotation_file_path,
+        revision_id,
+    ):
+        conflict_resources = self._register_annotation_conflict(
+            error, self.file_path
+        )
+        self.auto_save_timer.stop()
+        self.refresh_file_list_statuses()
+        if self._autosave_request:
+            self.status(
+                'Autosave paused: annotation files changed outside LabelImg',
+                10000,
+            )
+            return None
+
+        box = QMessageBox(self)
+        box.setWindowTitle('Annotation file conflict')
+        box.setIcon(QMessageBox.Warning)
+        box.setText(
+            'The annotation resource changed outside LabelImg.'
+        )
+        box.setInformativeText(
+            'Load the external version, overwrite it with the current '
+            'in-memory version, or cancel.'
+        )
+        load_button = box.addButton(
+            'Load External',
+            QMessageBox.DestructiveRole,
+        )
+        overwrite_button = box.addButton(
+            'Overwrite External',
+            QMessageBox.AcceptRole,
+        )
+        box.addButton(QMessageBox.Cancel)
+        box.exec_()
+        clicked = box.clickedButton()
+        if clicked is load_button:
+            for resource in conflict_resources:
+                conflict = self.annotation_conflicts.get(resource)
+                if (
+                    conflict is not None
+                    and not self._load_external_resource_conflict(
+                        conflict
+                    )
+                ):
+                    return None
+            return None
+        if clicked is overwrite_button:
+            current_saved = None
+            for resource in conflict_resources:
+                conflict = self.annotation_conflicts.get(resource)
+                if conflict is None:
+                    continue
+                result = self._overwrite_resource_conflict(conflict)
+                if not result:
+                    return None
+                if getattr(result, 'annotation_path', None):
+                    current_saved = result
+            return current_saved
+        return None
+
+    @staticmethod
+    def _resource_key(path):
+        return os.path.normcase(os.path.abspath(os.fspath(path)))
+
+    def _resources_for_history_view(self, view):
+        target = view.current_target
+        if not target:
+            return ()
+        try:
+            annotation_format = AnnotationFormat.from_path(target)
+        except AnnotationDocumentError:
+            return ()
+        return tuple(
+            self._resource_key(path)
+            for path in annotation_resources(annotation_format, target)
+        )
+
+    def _hold_history_resources(self, view):
+        for resource in self._resources_for_history_view(view):
+            self.annotation_workspace.hold_resource(
+                resource, owner=("history", view.image_key)
+            )
+
+    def _release_history_resources(self, view):
+        for resource in self._resources_for_history_view(view):
+            self.annotation_workspace.release_resource(
+                resource, owner=("history", view.image_key)
+            )
+
+    def _verify_history_baseline(self, view):
+        baseline = view.saved_baseline
+        if baseline is None:
+            return
+        mismatches = self._baseline_mismatches(baseline)
+        if mismatches:
+            raise AnnotationStorageConflict(mismatches)
+
+    def _register_annotation_conflict(self, error, image_key):
+        mismatch_resources = tuple(
+            self._resource_key(path)
+            for path, _expected, _actual in error.mismatches
+        )
+        dependent = {str(image_key)}
+        for candidate in self.annotation_editing.image_keys:
+            view = self.annotation_editing.view_image(
+                candidate, touch=False
+            )
+            if set(mismatch_resources).intersection(
+                self._resources_for_history_view(view)
+            ):
+                dependent.add(candidate)
+        for resource in mismatch_resources:
+            state = self.annotation_conflicts.get(resource)
+            if state is None:
+                state = AnnotationResourceConflictState(
+                    resource=resource,
+                    error=error,
+                )
+                self.annotation_conflicts[resource] = state
+            state.error = error
+            state.image_keys.update(dependent)
+            if resource.lower().endswith('.json'):
+                names = self.annotation_workspace.create_ml_image_names(
+                    resource
+                )
+                by_name = {
+                    os.path.basename(path).casefold(): path
+                    for path in self.m_img_list
+                }
+                state.image_keys.update(
+                    by_name[name.casefold()]
+                    for name in names
+                    if name.casefold() in by_name
+                )
+                self.annotation_workspace.hold_resource(
+                    resource, owner=("conflict", resource)
+                )
+            state.affected_count = max(
+                state.affected_count,
+                len(state.image_keys),
+                (
+                    self.annotation_workspace.create_ml_image_count(
+                        resource
+                    )
+                    if resource.lower().endswith('.json')
+                    else 1
+                ),
+            )
+        return mismatch_resources
+
+    def _image_has_annotation_conflict(self, image_key):
+        image_key = str(image_key)
+        return any(
+            image_key in state.image_keys
+            for state in self.annotation_conflicts.values()
+        )
+
+    def _clear_resource_conflicts(self, resources):
+        for resource in resources:
+            resource_key = self._resource_key(resource)
+            self.annotation_workspace.release_resource(
+                resource_key,
+                owner=("conflict", resource_key),
+            )
+            self.annotation_conflicts.pop(
+                self._resource_key(resource), None
+            )
+
     def copy_selected_shape(self):
-        copied_shapes = self.canvas.copy_selected_shapes()
+        copied_shapes = self._perform_annotation_edit(
+            'Duplicate boxes',
+            self.canvas.copy_selected_shapes,
+            affected=lambda shapes: shapes,
+        )
         if not copied_shapes:
             return
         for shape in copied_shapes:
             self.add_label(shape)
         self.shape_selection_changed(True)
-        self.set_dirty()
         self.status('Duplicated %d label(s)' % len(copied_shapes))
 
     def combo_selection_changed(self, index):
@@ -2078,9 +3557,19 @@ class MainWindow(QMainWindow, WindowMixin):
         shape = self.items_to_shapes[item]
         label = item.text()
         if label != shape.label:
-            shape.label = item.text()
-            shape.line_color = generate_color_by_text(shape.label)
-            self.set_dirty()
+            old_label = shape.label
+            def apply_label():
+                shape.label = label
+                shape.line_color = generate_color_by_text(label)
+            self._perform_annotation_edit(
+                'Change label: %s \u2192 %s' % (old_label, label),
+                apply_label,
+                affected=(shape,),
+                old_label=old_label,
+                new_label=label,
+            )
+            item.setBackground(generate_color_by_text(label))
+            self.update_combo_box()
         else:  # User probably changed item visibility
             self.canvas.set_shape_visible(shape, item.checkState() == Qt.Checked)
 
@@ -2114,13 +3603,20 @@ class MainWindow(QMainWindow, WindowMixin):
                 self.actions.create.setEnabled(True)
             else:
                 self.actions.editMode.setEnabled(True)
-            self.set_dirty()
+            self.annotation_editing.clear_pending()
+            self.annotation_scene.identities.assign(shape)
+            self.annotation_editing.commit_edit(
+                affected_ids=(shape.session_id,)
+            )
+            self._after_annotation_edit()
 
             if text not in self.label_hist:
                 self.label_hist.append(text)
         else:
-            # self.canvas.undoLastLine()
             self.canvas.reset_all_lines()
+            self.annotation_editing.clear_pending()
+            self.annotation_editing.cancel_edit(restore=False)
+            self._sync_annotation_history_ui()
 
     def scroll_request(self, delta, orientation):
         units = - delta / (8 * 15)
@@ -2212,13 +3708,30 @@ class MainWindow(QMainWindow, WindowMixin):
 
     def load_file(self, file_path=None):
         """Load the specified file, or the last opened file if None."""
-        self.reset_state()
-        self.canvas.setEnabled(False)
         if file_path is None:
             file_path = self.settings.get(SETTING_FILENAME)
 
         # Make sure that filePath is a regular python string, rather than QString
         file_path = ustr(file_path)
+        if file_path:
+            try:
+                supplied_format = AnnotationFormat.from_path(file_path)
+            except AnnotationDocumentError:
+                supplied_format = None
+        else:
+            supplied_format = None
+        if (
+            supplied_format is None
+            and file_path
+            and os.path.isfile(file_path)
+            and not self._ensure_active_annotation_choice(
+                os.path.abspath(file_path)
+            )
+        ):
+            return False
+
+        self.reset_state()
+        self.canvas.setEnabled(False)
 
         # Fix bug: An  index error after select a directory when open a new file.
         unicode_file_path = ustr(file_path)
@@ -2311,6 +3824,7 @@ class MainWindow(QMainWindow, WindowMixin):
                 self.show_bounding_box_from_annotation_file(
                     unicode_file_path
                 )
+            self._activate_annotation_history()
 
             counter = self.counter_str()
             self.setWindowTitle(__appname__ + ' ' + file_path + ' ' + counter)
@@ -2318,6 +3832,48 @@ class MainWindow(QMainWindow, WindowMixin):
             self.canvas.setFocus(True)
             return True
         return False
+
+    def _ensure_active_annotation_choice(self, image_path):
+        choices = self.annotation_workspace.document_choices(
+            image_path
+        )
+        if (
+            len(choices) < 2
+            or self.annotation_workspace.active_document_path(
+                image_path
+            )
+        ):
+            return True
+        labels = [
+            '%s  |  %s  |  %s'
+            % (
+                choice.annotation_format.display_name,
+                choice.annotation_path,
+                QDateTime.fromMSecsSinceEpoch(
+                    choice.modified_ns // 1_000_000
+                ).toString(Qt.ISODate),
+            )
+            for choice in choices
+        ]
+        selected, accepted = QInputDialog.getItem(
+            self,
+            'Choose annotation document',
+            (
+                'Multiple annotation formats exist for this image. '
+                'Choose the active document for this workspace session:'
+            ),
+            labels,
+            0,
+            False,
+        )
+        if not accepted:
+            return False
+        index = labels.index(selected)
+        self.annotation_workspace.select_active_document(
+            image_path,
+            choices[index].annotation_path,
+        )
+        return True
 
     def counter_str(self):
         """
@@ -2375,8 +3931,15 @@ class MainWindow(QMainWindow, WindowMixin):
         return w / self.canvas.pixmap.width()
 
     def closeEvent(self, event):
+        if (
+            self.annotation_conflicts
+            and not self._resolve_conflicts_for_close()
+        ):
+            event.ignore()
+            return
         if not self.may_continue():
             event.ignore()
+            return
         settings = self.settings
         # If it loads images from dir, don't load it at the beginning
         if self.dir_name is None:
@@ -2407,6 +3970,268 @@ class MainWindow(QMainWindow, WindowMixin):
         settings[SETTING_DRAW_SQUARE] = self.draw_squares_option.isChecked()
         settings[SETTING_LABEL_FILE_FORMAT] = self.annotation_format
         settings.save()
+
+    def _resolve_conflicts_for_close(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle('Resolve annotation conflicts')
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel(
+            'Choose a resolution for every external annotation conflict.'
+        ))
+        conflicts = list(self.annotation_conflicts.values())
+        table = QTableWidget(len(conflicts), 2, dialog)
+        table.setHorizontalHeaderLabels(('Resource', 'Resolution'))
+        choices = []
+        for row, conflict in enumerate(conflicts):
+            item = QTableWidgetItem(conflict.resource)
+            item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+            table.setItem(row, 0, item)
+            combo = QComboBox(table)
+            combo.addItems(
+                ('Choose\u2026', 'Load External', 'Overwrite External')
+            )
+            table.setCellWidget(row, 1, combo)
+            choices.append(combo)
+        table.horizontalHeader().setStretchLastSection(True)
+        layout.addWidget(table)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel,
+            dialog,
+        )
+        ok_button = buttons.button(QDialogButtonBox.Ok)
+        ok_button.setEnabled(False)
+
+        def update_ok():
+            ok_button.setEnabled(
+                all(combo.currentIndex() > 0 for combo in choices)
+            )
+
+        for combo in choices:
+            combo.currentIndexChanged.connect(update_ok)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        dialog.resize(700, 300)
+        if dialog.exec_() != QDialog.Accepted:
+            return False
+
+        for conflict, combo in zip(conflicts, choices):
+            if combo.currentIndex() == 1:
+                if not self._load_external_resource_conflict(conflict):
+                    return False
+            else:
+                if not self._overwrite_resource_conflict(conflict):
+                    return False
+        return True
+
+    def _load_external_resource_conflict(self, conflict):
+        affected = tuple(conflict.image_keys)
+        dirty_count = sum(
+            1
+            for image_key in affected
+            if self.annotation_editing.has_image(image_key)
+            and self.annotation_editing.view_image(
+                image_key, touch=False
+            ).dirty
+        )
+        if conflict.affected_count > 1 or dirty_count > 1:
+            answer = QMessageBox.question(
+                self,
+                'Load shared external resource',
+                (
+                    'Loading this resource affects %d images and '
+                    'discards changes in %d dirty images. Continue?'
+                ) % (conflict.affected_count, dirty_count),
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if answer != QMessageBox.Yes:
+                return False
+        try:
+            image_resource = any(
+                self._resource_key(image_key)
+                == self._resource_key(conflict.resource)
+                for image_key in affected
+            )
+            prepared = []
+            if (
+                not image_resource
+                and conflict.resource.lower().endswith('.json')
+            ):
+                self.annotation_workspace.validate_create_ml_resource(
+                    conflict.resource
+                )
+            for image_key in affected:
+                if not self.annotation_editing.has_image(image_key):
+                    continue
+                view = self.annotation_editing.view_image(
+                    image_key, touch=False
+                )
+                if image_resource:
+                    image_data = (
+                        self.image_data
+                        if image_key == self.file_path
+                        else read(image_key, None)
+                    )
+                    image = (
+                        image_data
+                        if isinstance(image_data, QImage)
+                        else QImage.fromData(image_data)
+                    )
+                    if image.isNull():
+                        raise AnnotationDocumentError(
+                            'External image is not readable: %s'
+                            % image_key
+                        )
+                    prepared.append((image_key, view, None))
+                    continue
+                if self._resource_key(conflict.resource) not in (
+                    self._resources_for_history_view(view)
+                ):
+                    continue
+                image_data = (
+                    self.image_data
+                    if image_key == self.file_path
+                    else read(image_key, None)
+                )
+                loaded = self.annotation_workspace.load(
+                    view.current_target,
+                    image_key,
+                    image_data,
+                )
+                prepared.append((image_key, view, loaded))
+
+            external_key = self._resource_key(conflict.resource)
+            external_fingerprint = fingerprint_path(
+                conflict.resource
+            )
+            external_content = self._read_resource_bytes(
+                conflict.resource
+            )
+            current_item = next(
+                (
+                    item
+                    for item in prepared
+                    if item[0] == self.file_path
+                ),
+                None,
+            )
+            if current_item is not None and not image_resource:
+                image_key, view, loaded = current_item
+                old_snapshot = view.snapshot
+                try:
+                    self.clear_current_labels()
+                    self.load_annotation_document(loaded.document)
+                    self._rebase_current_history(view.current_target)
+                except Exception as commit_error:
+                    try:
+                        self.annotation_scene.project(
+                            self._history_projection_request(
+                                old_snapshot,
+                                direction='load-external-rollback',
+                                preserve_selection=True,
+                            )
+                        )
+                    except Exception as rollback_error:
+                        self._annotation_projection_degraded(
+                            image_key,
+                            commit_error,
+                            rollback_error,
+                        )
+                    raise
+                self._release_history_resources(view)
+
+            for image_key, view, _loaded in prepared:
+                if image_key == self.file_path and not image_resource:
+                    continue
+                self._release_history_resources(view)
+                self.annotation_editing.remove_images((image_key,))
+                self.annotation_scene.forget_image(image_key)
+            if image_resource and current_item is not None:
+                self.load_file(current_item[0])
+
+            self.annotation_workspace.apply_transaction_resources(
+                {external_key: external_fingerprint},
+                {external_key: external_content},
+            )
+        except Exception as error:
+            if conflict.resource.lower().endswith('.json'):
+                self.annotation_workspace.hold_resource(
+                    conflict.resource,
+                    owner=("conflict", conflict.resource),
+                )
+            self.error_message(
+                'Conflict resolution failed',
+                '<p>%s</p>' % error,
+            )
+            return False
+        self._clear_resource_conflicts((conflict.resource,))
+        self.refresh_file_list_statuses()
+        return True
+
+    def _overwrite_resource_conflict(self, conflict):
+        if any(
+            self._resource_key(image_key)
+            == self._resource_key(conflict.resource)
+            for image_key in conflict.image_keys
+        ):
+            self.error_message(
+                'Image file conflict',
+                '<p>The image itself changed externally. Reload the '
+                'external image before saving annotations.</p>',
+            )
+            return False
+        affected_views = [
+            self.annotation_editing.view_image(
+                image_key, touch=False
+            )
+            for image_key in conflict.image_keys
+            if self.annotation_editing.has_image(image_key)
+        ]
+        dirty_views = [view for view in affected_views if view.dirty]
+        if conflict.affected_count > 1 or len(dirty_views) > 1:
+            answer = QMessageBox.question(
+                self,
+                'Overwrite shared external resource',
+                (
+                    'Overwriting this resource affects %d images and '
+                    'writes changes from %d dirty images. Continue?'
+                ) % (conflict.affected_count, len(dirty_views)),
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if answer != QMessageBox.Yes:
+                return False
+        self.annotation_workspace.accept_resource_fingerprints(
+            (conflict.resource,)
+        )
+        self._propagate_resource_fingerprints(
+            (
+                (
+                    conflict.resource,
+                    fingerprint_path(conflict.resource),
+                ),
+            )
+        )
+        saved_by_image = self._save_history_views(dirty_views)
+        if saved_by_image is None:
+            return False
+        for view in affected_views:
+            if view.dirty:
+                continue
+            resources = self._resources_for_history_view(view)
+            fingerprints = tuple(
+                (path, fingerprint_path(path)) for path in resources
+            )
+            self.annotation_editing.mark_image_saved(
+                view.image_key,
+                view.revision_id,
+                view.current_target,
+                fingerprints,
+            )
+        self._clear_resource_conflicts((conflict.resource,))
+        self.refresh_file_list_statuses()
+        return saved_by_image.get(self.file_path, True)
 
     def load_recent(self, filename):
         if self.may_continue():
@@ -2454,13 +4279,51 @@ class MainWindow(QMainWindow, WindowMixin):
     def file_list_item_text(self, image_path):
         display_path = self.file_list_display_path(image_path)
         status = self.annotation_workspace.entry(image_path).status
+        suffixes = []
         if status.questioned:
-            return display_path + '  ' + FILE_LIST_QUESTIONED_MARK
-        if status.verified:
-            return display_path + '  ' + FILE_LIST_VERIFIED_MARK
-        if status.has_annotations:
-            return display_path + '  ' + FILE_LIST_ANNOTATED_MARK
-        return display_path
+            suffixes.append(FILE_LIST_QUESTIONED_MARK)
+        elif status.verified:
+            suffixes.append(FILE_LIST_VERIFIED_MARK)
+        elif status.has_annotations:
+            suffixes.append(FILE_LIST_ANNOTATED_MARK)
+        flags = self.file_persistence_flags(image_path)
+        if 'dirty' in flags:
+            suffixes.append('*')
+        if 'conflict' in flags:
+            suffixes.append('!')
+        if 'ambiguous' in flags:
+            suffixes.append('\u224b')
+        if 'degraded' in flags:
+            suffixes.append('\u26a0')
+        return (
+            display_path
+            + (('  ' + ' '.join(suffixes)) if suffixes else '')
+        )
+
+    def file_persistence_flags(self, image_path):
+        flags = []
+        if self.annotation_editing.has_image(image_path):
+            view = self.annotation_editing.view_image(
+                image_path, touch=False
+            )
+            if view.dirty:
+                flags.append('dirty')
+        if self._image_has_annotation_conflict(image_path):
+            flags.append('conflict')
+        if (
+            len(
+                self.annotation_workspace.document_choices(
+                    image_path
+                )
+            ) > 1
+            and not self.annotation_workspace.active_document_path(
+                image_path
+            )
+        ):
+            flags.append('ambiguous')
+        if self.annotation_editing.is_degraded(image_path):
+            flags.append('degraded')
+        return tuple(flags)
 
     def update_file_list_item_status(self, image_path):
         if not image_path or image_path not in self.m_img_list:
@@ -2474,8 +4337,19 @@ class MainWindow(QMainWindow, WindowMixin):
             FILE_ANNOTATION_STATE_ROLE,
             self.file_annotation_state(image_path),
         )
+        flags = self.file_persistence_flags(image_path)
+        item.setData(FILE_PERSISTENCE_FLAGS_ROLE, flags)
         item.setText(self.file_list_item_text(image_path))
-        item.setToolTip(image_path)
+        details = [image_path]
+        if 'dirty' in flags:
+            details.append('Unsaved annotation changes')
+        if 'conflict' in flags:
+            details.append('External annotation conflict')
+        if 'ambiguous' in flags:
+            details.append('Choose an active annotation format')
+        if 'degraded' in flags:
+            details.append('Read-only degraded annotation state')
+        item.setToolTip('\n'.join(details))
 
     def refresh_file_list_statuses(self):
         for image_path in self.m_img_list:
@@ -2515,8 +4389,56 @@ class MainWindow(QMainWindow, WindowMixin):
                                                          | QFileDialog.DontResolveSymlinks))
 
         if dir_path is not None and len(dir_path) > 1:
-            self.default_save_dir = dir_path
-            self.load_candidate_labels_from_dir(dir_path)
+            dir_path = os.path.abspath(dir_path)
+            if (
+                self.default_save_dir
+                and os.path.abspath(self.default_save_dir) == dir_path
+            ):
+                return
+            if not self.may_continue():
+                return
+            replacement = AnnotationWorkspace(save_dir=dir_path)
+            try:
+                replacement.scan(dir_path)
+                loaded = (
+                    replacement.load_for_image(
+                        self.file_path,
+                        self.image_data,
+                    )
+                    if self.file_path
+                    else None
+                )
+            except Exception as error:
+                self.error_message(
+                    'Unable to change annotation directory',
+                    '<p>%s</p>' % error,
+                )
+                return
+            self._clear_resource_conflicts(
+                tuple(self.annotation_conflicts)
+            )
+            self.annotation_workspace = replacement
+            self._default_save_dir = dir_path
+            for label in replacement.candidate_labels:
+                if label not in self.label_hist:
+                    self.label_hist.append(label)
+            self.annotation_editing.clear_workspace()
+            self.annotation_scene.clear_workspace()
+            self.file_recovery.clear()
+            if self.file_path:
+                self.clear_current_labels()
+                if loaded is not None:
+                    self.set_format(
+                        document_format_name(
+                            loaded.annotation_format
+                        )
+                    )
+                    self.load_annotation_document(loaded.document)
+                else:
+                    self.canvas.verified = False
+                    self.canvas.questioned = False
+                self._activate_annotation_history()
+            self.refresh_candidate_labels()
             self.refresh_file_list_statuses()
 
         self.statusBar().showMessage('%s . Annotation will be saved to %s' %
@@ -2570,6 +4492,17 @@ class MainWindow(QMainWindow, WindowMixin):
         if not self.may_continue() or not dir_path:
             return
 
+        if (
+            self.dir_name is None
+            or os.path.abspath(self.dir_name)
+            != os.path.abspath(dir_path)
+        ):
+            self._clear_resource_conflicts(
+                tuple(self.annotation_conflicts)
+            )
+            self.annotation_editing.clear_workspace()
+            self.annotation_scene.clear_workspace()
+            self.file_recovery.clear()
         self.last_open_dir = dir_path
         self.dir_name = dir_path
         self.file_path = None
@@ -2600,6 +4533,10 @@ class MainWindow(QMainWindow, WindowMixin):
                 FILE_ANNOTATION_STATE_ROLE,
                 self.file_annotation_state(image_path),
             )
+            item.setData(
+                FILE_PERSISTENCE_FLAGS_ROLE,
+                self.file_persistence_flags(image_path),
+            )
             item.setData(CURRENT_IMAGE_ROLE, False)
             item.setToolTip(image_path)
             self.file_list_widget.addItem(item)
@@ -2616,23 +4553,36 @@ class MainWindow(QMainWindow, WindowMixin):
     def toggle_image_status(self, toggle_method):
         if self.file_path is None:
             return
-        document = AnnotationDocument.from_shapes(
-            image_path=self.file_path,
-            image_data=self.image_data,
-            shapes=self.canvas.shapes,
-            class_names=self.label_hist,
-            verified=self.canvas.verified,
-            questioned=self.canvas.questioned,
-        )
-        getattr(document, toggle_method)()
-        try:
-            saved = self.annotation_workspace.save(
-                document,
-                self.annotation_format,
-                annotation_path=self.annotation_workspace.entry(
-                    self.file_path
-                ).path_for(self.annotation_format),
+        def toggle():
+            document = AnnotationDocument.from_shapes(
+                image_path=self.file_path,
+                image_data=self.image_data,
+                shapes=self.canvas.shapes,
+                class_names=self.label_hist,
+                verified=self.canvas.verified,
+                questioned=self.canvas.questioned,
             )
+            getattr(document, toggle_method)()
+            self.canvas.verified = document.verified
+            self.canvas.questioned = document.questioned
+            return document
+        document = self._perform_annotation_edit(
+            (
+                'Toggle verified'
+                if toggle_method == 'toggle_verified'
+                else 'Toggle questioned'
+            ),
+            toggle,
+            affected=(),
+        )
+        try:
+            saved = self.save_labels(
+                self.annotation_workspace.entry(
+                    self.file_path
+                ).path_for(self.annotation_format)
+            )
+            if saved is None:
+                return
         except Exception as error:
             self.error_message(
                 'Error saving label data',
@@ -2640,10 +4590,12 @@ class MainWindow(QMainWindow, WindowMixin):
             )
             return
         self.annotation_document = saved.document
-        self.canvas.verified = document.verified
-        self.canvas.questioned = document.questioned
         self.paint_canvas()
-        self.set_clean()
+        self._mark_current_history_saved(
+            saved.annotation_path,
+            saved.revision_id,
+            saved.fingerprints,
+        )
         self.update_file_list_item_status(self.file_path)
 
     def open_prev_image(self, _value=False):
@@ -2655,9 +4607,6 @@ class MainWindow(QMainWindow, WindowMixin):
             else:
                 self.change_save_dir_dialog()
                 return
-
-        if not self.may_continue():
-            return
 
         if self.img_count <= 0:
             return
@@ -2680,9 +4629,6 @@ class MainWindow(QMainWindow, WindowMixin):
             else:
                 self.change_save_dir_dialog()
                 return
-
-        if not self.may_continue():
-            return
 
         if self.img_count <= 0:
             return
@@ -2757,6 +4703,19 @@ class MainWindow(QMainWindow, WindowMixin):
         return ''
 
     def _save_file(self, annotation_file_path):
+        was_degraded = self.annotation_editing.degraded
+        if was_degraded and annotation_file_path:
+            rescue_path = annotation_file_path
+            if not rescue_path.lower().endswith(
+                self.annotation_format.extension
+            ):
+                rescue_path += self.annotation_format.extension
+            if os.path.lexists(rescue_path):
+                self.error_message(
+                    'Rescue Save As requires a new path',
+                    '<p>Choose a path that does not already exist.</p>',
+                )
+                return
         saved = (
             self.save_labels(annotation_file_path)
             if annotation_file_path
@@ -2764,7 +4723,15 @@ class MainWindow(QMainWindow, WindowMixin):
         )
         if saved:
             self.refresh_candidate_labels()
-            self.set_clean()
+            if was_degraded:
+                self.annotation_editing.clear_degraded(self.file_path)
+                self._rebase_current_history(saved.annotation_path)
+            else:
+                self._mark_current_history_saved(
+                    saved.annotation_path,
+                    saved.revision_id,
+                    saved.fingerprints,
+                )
             self.update_file_list_item_status(self.file_path)
             if saved.removed:
                 self.statusBar().showMessage(
@@ -2800,21 +4767,284 @@ class MainWindow(QMainWindow, WindowMixin):
         )
 
     def may_continue(self):
-        if not self.dirty:
+        if (
+            self.annotation_conflicts
+            and not self._resolve_conflicts_for_close()
+        ):
+            return False
+        dirty_views = list(self.annotation_editing.dirty_views())
+        if not dirty_views:
             return True
-        else:
-            discard_changes = self.discard_changes_dialog()
-            if discard_changes == QMessageBox.No:
-                return True
-            elif discard_changes == QMessageBox.Yes:
-                self.save_file()
-                return True
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle('Unsaved annotation changes')
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel(
+            'Choose Save or Discard for every changed image.'
+        ))
+        table = QTableWidget(len(dirty_views), 2, dialog)
+        table.setHorizontalHeaderLabels(('Image', 'Action'))
+        choices = []
+        for row, view in enumerate(dirty_views):
+            item = QTableWidgetItem(view.image_key)
+            item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+            table.setItem(row, 0, item)
+            combo = QComboBox(table)
+            combo.addItems(('Choose\u2026', 'Save', 'Discard'))
+            table.setCellWidget(row, 1, combo)
+            choices.append(combo)
+        table.horizontalHeader().setStretchLastSection(True)
+        layout.addWidget(table)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel,
+            dialog,
+        )
+        ok_button = buttons.button(QDialogButtonBox.Ok)
+        ok_button.setEnabled(False)
+
+        def update_ok():
+            ok_button.setEnabled(
+                all(combo.currentIndex() > 0 for combo in choices)
+            )
+
+        for combo in choices:
+            combo.currentIndexChanged.connect(update_ok)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        dialog.resize(760, 320)
+        if dialog.exec_() != QDialog.Accepted:
+            return False
+
+        save_views = [
+            view
+            for view, combo in zip(dirty_views, choices)
+            if combo.currentIndex() == 1
+        ]
+        if self._save_history_views(save_views) is None:
+            return False
+        for view, combo in zip(dirty_views, choices):
+            if combo.currentIndex() == 2:
+                if not self._discard_history_view(view):
+                    return False
+        self._sync_annotation_history_ui()
+        return True
+
+    def _save_history_views(self, views):
+        views = tuple(views)
+        saved_by_image = {}
+        create_ml_groups = defaultdict(list)
+        ordinary = []
+        for view in views:
+            target = view.current_target
+            try:
+                annotation_format = (
+                    AnnotationFormat.from_path(target)
+                    if target
+                    else self.annotation_format
+                )
+            except AnnotationDocumentError:
+                annotation_format = self.annotation_format
+            if (
+                annotation_format is AnnotationFormat.CREATE_ML
+                and target
+            ):
+                create_ml_groups[self._resource_key(target)].append(view)
             else:
-                return False
+                ordinary.append(view)
+        for view in ordinary:
+            saved = self._save_history_view(view)
+            if not saved:
+                return None
+            saved_by_image[view.image_key] = saved
+        for target, group in create_ml_groups.items():
+            if len(group) == 1:
+                saved = self._save_history_view(group[0])
+                if not saved:
+                    return None
+                saved_by_image[group[0].image_key] = saved
+                continue
+            try:
+                for view in group:
+                    self._verify_snapshot_image(view.snapshot)
+                    self._verify_history_baseline(view)
+                revision_documents = tuple(
+                    (
+                        view.revision_id,
+                        self._document_from_snapshot(
+                            view.snapshot,
+                            image_data=(
+                                self.image_data
+                                if view.image_key == self.file_path
+                                else read(view.image_key, None)
+                            ),
+                        ),
+                    )
+                    for view in group
+                )
+                saves = self.annotation_workspace.save_createml_batch(
+                    revision_documents, target
+                )
+            except AnnotationStorageConflict as error:
+                for view in group:
+                    self._register_annotation_conflict(
+                        error, view.image_key
+                    )
+                self.error_message(
+                    'Unable to save annotation changes',
+                    '<p>%s</p>' % error,
+                )
+                return None
+            except Exception as error:
+                self.error_message(
+                    'Unable to save annotation changes',
+                    '<p>%s</p>' % error,
+                )
+                return None
+            for view, saved in zip(group, saves):
+                self.annotation_editing.mark_image_saved(
+                    view.image_key,
+                    saved.revision_id,
+                    saved.annotation_path,
+                    tuple(saved.fingerprints),
+                )
+                saved_by_image[view.image_key] = saved
+                self.update_file_list_item_status(view.image_key)
+                self._release_history_resources(view)
+            if saves:
+                self._propagate_resource_fingerprints(
+                    saves[0].fingerprints
+                )
+        return saved_by_image
+
+    def _save_history_view(self, view):
+        target = view.current_target
+        if not target:
+            target = self.annotation_workspace.entry(
+                view.image_key
+            ).path_for(self.annotation_format)
+        try:
+            self._verify_snapshot_image(view.snapshot)
+            self._verify_history_baseline(view)
+            annotation_format = AnnotationFormat.from_path(target)
+            image_data = (
+                self.image_data
+                if view.image_key == self.file_path
+                else read(view.image_key, None)
+            )
+            document = self._document_from_snapshot(
+                view.snapshot, image_data=image_data
+            )
+            saved = self.annotation_workspace.save(
+                document,
+                annotation_format,
+                annotation_path=target,
+                revision_id=view.revision_id,
+            )
+            self.annotation_editing.mark_image_saved(
+                view.image_key,
+                saved.revision_id,
+                saved.annotation_path,
+                tuple(saved.fingerprints),
+            )
+            self._propagate_resource_fingerprints(
+                saved.fingerprints
+            )
+            self._release_history_resources(view)
+            if view.image_key == self.file_path:
+                self.annotation_document = saved.document
+            self.update_file_list_item_status(view.image_key)
+            return saved
+        except AnnotationStorageConflict as error:
+            self._register_annotation_conflict(error, view.image_key)
+            self.update_file_list_item_status(view.image_key)
+            self.error_message(
+                'Unable to save annotation changes',
+                '<p>%s</p>' % error,
+            )
+            return False
+        except Exception as error:
+            self.error_message(
+                'Unable to save annotation changes',
+                '<p>%s</p>' % error,
+            )
+            return False
+
+    @staticmethod
+    def _verify_snapshot_image(snapshot):
+        expected = snapshot.image_fingerprint
+        if expected is None:
+            return
+        actual = fingerprint_path(snapshot.image_key)
+        if actual != expected:
+            raise AnnotationStorageConflict(
+                ((snapshot.image_key, expected, actual),)
+            )
+
+    def _discard_history_view(self, view):
+        baseline = view.saved_baseline
+        if baseline is not None and not self._baseline_is_current(baseline):
+            self._register_annotation_conflict(
+                AnnotationStorageConflict(
+                    self._baseline_mismatches(baseline)
+                ),
+                view.image_key,
+            )
+            self.update_file_list_item_status(view.image_key)
+            self.error_message(
+                'Unable to discard annotation changes',
+                '<p>The stored annotation resource changed externally.</p>',
+            )
+            return False
+        self.annotation_editing.remove_images((view.image_key,))
+        self._release_history_resources(view)
+        self.annotation_scene.forget_image(view.image_key)
+        if view.image_key == self.file_path:
+            self.dirty = False
+        self.update_file_list_item_status(view.image_key)
+        return True
+
+    @staticmethod
+    def _baseline_is_current(baseline):
+        return not MainWindow._baseline_mismatches(baseline)
+
+    @staticmethod
+    def _baseline_mismatches(baseline):
+        if isinstance(baseline.fingerprint, tuple):
+            return tuple(
+                (path, fingerprint, actual)
+                for path, fingerprint in baseline.fingerprint
+                for actual in (fingerprint_path(path),)
+                if actual != fingerprint
+            )
+        if baseline.target is None:
+            return (
+                (
+                    "",
+                    baseline.fingerprint,
+                    fingerprint_path(""),
+                ),
+            )
+        actual = fingerprint_path(baseline.target)
+        return (
+            ()
+            if actual == baseline.fingerprint
+            else (
+                (
+                    baseline.target,
+                    baseline.fingerprint,
+                    actual,
+                ),
+            )
+        )
 
     def discard_changes_dialog(self):
         yes, no, cancel = QMessageBox.Yes, QMessageBox.No, QMessageBox.Cancel
-        msg = u'You have unsaved changes, would you like to save them and proceed?\nClick "No" to undo all changes.'
+        msg = (
+            u'You have unsaved annotation changes. '
+            u'Save them before continuing?\n'
+            u'Choose No to discard the in-memory document.'
+        )
         return QMessageBox.warning(self, u'Attention', msg, yes | no | cancel)
 
     def error_message(self, title, message):
@@ -2832,15 +5062,21 @@ class MainWindow(QMainWindow, WindowMixin):
             Shape.line_color = color
             self.canvas.set_drawing_color(color)
             self.canvas.update()
-            self.set_dirty()
 
     def delete_selected_shape(self):
-        shapes = self.canvas.delete_selected()
+        selected = tuple(self.canvas.selected_shapes)
+        def delete_shapes():
+            shapes = self.canvas.delete_selected()
+            for shape in shapes:
+                self.remove_label(shape)
+            return shapes
+        shapes = self._perform_annotation_edit(
+            'Delete boxes',
+            delete_shapes,
+            affected=lambda removed: removed,
+        )
         if not shapes:
             return
-        for shape in shapes:
-            self.remove_label(shape)
-        self.set_dirty()
         self.status('Deleted %d label(s)' % len(shapes))
         if self.no_shapes():
             for action in self.actions.onShapesPresent:
@@ -2852,10 +5088,14 @@ class MainWindow(QMainWindow, WindowMixin):
             return
         color = self.color_dialog.getColor(self.line_color, u'Choose Line Color',
                                            default=DEFAULT_LINE_COLOR)
-        if color:
-            selection.active.line_color = color
+        if color and color != selection.active.line_color:
+            shape = selection.active
+            self._perform_annotation_edit(
+                'Change box line color',
+                lambda: setattr(shape, 'line_color', color),
+                affected=(shape,),
+            )
             self.canvas.update()
-            self.set_dirty()
 
     def choose_shape_fill_color(self):
         selection = self.canvas.selection_snapshot
@@ -2863,20 +5103,30 @@ class MainWindow(QMainWindow, WindowMixin):
             return
         color = self.color_dialog.getColor(self.fill_color, u'Choose Fill Color',
                                            default=DEFAULT_FILL_COLOR)
-        if color:
-            selection.active.fill_color = color
+        if color and color != selection.active.fill_color:
+            shape = selection.active
+            self._perform_annotation_edit(
+                'Change box fill color',
+                lambda: setattr(shape, 'fill_color', color),
+                affected=(shape,),
+            )
             self.canvas.update()
-            self.set_dirty()
 
     def copy_shape(self):
-        self.canvas.end_move(copy=True)
+        self._perform_annotation_edit(
+            'Copy box',
+            lambda: self.canvas.end_move(copy=True),
+            affected=lambda _result: self.canvas.selected_shapes,
+        )
         self.add_label(self.canvas.selected_shape)
         self.shape_selection_changed(True)
-        self.set_dirty()
 
     def move_shape(self):
-        self.canvas.end_move(copy=False)
-        self.set_dirty()
+        self._perform_annotation_edit(
+            'Move box',
+            lambda: self.canvas.end_move(copy=False),
+            affected=lambda _result: self.canvas.selected_shapes,
+        )
 
     def load_predefined_classes(self, predef_classes_file):
         if os.path.exists(predef_classes_file) is True:
@@ -2910,6 +5160,12 @@ class MainWindow(QMainWindow, WindowMixin):
         self.clear_current_labels()
         self.set_format(document_format_name(loaded.annotation_format))
         self.load_annotation_document(loaded.document)
+        if self.annotation_editing.view is not None:
+            self.annotation_editing.set_target(
+                self.file_path,
+                loaded.annotation_path,
+            )
+            self._rebase_current_history(loaded.annotation_path)
         return True
 
     def format_shape_for_clipboard(self, shape):
@@ -2944,29 +5200,101 @@ class MainWindow(QMainWindow, WindowMixin):
         if self.file_path is None:
             return
 
-        pasted_shapes = [
-            self.shape_from_annotation(annotation_shape)
-            for annotation_shape in self.annotation_clipboard
-        ]
-        self.canvas.shapes.extend(pasted_shapes)
+        def paste():
+            pasted = [
+                self.shape_from_annotation(annotation_shape)
+                for annotation_shape in self.annotation_clipboard
+            ]
+            self.canvas.shapes.extend(pasted)
+            self.canvas.set_selected_shapes(
+                pasted,
+                active_shape=pasted[-1],
+            )
+            return pasted
+        pasted_shapes = self._perform_annotation_edit(
+            'Paste boxes',
+            paste,
+            affected=lambda pasted: pasted,
+        )
         for shape in pasted_shapes:
             self.add_label(shape)
-        self.canvas.set_selected_shapes(
-            pasted_shapes,
-            active_shape=pasted_shapes[-1],
-        )
         self.shape_selection_changed(True)
-        self.set_dirty()
 
         self.canvas.setFocus(True)
         self.status('Pasted %d label(s)' % len(pasted_shapes))
 
     def copy_previous_bounding_boxes(self):
         current_index = self.m_img_list.index(self.file_path)
-        if current_index - 1 >= 0:
-            prev_file_path = self.m_img_list[current_index - 1]
-            self.show_bounding_box_from_annotation_file(prev_file_path)
-            self.save_file()
+        if current_index - 1 < 0:
+            return
+        prev_file_path = self.m_img_list[current_index - 1]
+        try:
+            source = self.annotation_editing.view_image(
+                prev_file_path
+            ).snapshot
+            source_boxes = source.boxes
+        except UnknownImageHistory:
+            previous_data = read(prev_file_path, None)
+            loaded = self.annotation_workspace.load_for_image(
+                prev_file_path,
+                previous_data,
+            )
+            source_boxes = ()
+            if loaded is not None:
+                source_shapes, _snapped = loaded.document.create_shapes(
+                    self.canvas.snap_point_to_canvas,
+                    generate_color_by_text,
+                )
+                source_boxes = tuple(
+                    (
+                        shape.label,
+                        tuple((p.x(), p.y()) for p in shape.points),
+                        shape.line_color.getRgb(),
+                        shape.fill_color.getRgb(),
+                        shape.difficult,
+                    )
+                    for shape in source_shapes
+                )
+
+        old_shapes = tuple(self.canvas.shapes)
+        def replace_boxes():
+            copied = []
+            for box in source_boxes:
+                if hasattr(box, 'session_id'):
+                    annotation_shape = (
+                        box.label,
+                        box.points,
+                        box.line_rgba,
+                        box.fill_rgba,
+                        box.difficult,
+                    )
+                else:
+                    annotation_shape = box
+                shape = self.shape_from_annotation(annotation_shape)
+                self.annotation_scene.identities.assign(shape)
+                copied.append(shape)
+            blocker = QSignalBlocker(self.label_list)
+            self.items_to_shapes.clear()
+            self.shapes_to_items.clear()
+            self.label_list.clear()
+            self.combo_box.cb.clear()
+            self.canvas.load_shapes(copied)
+            for shape in copied:
+                self.add_label(shape)
+            del blocker
+            return copied
+
+        copied = self._perform_annotation_edit(
+            'Copy previous boxes',
+            replace_boxes,
+            affected=lambda new: old_shapes + tuple(new),
+        )
+        self.canvas.set_selected_shapes(
+            copied,
+            active_shape=copied[-1] if copied else None,
+        )
+        self.shape_selection_changed(bool(copied))
+        self.save_file()
 
     def toggle_paint_labels_option(self):
         for shape in self.canvas.shapes:

@@ -40,6 +40,7 @@ from labelimg.file_operations import exact_annotation_paths
 CURRENT_IMAGE_ROLE = Qt.UserRole + 1
 FILE_ANNOTATION_STATE_ROLE = Qt.UserRole + 2
 PRESERVED_SELECTION_APPEARANCE_ROLE = Qt.UserRole + 3
+FILE_PERSISTENCE_FLAGS_ROLE = Qt.UserRole + 4
 
 INVALID_FILENAME_CHARACTERS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 WINDOWS_RESERVED_NAMES = {

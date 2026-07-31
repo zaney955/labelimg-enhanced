@@ -1,4 +1,5 @@
 import os
+import shutil
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -13,6 +14,26 @@ from PyQt5.QtWidgets import QApplication, QMessageBox
 
 from labelimg.app import MainWindow
 from labelimg.shape import Shape
+from labelimg.file_recovery import TrashIdentity
+
+
+class FakeTrashAdapter:
+    def __init__(self, directory):
+        self.directory = directory
+        self.paths = {}
+
+    def move(self, path):
+        token = str(len(self.paths) + 1)
+        destination = os.path.join(self.directory, token)
+        shutil.move(path, destination)
+        self.paths[token] = destination
+        return TrashIdentity("path", destination, path)
+
+    def exists(self, identity):
+        return os.path.exists(identity.token)
+
+    def restore(self, identity, destination):
+        shutil.move(identity.token, destination)
 
 
 def write_pascal_voc(
@@ -96,6 +117,9 @@ class FileListAnnotationStatusTest(unittest.TestCase):
             default_prefdef_class_file=classes_path,
             default_save_dir=self.annotation_dir,
         )
+        trash_dir = os.path.join(self.temp_dir.name, "trash")
+        os.makedirs(trash_dir)
+        self.window.system_trash = FakeTrashAdapter(trash_dir)
         self.window.auto_saving.setChecked(False)
         self.window.import_dir_images(self.image_dir)
 
@@ -119,6 +143,7 @@ class FileListAnnotationStatusTest(unittest.TestCase):
         shape.close()
         self.window.canvas.load_shapes([shape])
         self.window.add_label(shape)
+        self.window.set_dirty()
         return shape
 
     def test_list_marks_annotated_verified_and_questioned_images(self):

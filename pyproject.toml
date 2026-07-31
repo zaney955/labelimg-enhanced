@@ -15,6 +15,7 @@ authors = [
 dependencies = [
     "PyQt5>=5.15.11,<5.16",
     "lxml>=6,<7",
+    "comtypes>=1.4.16,<2; platform_system == 'Windows'",
 ]
 keywords = ["annotation", "labelimg", "pascal-voc", "yolo", "createml"]
 classifiers = [
