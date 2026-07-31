@@ -128,9 +128,25 @@ class Canvas(QWidget):
     def vertex_cursor(self, index=None):
         if index is None:
             index = self.h_vertex
+        shape = self.h_shape
+        if (
+            shape is not None
+            and index is not None
+            and len(shape) >= 4
+        ):
+            point = shape[index]
+            opposite = shape[(index + 2) % 4]
+            diagonal_product = (
+                (point.x() - opposite.x())
+                * (point.y() - opposite.y())
+            )
+            if diagonal_product > 0:
+                return CURSOR_SIZE_BACKWARD_DIAGONAL
+            if diagonal_product < 0:
+                return CURSOR_SIZE_FORWARD_DIAGONAL
         return (
-            CURSOR_SIZE_FORWARD_DIAGONAL if index % 2 == 0
-            else CURSOR_SIZE_BACKWARD_DIAGONAL
+            CURSOR_SIZE_BACKWARD_DIAGONAL if index % 2 == 0
+            else CURSOR_SIZE_FORWARD_DIAGONAL
         )
 
     def selected_edge(self):
@@ -481,8 +497,8 @@ class Canvas(QWidget):
         # Polygon/Vertex moving.
         if Qt.LeftButton & ev.buttons():
             if self.selected_vertex():
-                self.override_cursor(self.vertex_cursor())
                 self.bounded_move_vertex(pos)
+                self.override_cursor(self.vertex_cursor())
                 self.shapeMoved.emit()
                 self.repaint()
 
@@ -518,7 +534,7 @@ class Canvas(QWidget):
         previous, target = self._interaction.update_hover(
             visible_shapes,
             pos,
-            self.epsilon,
+            self.nearest_vertex,
             self.nearest_edge,
         )
         if previous.vertex is not None and previous.shape is not None:
@@ -728,12 +744,29 @@ class Canvas(QWidget):
 
         return x, y, False
 
+    def resize_hit_tolerance(self, shape, tolerance):
+        """Keep a distinct move target inside even the smallest rectangles."""
+        if len(shape) != 4:
+            return tolerance
+        bounds = shape.bounding_rect()
+        return min(
+            tolerance,
+            max(0.0, min(bounds.width(), bounds.height()) / 4.0),
+        )
+
+    def nearest_vertex(self, shape, point):
+        tolerance = self.resize_hit_tolerance(shape, self.epsilon)
+        return shape.nearest_vertex(point, tolerance)
+
     def nearest_edge(self, shape, point):
-        """Return the nearest rectangle edge within the screen hit tolerance."""
+        """Return the nearest rectangle edge within its resize tolerance."""
         if len(shape) != 4:
             return None
 
-        tolerance = self.edge_epsilon / max(self.scale, 0.01)
+        tolerance = self.resize_hit_tolerance(
+            shape,
+            self.edge_epsilon / max(self.scale, 0.01),
+        )
         nearest = None
         nearest_distance = tolerance
         for index in range(4):

@@ -9,6 +9,7 @@ from labelimg.annotation_document import (
     AnnotationFormat,
     AnnotationStatus,
 )
+from labelimg.file_operations import move_to_recycle_bin
 
 
 @dataclass(frozen=True)
@@ -128,6 +129,8 @@ class AnnotationWorkspace:
         if (
             annotation_format is AnnotationFormat.PASCAL_VOC
             and not document.boxes
+            and not document.verified
+            and not document.questioned
         ):
             removed = os.path.isfile(annotation_path)
             if removed:
@@ -171,11 +174,17 @@ class AnnotationWorkspace:
         }
         return self.candidate_labels
 
-    def delete(self, image_path):
+    def delete(self, image_path, remover=move_to_recycle_bin):
+        """Remove active-location annotations and update label discovery.
+
+        File-list operations use AnnotationFileService for the broader
+        both-location and shared-CreateML policy. This method remains as the
+        recoverable compatibility boundary for workspace callers.
+        """
         removed = []
         for annotation_path in self._paths_for_image(image_path):
             if os.path.isfile(annotation_path):
-                os.remove(annotation_path)
+                remover(annotation_path)
                 removed.append(annotation_path)
             self._labels_by_path.pop(
                 _cache_key(annotation_path),

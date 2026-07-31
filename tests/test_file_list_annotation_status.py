@@ -9,7 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt5.QtCore import QPointF, Qt
 from PyQt5.QtGui import QColor, QImage, QKeySequence
 from PyQt5.QtTest import QTest
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtWidgets import QApplication, QMessageBox
 
 from labelimg.app import MainWindow
 from labelimg.shape import Shape
@@ -221,6 +221,50 @@ class FileListAnnotationStatusTest(unittest.TestCase):
 
         self.assertTrue(self.window.canvas.questioned)
         self.assertFalse(self.window.canvas.verified)
+
+    def test_unannotated_image_can_persist_review_only_pascal_document(self):
+        self.window.question_image()
+
+        annotation_path = os.path.join(
+            self.annotation_dir,
+            "01_blank.xml",
+        )
+        root = ElementTree.parse(annotation_path).getroot()
+        self.assertEqual(root.attrib.get("verified"), "no")
+        self.assertEqual(root.findall("object"), [])
+        self.assertEqual(
+            self.item(0).text(),
+            self.display_paths[0] + "  ?",
+        )
+
+        self.window.question_image()
+
+        self.assertFalse(os.path.exists(annotation_path))
+        self.assertEqual(self.item(0).text(), self.display_paths[0])
+
+    def test_batch_review_state_sets_explicit_state_for_selection(self):
+        self.item(0).setSelected(True)
+        self.item(1).setSelected(True)
+
+        with patch(
+            "labelimg.app.QMessageBox.question",
+            return_value=QMessageBox.Yes,
+        ):
+            self.window.set_selected_review_state("verified")
+
+        for stem in ("01_blank", "02_annotated"):
+            root = ElementTree.parse(
+                os.path.join(self.annotation_dir, stem + ".xml")
+            ).getroot()
+            self.assertEqual(root.attrib.get("verified"), "yes")
+        self.assertEqual(
+            self.item(0).text(),
+            self.display_paths[0] + "  ✓",
+        )
+        self.assertEqual(
+            self.item(1).text(),
+            self.display_paths[1] + "  ✓",
+        )
 
     def test_opening_next_annotated_image_starts_without_selection(self):
         self.window.open_next_image()

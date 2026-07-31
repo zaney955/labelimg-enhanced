@@ -1,6 +1,8 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
+from math import ceil, floor
+
 
 try:
     from PyQt5.QtGui import *
@@ -40,6 +42,7 @@ class Shape(object):
     selected_label_text_color = QColor(Qt.white)
     selected_label_padding = 2.0
     selected_label_radius = 2.0
+    label_outline_gap = 2.0
 
     def __init__(self, label=None, line_color=None, difficult=False, paint_label=False):
         self.label = label
@@ -129,9 +132,6 @@ class Shape(object):
         """Draw label text, highlighting it when this shape is selected."""
         min_x = min(point.x() for point in self.points)
         min_y = min(point.y() for point in self.points)
-        min_y_label = int(1.25 * self.label_font_size)
-        if min_y < min_y_label:
-            min_y += min_y_label
 
         if self.label is None:
             self.label = ""
@@ -141,18 +141,36 @@ class Shape(object):
         font = QFont()
         font.setPointSize(self.label_font_size)
         font.setBold(True)
+        scale = max(float(self.scale), 0.01)
+        metrics_rect = QRectF(
+            QFontMetrics(font).tightBoundingRect(self.label)
+        )
+        gap = self.label_outline_gap / scale
+        padding = self.selected_label_padding / scale
         text_x = int(round(min_x))
-        text_y = int(round(min_y))
+        text_y = int(
+            floor(
+                min_y
+                - gap
+                - padding
+                - metrics_rect.bottom()
+            )
+        )
+        if metrics_rect.top() + text_y - padding < 0:
+            text_y = int(
+                ceil(
+                    min_y
+                    + gap
+                    + padding
+                    - metrics_rect.top()
+                )
+            )
 
         painter.save()
         painter.setFont(font)
         if self.selected:
-            text_rect = QRectF(
-                QFontMetrics(font).tightBoundingRect(self.label)
-            )
+            text_rect = QRectF(metrics_rect)
             text_rect.translate(text_x, text_y)
-            scale = max(float(self.scale), 0.01)
-            padding = self.selected_label_padding / scale
             radius = self.selected_label_radius / scale
             background_rect = text_rect.adjusted(
                 -padding,

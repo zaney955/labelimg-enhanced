@@ -113,7 +113,7 @@ class CanvasInteractionTest(unittest.TestCase):
         _previous, target = self.interaction.update_hover(
             (lower_vertex, upper_interior),
             QPointF(),
-            vertex_distance=11,
+            nearest_vertex=lambda shape, _position: shape.vertex,
             nearest_edge=lambda shape, _position: shape.edge,
         )
 
@@ -125,7 +125,7 @@ class CanvasInteractionTest(unittest.TestCase):
         _previous, target = self.interaction.update_hover(
             (lower_vertex, upper_interior),
             QPointF(),
-            vertex_distance=11,
+            nearest_vertex=lambda shape, _position: shape.vertex,
             nearest_edge=lambda shape, _position: shape.edge,
         )
 

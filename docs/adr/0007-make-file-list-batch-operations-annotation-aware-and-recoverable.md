@@ -1,0 +1,3 @@
+# Make file-list batch operations annotation-aware and recoverable
+
+File-list deletion, annotation clearing, and synchronized renaming will treat an image and its annotation data as one logical target: destructive removals go to the system recycle bin, Pascal VOC may retain a box-free document when it carries a review state, and CreateML operations change only the uniquely matched image record while preserving a shared collection's complete pre-edit version in the recycle bin. Renames will preflight the complete image-and-annotation mapping and execute it transactionally with rollback because permanent or partial filesystem changes are more damaging than the added implementation complexity.

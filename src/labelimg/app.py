@@ -48,6 +48,20 @@ from labelimg.annotation_workspace import AnnotationWorkspace
 from labelimg.toolBar import ToolBar
 from labelimg.ustr import ustr
 from labelimg.hashableQListWidgetItem import HashableQListWidgetItem
+from labelimg.file_list import (
+    BatchRenameDialog,
+    CURRENT_IMAGE_ROLE,
+    FILE_ANNOTATION_STATE_ROLE,
+    FileListItemDelegate,
+    FileListWidget,
+    validate_base_name,
+    validate_rename_mapping,
+)
+from labelimg.file_operations import (
+    AnnotationFileService,
+    FileOperationError,
+    SynchronizedRenamer,
+)
 
 __appname__ = 'labelImg'
 FILE_LIST_ANNOTATED_MARK = '\u25cb'
@@ -545,11 +559,39 @@ class MainWindow(QMainWindow, WindowMixin):
         self.dock.setObjectName(get_str('labels'))
         self.dock.setWidget(label_list_container)
 
-        self.file_list_widget = QListWidget()
-        self.file_list_widget.itemDoubleClicked.connect(self.file_item_double_clicked)
+        self.file_list_widget = FileListWidget()
+        self.file_list_widget.setItemDelegate(
+            FileListItemDelegate(self.file_list_widget)
+        )
+        self.file_list_widget.itemOpenRequested.connect(
+            self.file_item_double_clicked
+        )
+        self.file_list_widget.itemSelectionChanged.connect(
+            self.update_file_selection_count
+        )
+        self.file_list_widget.openRequested.connect(
+            self.open_selected_file
+        )
+        self.file_list_widget.renameRequested.connect(
+            self.rename_selected_files
+        )
+        self.file_list_widget.deleteRequested.connect(
+            self.delete_selected_files
+        )
+        self.file_list_widget.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.file_list_widget.customContextMenuRequested.connect(
+            self.pop_file_list_menu
+        )
         file_list_layout = QVBoxLayout()
         file_list_layout.setContentsMargins(0, 0, 0, 0)
         file_list_layout.addWidget(self.file_list_widget)
+        self.file_selection_count_label = QLabel()
+        self.file_selection_count_label.setContentsMargins(6, 2, 6, 2)
+        self.file_selection_count_label.setStyleSheet(
+            "color: palette(mid);"
+        )
+        file_list_layout.addWidget(self.file_selection_count_label)
+        self.update_file_selection_count()
         file_list_container = QWidget()
         file_list_container.setLayout(file_list_layout)
         self.file_dock = QDockWidget(get_str('fileList'), self)
@@ -1045,6 +1087,8 @@ class MainWindow(QMainWindow, WindowMixin):
         self.canvas.reset_state()
         self.label_coordinates.clear()
         self.combo_box.cb.clear()
+        if hasattr(self, 'file_list_widget'):
+            self.update_current_file_marker()
 
     def current_item(self):
         current = self.label_list.currentItem()
@@ -1147,6 +1191,642 @@ class MainWindow(QMainWindow, WindowMixin):
     def pop_label_list_menu(self, point):
         self.menus.labelList.exec_(self.label_list.mapToGlobal(point))
 
+    def selected_file_paths(self):
+        selected = {
+            item.data(Qt.UserRole)
+            for item in self.file_list_widget.selectedItems()
+        }
+        return [
+            image_path
+            for image_path in self.m_img_list
+            if image_path in selected
+        ]
+
+    def update_file_selection_count(self):
+        if not hasattr(self, 'file_selection_count_label'):
+            return
+        selected_count = len(self.file_list_widget.selectedItems())
+        total_count = self.file_list_widget.count()
+        if selected_count:
+            text = '已选 %d / 共 %d' % (
+                selected_count,
+                total_count,
+            )
+        else:
+            text = '共 %d 个文件' % total_count
+        self.file_selection_count_label.setText(text)
+
+    def update_current_file_marker(self):
+        current_path = (
+            os.path.abspath(self.file_path)
+            if self.file_path
+            else None
+        )
+        for index in range(self.file_list_widget.count()):
+            item = self.file_list_widget.item(index)
+            item_path = item.data(Qt.UserRole)
+            item.setData(
+                CURRENT_IMAGE_ROLE,
+                bool(
+                    current_path
+                    and item_path
+                    and os.path.abspath(item_path) == current_path
+                ),
+            )
+        self.file_list_widget.viewport().update()
+
+    def open_selected_file(self):
+        paths = self.selected_file_paths()
+        if len(paths) != 1:
+            return
+        self.open_file_list_path(paths[0])
+
+    def open_file_list_path(self, filename):
+        filename = ustr(filename)
+        if filename not in self.m_img_list:
+            return
+        self.cur_img_idx = self.m_img_list.index(filename)
+        self.load_file(filename)
+
+    def pop_file_list_menu(self, point):
+        item = self.file_list_widget.itemAt(point)
+        menu = QMenu(self.file_list_widget)
+        if item is None:
+            select_all = menu.addAction('全选')
+            select_all.triggered.connect(
+                self.file_list_widget.selectAll
+            )
+            select_all.setEnabled(self.file_list_widget.count() > 0)
+            menu.exec_(
+                self.file_list_widget.viewport().mapToGlobal(point)
+            )
+            return
+
+        paths = self.selected_file_paths()
+        count = len(paths)
+
+        open_action = menu.addAction('打开')
+        open_action.setEnabled(count == 1)
+        open_action.triggered.connect(self.open_selected_file)
+
+        rename_text = '重命名…' if count == 1 else '批量重命名…'
+        rename_action = menu.addAction(rename_text)
+        rename_action.setEnabled(count > 0)
+        rename_action.triggered.connect(self.rename_selected_files)
+
+        reveal = menu.addAction('在文件资源管理器中显示')
+        reveal.setEnabled(count == 1)
+        reveal.triggered.connect(self.reveal_selected_file)
+
+        menu.addSeparator()
+        review_menu = menu.addMenu('设置复核状态')
+        review_enabled = (
+            count > 0
+            and self.annotation_format
+            is AnnotationFormat.PASCAL_VOC
+        )
+        for title, state in (
+            ('标记为已验证', 'verified'),
+            ('标记为待复核', 'questioned'),
+            ('清除复核状态', 'unreviewed'),
+        ):
+            review_action = review_menu.addAction(title)
+            review_action.setEnabled(review_enabled)
+            review_action.triggered.connect(
+                partial(self.set_selected_review_state, state)
+            )
+
+        select_menu = menu.addMenu('选择')
+        select_all = select_menu.addAction('全选')
+        select_all.triggered.connect(
+            self.file_list_widget.selectAll
+        )
+        invert = select_menu.addAction('反选')
+        invert.triggered.connect(self.invert_file_selection)
+        state_menu = select_menu.addMenu('按状态选择')
+        for title, state in (
+            ('未标注', 'unannotated'),
+            ('已标注', 'annotated'),
+            ('已验证', 'verified'),
+            ('待复核', 'questioned'),
+        ):
+            action = state_menu.addAction(title)
+            action.triggered.connect(
+                partial(self.select_files_by_state, state)
+            )
+        clear_selection = select_menu.addAction('清除选择')
+        clear_selection.triggered.connect(
+            self.file_list_widget.clearSelection
+        )
+
+        copy_menu = menu.addMenu('复制')
+        for title, representation in (
+            ('文件名', 'name'),
+            ('相对路径', 'relative'),
+            ('完整路径', 'absolute'),
+        ):
+            action = copy_menu.addAction(title)
+            action.triggered.connect(
+                partial(
+                    self.copy_selected_file_paths,
+                    representation,
+                )
+            )
+
+        menu.addSeparator()
+        annotation_service = self.file_annotation_service()
+        annotation_count = annotation_service.annotation_count(paths)
+        clear_annotations = menu.addAction(
+            '清除选中的 %d 个文件的全部标注…' % count
+        )
+        clear_annotations.setEnabled(
+            annotation_count > 0
+            or (
+                self.file_path in paths
+                and bool(self.dirty or self.canvas.shapes)
+            )
+        )
+        clear_annotations.triggered.connect(
+            self.clear_selected_file_annotations
+        )
+
+        delete_files = menu.addAction(
+            '删除选中的 %d 个文件…' % count
+        )
+        delete_files.setEnabled(count > 0)
+        delete_files.triggered.connect(self.delete_selected_files)
+
+        menu.exec_(
+            self.file_list_widget.viewport().mapToGlobal(point)
+        )
+
+    def invert_file_selection(self):
+        selection_model = self.file_list_widget.selectionModel()
+        for index in range(self.file_list_widget.count()):
+            model_index = self.file_list_widget.model().index(index, 0)
+            selection_model.select(
+                model_index,
+                QItemSelectionModel.Toggle
+                | QItemSelectionModel.Rows,
+            )
+
+    def select_files_by_state(self, state, _checked=False):
+        blocker = QSignalBlocker(self.file_list_widget)
+        self.file_list_widget.clearSelection()
+        for index in range(self.file_list_widget.count()):
+            item = self.file_list_widget.item(index)
+            if item.data(FILE_ANNOTATION_STATE_ROLE) == state:
+                item.setSelected(True)
+        del blocker
+        self.update_file_selection_count()
+        self.file_list_widget.viewport().update()
+
+    def copy_selected_file_paths(self, representation, _checked=False):
+        values = []
+        for path in self.selected_file_paths():
+            if representation == 'name':
+                value = os.path.basename(path)
+            elif representation == 'relative':
+                value = self.file_list_display_path(path)
+            else:
+                value = os.path.abspath(path)
+            values.append(value)
+        QApplication.clipboard().setText('\n'.join(values))
+
+    def reveal_selected_file(self):
+        paths = self.selected_file_paths()
+        if len(paths) != 1:
+            return
+        path = os.path.abspath(paths[0])
+        try:
+            if platform.system() == 'Windows':
+                subprocess.Popen(
+                    ['explorer.exe', '/select,', path]
+                )
+            elif platform.system() == 'Darwin':
+                subprocess.Popen(['open', '-R', path])
+            else:
+                subprocess.Popen(
+                    ['xdg-open', os.path.dirname(path)]
+                )
+        except OSError as error:
+            self.error_message(
+                'Could not open file manager',
+                u'<p>%s</p>' % error,
+            )
+
+    def file_annotation_state(self, image_path):
+        status = self.annotation_workspace.entry(image_path).status
+        if status.questioned:
+            return 'questioned'
+        if status.verified:
+            return 'verified'
+        if status.has_annotations:
+            return 'annotated'
+        return 'unannotated'
+
+    def file_annotation_service(self):
+        return AnnotationFileService(
+            save_dir=self.default_save_dir,
+        )
+
+    def set_selected_review_state(self, state, _checked=False):
+        paths = self.selected_file_paths()
+        if (
+            not paths
+            or self.annotation_format
+            is not AnnotationFormat.PASCAL_VOC
+        ):
+            return
+        if len(paths) > 1:
+            title = {
+                'verified': '标记为已验证',
+                'questioned': '标记为待复核',
+                'unreviewed': '清除复核状态',
+            }[state]
+            answer = QMessageBox.question(
+                self,
+                title,
+                '确定对选中的 %d 个文件执行“%s”吗？'
+                % (len(paths), title),
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if answer != QMessageBox.Yes:
+                return
+
+        failures = []
+        if self.file_path in paths and self.dirty:
+            if not self.save_current_annotations_directly():
+                return
+        for image_path in paths:
+            try:
+                document = self.annotation_document_for_path(
+                    image_path
+                )
+                document.verified = state == 'verified'
+                document.questioned = state == 'questioned'
+                saved = self.annotation_workspace.save(
+                    document,
+                    AnnotationFormat.PASCAL_VOC,
+                    annotation_path=self.annotation_workspace.entry(
+                        image_path
+                    ).path_for(AnnotationFormat.PASCAL_VOC),
+                )
+                if image_path == self.file_path:
+                    self.annotation_document = saved.document
+                    self.canvas.verified = document.verified
+                    self.canvas.questioned = document.questioned
+                    self.set_clean()
+                    self.paint_canvas()
+            except Exception as error:
+                failures.append((image_path, error))
+        self.refresh_file_list_statuses()
+        self.refresh_candidate_labels()
+        if failures:
+            self.show_file_operation_failures(
+                '部分复核状态未能保存',
+                failures,
+            )
+        else:
+            self.status('Updated review state for %d file(s)' % len(paths))
+
+    def annotation_document_for_path(self, image_path):
+        if image_path == self.file_path:
+            return AnnotationDocument.from_shapes(
+                image_path=self.file_path,
+                image_data=self.image_data,
+                shapes=self.canvas.shapes,
+                class_names=self.label_hist,
+                verified=self.canvas.verified,
+                questioned=self.canvas.questioned,
+            )
+        image_data = read(image_path, None)
+        loaded = self.annotation_workspace.load_for_image(
+            image_path,
+            image_data,
+        )
+        if loaded is not None:
+            return loaded.document
+        return AnnotationDocument(
+            image_path=image_path,
+            image_data=image_data,
+            boxes=(),
+            class_names=tuple(self.label_hist),
+        )
+
+    def save_current_annotations_directly(self):
+        if self.file_path is None:
+            return True
+        try:
+            document = AnnotationDocument.from_shapes(
+                image_path=self.file_path,
+                image_data=self.image_data,
+                shapes=self.canvas.shapes,
+                class_names=self.label_hist,
+                verified=self.canvas.verified,
+                questioned=self.canvas.questioned,
+            )
+            saved = self.annotation_workspace.save(
+                document,
+                self.annotation_format,
+                annotation_path=self.annotation_workspace.entry(
+                    self.file_path
+                ).path_for(self.annotation_format),
+            )
+            self.annotation_document = saved.document
+            self.set_clean()
+            self.update_file_list_item_status(self.file_path)
+            return True
+        except Exception as error:
+            self.error_message(
+                'Error saving label data',
+                u'<p>%s</p>' % error,
+            )
+            return False
+
+    def clear_selected_file_annotations(self):
+        paths = self.selected_file_paths()
+        if not paths:
+            return
+        count = self.file_annotation_service().annotation_count(paths)
+        answer = QMessageBox.question(
+            self,
+            '清除全部标注',
+            (
+                '确定清除选中的 %d 个文件对应的 %d 个标注文件吗？'
+                '\n图片文件会保留，标注将移入系统回收站。'
+                '\n未保存的当前标注也会被丢弃。'
+            ) % (len(paths), count),
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+        current_path = self.file_path
+        result = self.run_file_operation(
+            paths,
+            '正在清除标注…',
+            self.file_annotation_service().clear_annotations,
+        )
+        self.rescan_annotation_workspace()
+        self.refresh_file_list_statuses()
+        processed = set(
+            result.succeeded_images + result.failed_images
+        )
+        if current_path in processed and os.path.isfile(current_path):
+            self.load_file(current_path)
+        self.report_file_operation_result(
+            '清除标注',
+            result,
+        )
+
+    def delete_selected_files(self):
+        paths = self.selected_file_paths()
+        if not paths:
+            return
+        answer = QMessageBox.question(
+            self,
+            '删除选中的文件',
+            (
+                '确定删除选中的 %d 个文件吗？'
+                '\n图片及关联标注将移入系统回收站。'
+            ) % len(paths),
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+        self.delete_file_paths(paths)
+
+    def delete_file_paths(self, paths):
+        before = list(self.m_img_list)
+        old_current = self.file_path
+        old_index = (
+            before.index(old_current)
+            if old_current in before
+            else 0
+        )
+        result = self.run_file_operation(
+            paths,
+            '正在删除文件…',
+            self.file_annotation_service().delete_images,
+        )
+        self.rebuild_file_list_after_deletion(
+            before,
+            old_current,
+            old_index,
+            result,
+        )
+        self.rescan_annotation_workspace()
+        self.report_file_operation_result('删除文件', result)
+        return result
+
+    def run_file_operation(self, paths, title, operation):
+        progress = None
+        position = [0]
+        if len(paths) >= 20:
+            progress = QProgressDialog(
+                title,
+                '取消',
+                0,
+                len(paths),
+                self,
+            )
+            progress.setWindowModality(Qt.WindowModal)
+            progress.setMinimumDuration(400)
+
+        def should_continue():
+            if progress is None:
+                return True
+            progress.setValue(position[0])
+            QApplication.processEvents()
+            if progress.wasCanceled():
+                return False
+            position[0] += 1
+            return True
+
+        result = operation(paths, should_continue=should_continue)
+        if progress is not None:
+            progress.setValue(len(paths))
+        return result
+
+    def rebuild_file_list_after_deletion(
+        self,
+        before,
+        old_current,
+        old_index,
+        result,
+    ):
+        succeeded = set(result.succeeded_images)
+        failed = set(result.failed_images)
+        self.populate_file_list(self.scan_all_images(self.dir_name))
+
+        next_path = None
+        if old_current and old_current not in succeeded:
+            if old_current in self.m_img_list:
+                next_path = old_current
+        elif old_current:
+            for candidate in before[old_index + 1:]:
+                if candidate in self.m_img_list:
+                    next_path = candidate
+                    break
+            if next_path is None:
+                for candidate in reversed(before[:old_index]):
+                    if candidate in self.m_img_list:
+                        next_path = candidate
+                        break
+
+        if (
+            next_path == old_current
+            and old_current not in failed
+        ):
+            self.cur_img_idx = self.m_img_list.index(old_current)
+            self.update_current_file_marker()
+        elif next_path is not None:
+            self.cur_img_idx = self.m_img_list.index(next_path)
+            self.load_file(next_path)
+        elif self.m_img_list:
+            self.cur_img_idx = min(old_index, len(self.m_img_list) - 1)
+            self.load_file(self.m_img_list[self.cur_img_idx])
+        else:
+            self.cur_img_idx = 0
+            self.reset_state()
+            self.set_clean()
+            self.toggle_actions(False)
+            self.canvas.setEnabled(False)
+            self.actions.saveAs.setEnabled(False)
+            self.update_current_file_marker()
+
+        for index in range(self.file_list_widget.count()):
+            item = self.file_list_widget.item(index)
+            if item.data(Qt.UserRole) in failed:
+                item.setSelected(True)
+        self.update_file_selection_count()
+
+    def rescan_annotation_workspace(self):
+        directory = self.default_save_dir or self.dir_name
+        if directory and os.path.isdir(directory):
+            self.annotation_workspace.scan(directory)
+        self.refresh_candidate_labels()
+
+    def report_file_operation_result(self, title, result):
+        if result.failures:
+            self.show_file_operation_failures(
+                title + '部分失败',
+                [
+                    (
+                        failure.path,
+                        failure.reason,
+                    )
+                    for failure in result.failures
+                ],
+            )
+            return
+        message = '%s完成：%d 个文件' % (
+            title,
+            len(result.succeeded_images),
+        )
+        if result.canceled:
+            message += '（已取消剩余操作）'
+        self.status(message)
+
+    def show_file_operation_failures(self, title, failures):
+        details = '\n'.join(
+            '%s: %s' % (path, error)
+            for path, error in failures
+        )
+        QMessageBox.warning(
+            self,
+            title,
+            '%s\n\n%s' % (title, details),
+        )
+
+    def rename_selected_files(self):
+        paths = self.selected_file_paths()
+        if not paths:
+            return
+        if len(paths) == 1:
+            self.rename_single_file(paths[0])
+            return
+        dialog = BatchRenameDialog(
+            paths,
+            self.dir_name,
+            save_dir=self.default_save_dir,
+            parent=self,
+        )
+        if dialog.exec_() != QDialog.Accepted:
+            return
+        self.execute_file_rename(dialog.mapping)
+
+    def rename_single_file(self, source):
+        stem, extension = os.path.splitext(os.path.basename(source))
+        new_stem, accepted = QInputDialog.getText(
+            self,
+            '重命名',
+            '新文件名（扩展名 %s 保持不变）' % extension,
+            QLineEdit.Normal,
+            stem,
+        )
+        if not accepted:
+            return
+        new_stem = new_stem.strip()
+        target = os.path.join(
+            os.path.dirname(source),
+            new_stem + extension,
+        )
+        error = validate_base_name(new_stem, target)
+        if not error:
+            error = validate_rename_mapping(
+                {source: target},
+                self.default_save_dir,
+            ).get(source, '')
+        if error:
+            QMessageBox.warning(self, '无法重命名', error)
+            return
+        if source == target:
+            return
+        self.execute_file_rename({source: target})
+
+    def execute_file_rename(self, mapping):
+        if self.file_path in mapping and self.dirty:
+            if not self.save_current_annotations_directly():
+                return
+        old_current = self.file_path
+        selected_before = self.selected_file_paths()
+        try:
+            renamed = SynchronizedRenamer(
+                save_dir=self.default_save_dir,
+            ).rename(mapping)
+        except FileOperationError as error:
+            QMessageBox.warning(
+                self,
+                '重命名失败',
+                str(error),
+            )
+            return
+
+        current_after = renamed.get(old_current, old_current)
+        selected_after = {
+            renamed.get(path, path)
+            for path in selected_before
+        }
+        self.populate_file_list(self.scan_all_images(self.dir_name))
+        if old_current in renamed and current_after in self.m_img_list:
+            self.cur_img_idx = self.m_img_list.index(current_after)
+            self.load_file(current_after)
+        elif current_after in self.m_img_list:
+            self.cur_img_idx = self.m_img_list.index(current_after)
+            self.update_current_file_marker()
+        for index in range(self.file_list_widget.count()):
+            item = self.file_list_widget.item(index)
+            if item.data(Qt.UserRole) in selected_after:
+                item.setSelected(True)
+        self.rescan_annotation_workspace()
+        self.refresh_file_list_statuses()
+        self.update_file_selection_count()
+        self.status('Renamed %d file(s)' % len(renamed))
+
     def edit_label(self):
         if not self.canvas.editing():
             return
@@ -1170,9 +1850,8 @@ class MainWindow(QMainWindow, WindowMixin):
         filename = ustr(filename)
         if filename not in self.m_img_list:
             return
-        self.cur_img_idx = self.m_img_list.index(filename)
         if filename:
-            self.load_file(filename)
+            self.open_file_list_path(filename)
 
     # Add chris
     def button_state(self, item=None):
@@ -1578,13 +2257,9 @@ class MainWindow(QMainWindow, WindowMixin):
                 return False
 
         # Tzutalin 20160906 : Add file list and dock to move faster
-        # Highlight the file item
+        # Keep file selection independent from the image being opened.
         if unicode_file_path and self.file_list_widget.count() > 0:
-            if unicode_file_path in self.m_img_list:
-                index = self.m_img_list.index(unicode_file_path)
-                file_widget_item = self.file_list_widget.item(index)
-                file_widget_item.setSelected(True)
-            else:
+            if unicode_file_path not in self.m_img_list:
                 self.file_list_widget.clear()
                 self.m_img_list.clear()
 
@@ -1607,6 +2282,7 @@ class MainWindow(QMainWindow, WindowMixin):
             self.status("Loaded %s" % os.path.basename(unicode_file_path))
             self.image = image
             self.file_path = unicode_file_path
+            self.update_current_file_marker()
             self.canvas.load_pixmap(QPixmap.fromImage(image))
             if annotation_path is not None:
                 try:
@@ -1757,10 +2433,6 @@ class MainWindow(QMainWindow, WindowMixin):
     def annotation_paths_for_image(self, image_path):
         return list(self.annotation_workspace.entry(image_path).paths)
 
-    def delete_annotation_files_for_image(self, image_path):
-        self.annotation_workspace.delete(image_path)
-        self.refresh_candidate_labels()
-
     def file_list_display_path(self, image_path):
         if not self.dir_name:
             return os.path.basename(image_path)
@@ -1798,6 +2470,10 @@ class MainWindow(QMainWindow, WindowMixin):
         if item is None:
             return
         item.setData(Qt.UserRole, image_path)
+        item.setData(
+            FILE_ANNOTATION_STATE_ROLE,
+            self.file_annotation_state(image_path),
+        )
         item.setText(self.file_list_item_text(image_path))
         item.setToolTip(image_path)
 
@@ -1897,14 +2573,7 @@ class MainWindow(QMainWindow, WindowMixin):
         self.last_open_dir = dir_path
         self.dir_name = dir_path
         self.file_path = None
-        self.file_list_widget.clear()
-        self.m_img_list = self.scan_all_images(dir_path)
-        self.img_count = len(self.m_img_list)
-        for imgPath in self.m_img_list:
-            item = QListWidgetItem(self.file_list_item_text(imgPath))
-            item.setData(Qt.UserRole, imgPath)
-            item.setToolTip(imgPath)
-            self.file_list_widget.addItem(item)
+        self.populate_file_list(self.scan_all_images(dir_path))
 
         if self.img_count:
             self.cur_img_idx = min(max(initial_index, 0), self.img_count - 1)
@@ -1917,6 +2586,27 @@ class MainWindow(QMainWindow, WindowMixin):
             self.canvas.setEnabled(False)
             self.actions.saveAs.setEnabled(False)
 
+    def populate_file_list(self, image_paths):
+        blocker = QSignalBlocker(self.file_list_widget)
+        self.file_list_widget.clear()
+        self.m_img_list = list(image_paths)
+        self.img_count = len(self.m_img_list)
+        for image_path in self.m_img_list:
+            item = QListWidgetItem(
+                self.file_list_item_text(image_path)
+            )
+            item.setData(Qt.UserRole, image_path)
+            item.setData(
+                FILE_ANNOTATION_STATE_ROLE,
+                self.file_annotation_state(image_path),
+            )
+            item.setData(CURRENT_IMAGE_ROLE, False)
+            item.setToolTip(image_path)
+            self.file_list_widget.addItem(item)
+        del blocker
+        self.update_file_selection_count()
+        self.update_current_file_marker()
+
     def verify_image(self, _value=False):
         self.toggle_image_status('toggle_verified')
 
@@ -1926,16 +2616,35 @@ class MainWindow(QMainWindow, WindowMixin):
     def toggle_image_status(self, toggle_method):
         if self.file_path is None:
             return
-        if self.annotation_document is None:
-            self.save_file()
-        if self.annotation_document is None:
+        document = AnnotationDocument.from_shapes(
+            image_path=self.file_path,
+            image_data=self.image_data,
+            shapes=self.canvas.shapes,
+            class_names=self.label_hist,
+            verified=self.canvas.verified,
+            questioned=self.canvas.questioned,
+        )
+        getattr(document, toggle_method)()
+        try:
+            saved = self.annotation_workspace.save(
+                document,
+                self.annotation_format,
+                annotation_path=self.annotation_workspace.entry(
+                    self.file_path
+                ).path_for(self.annotation_format),
+            )
+        except Exception as error:
+            self.error_message(
+                'Error saving label data',
+                u'<p>%s</p>' % error,
+            )
             return
-
-        getattr(self.annotation_document, toggle_method)()
-        self.canvas.verified = self.annotation_document.verified
-        self.canvas.questioned = self.annotation_document.questioned
+        self.annotation_document = saved.document
+        self.canvas.verified = document.verified
+        self.canvas.questioned = document.questioned
         self.paint_canvas()
-        self.save_file()
+        self.set_clean()
+        self.update_file_list_item_status(self.file_path)
 
     def open_prev_image(self, _value=False):
         # Proceeding prev image without dialog if having any label
@@ -2079,14 +2788,8 @@ class MainWindow(QMainWindow, WindowMixin):
         self.actions.saveAs.setEnabled(False)
 
     def delete_image(self):
-        delete_path = self.file_path
-        if delete_path is not None:
-            delete_index = self.cur_img_idx
-            self.open_next_image()
-            if os.path.exists(delete_path):
-                os.remove(delete_path)
-            self.delete_annotation_files_for_image(delete_path)
-            self.import_dir_images(self.last_open_dir, initial_index=delete_index)
+        if self.file_path is not None:
+            self.delete_file_paths([self.file_path])
 
     def reset_all(self):
         self.settings.reset()

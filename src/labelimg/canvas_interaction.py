@@ -98,14 +98,14 @@ class CanvasInteraction:
         self,
         shapes,
         position,
-        vertex_distance,
+        nearest_vertex,
         nearest_edge,
     ):
         """Resolve vertices before edges before interiors."""
         previous = self.hover
         shapes = tuple(shapes)
         for shape in reversed(shapes):
-            vertex = shape.nearest_vertex(position, vertex_distance)
+            vertex = nearest_vertex(shape, position)
             if vertex is not None:
                 self.set_hover(shape, vertex=vertex)
                 return previous, self.hover
