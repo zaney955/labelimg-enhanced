@@ -103,10 +103,10 @@ class OverlappingShapeVertexDragTest(unittest.TestCase):
 
     def test_corner_cursor_matches_its_resize_diagonal_while_hovering_and_dragging(self):
         cases = (
-            ((20, 20), (15, 15), 0, Qt.SizeFDiagCursor),
-            ((80, 20), (85, 15), 1, Qt.SizeBDiagCursor),
-            ((80, 80), (85, 85), 2, Qt.SizeFDiagCursor),
-            ((20, 80), (15, 85), 3, Qt.SizeBDiagCursor),
+            ((20, 20), (15, 15), 0, Qt.SizeBDiagCursor),
+            ((80, 20), (85, 15), 1, Qt.SizeFDiagCursor),
+            ((80, 80), (85, 85), 2, Qt.SizeBDiagCursor),
+            ((20, 80), (15, 85), 3, Qt.SizeFDiagCursor),
         )
 
         for start, drag_target, vertex, expected_cursor in cases:
@@ -153,6 +153,130 @@ class OverlappingShapeVertexDragTest(unittest.TestCase):
                     self.canvas.current_cursor(),
                     expected_cursor,
                 )
+
+    def test_tiny_shape_center_remains_a_box_move_target(self):
+        shape = rectangle("tiny", 40, 40, 52, 52)
+        self.canvas.load_shapes([shape])
+
+        self.canvas.mouseMoveEvent(
+            mouse_event(QEvent.MouseMove, (46, 46))
+        )
+
+        self.assertIs(self.canvas.h_shape, shape)
+        self.assertIsNone(self.canvas.h_vertex)
+        self.assertIsNone(self.canvas.h_edge)
+        self.assertEqual(
+            self.canvas.current_cursor(),
+            Qt.OpenHandCursor,
+        )
+
+    def test_tiny_shape_corner_and_edge_remain_resize_targets(self):
+        shape = rectangle("tiny", 40, 40, 52, 52)
+        self.canvas.load_shapes([shape])
+
+        self.canvas.mouseMoveEvent(
+            mouse_event(QEvent.MouseMove, (40, 40))
+        )
+        self.assertEqual(self.canvas.h_vertex, 0)
+        self.assertEqual(
+            self.canvas.current_cursor(),
+            Qt.SizeBDiagCursor,
+        )
+
+        self.canvas.mouseMoveEvent(
+            mouse_event(QEvent.MouseMove, (46, 40))
+        )
+        self.assertIsNone(self.canvas.h_vertex)
+        self.assertEqual(self.canvas.h_edge, 0)
+        self.assertEqual(
+            self.canvas.current_cursor(),
+            Qt.SizeVerCursor,
+        )
+
+    def test_corner_cursor_tracks_box_flips_during_drag_and_release(self):
+        cases = (
+            (
+                0,
+                (20, 20),
+                (
+                    ((90, 15), Qt.SizeFDiagCursor),
+                    ((15, 90), Qt.SizeFDiagCursor),
+                    ((90, 90), Qt.SizeBDiagCursor),
+                ),
+            ),
+            (
+                1,
+                (80, 20),
+                (
+                    ((10, 15), Qt.SizeBDiagCursor),
+                    ((85, 90), Qt.SizeBDiagCursor),
+                    ((10, 90), Qt.SizeFDiagCursor),
+                ),
+            ),
+            (
+                2,
+                (80, 80),
+                (
+                    ((10, 85), Qt.SizeFDiagCursor),
+                    ((85, 10), Qt.SizeFDiagCursor),
+                    ((10, 10), Qt.SizeBDiagCursor),
+                ),
+            ),
+            (
+                3,
+                (20, 80),
+                (
+                    ((90, 85), Qt.SizeBDiagCursor),
+                    ((15, 10), Qt.SizeBDiagCursor),
+                    ((90, 10), Qt.SizeFDiagCursor),
+                ),
+            ),
+        )
+
+        for vertex, start, flips in cases:
+            for drag_target, expected_cursor in flips:
+                with self.subTest(
+                    vertex=vertex,
+                    drag_target=drag_target,
+                ):
+                    shape = rectangle("flippable", 20, 20, 80, 80)
+                    self.canvas.load_shapes([shape])
+
+                    self.canvas.mouseMoveEvent(
+                        mouse_event(QEvent.MouseMove, start)
+                    )
+                    self.assertEqual(self.canvas.h_vertex, vertex)
+                    self.canvas.mousePressEvent(
+                        mouse_event(
+                            QEvent.MouseButtonPress,
+                            start,
+                            button=Qt.LeftButton,
+                            buttons=Qt.LeftButton,
+                        )
+                    )
+                    self.canvas.mouseMoveEvent(
+                        mouse_event(
+                            QEvent.MouseMove,
+                            drag_target,
+                            buttons=Qt.LeftButton,
+                        )
+                    )
+                    self.assertEqual(
+                        self.canvas.current_cursor(),
+                        expected_cursor,
+                    )
+
+                    self.canvas.mouseReleaseEvent(
+                        mouse_event(
+                            QEvent.MouseButtonRelease,
+                            drag_target,
+                            button=Qt.LeftButton,
+                        )
+                    )
+                    self.assertEqual(
+                        self.canvas.current_cursor(),
+                        expected_cursor,
+                    )
 
     def test_dragging_inside_overlapping_shapes_still_moves_the_topmost_shape(self):
         self.lower_shape = rectangle("lower", 10, 10, 90, 90)

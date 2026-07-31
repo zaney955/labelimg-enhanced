@@ -125,13 +125,20 @@ class ShapeRenderingStyleTest(unittest.TestCase):
             Shape.selected_label_text_color,
             [call.args[0] for call in painter.setPen.call_args_list],
         )
-        painter.drawText.assert_called_once_with(20, 20, "car")
+        painter.drawText.assert_called_once()
+        text_x, text_y, label = painter.drawText.call_args.args
+        self.assertEqual(text_x, 20)
+        self.assertEqual(label, "car")
 
         font = QFont()
         font.setPointSize(Shape.label_font_size)
         font.setBold(True)
         expected_rect = QRectF(QFontMetrics(font).tightBoundingRect("car"))
-        expected_rect.translate(20, 20)
+        expected_rect.translate(text_x, text_y)
+        self.assertLessEqual(
+            expected_rect.bottom(),
+            20 - Shape.label_outline_gap / Shape.scale,
+        )
         expected_rect.adjust(
             -Shape.selected_label_padding,
             -Shape.selected_label_padding,
@@ -170,10 +177,58 @@ class ShapeRenderingStyleTest(unittest.TestCase):
 
         painter.drawRoundedRect.assert_not_called()
         painter.setBrush.assert_not_called()
-        painter.drawText.assert_called_once_with(20, 20, "car")
+        painter.drawText.assert_called_once()
+        self.assertEqual(
+            painter.drawText.call_args.args[2],
+            "car",
+        )
         self.assertNotIn(
             Shape.selected_label_text_color,
             [call.args[0] for call in painter.setPen.call_args_list],
+        )
+
+    def test_label_descenders_are_separated_from_top_outline(self):
+        shape = self.make_rectangle()
+        shape.label = "C_PWBDZ"
+        shape.paint_label = True
+        painter = Mock()
+
+        shape.paint(painter)
+
+        text_x, text_y, label = painter.drawText.call_args.args
+        font = QFont()
+        font.setPointSize(Shape.label_font_size)
+        font.setBold(True)
+        glyph_rect = QRectF(QFontMetrics(font).tightBoundingRect(label))
+        glyph_rect.translate(text_x, text_y)
+        self.assertLessEqual(
+            glyph_rect.bottom(),
+            20 - Shape.label_outline_gap / Shape.scale,
+        )
+
+    def test_label_moves_inside_when_there_is_no_space_above(self):
+        shape = Shape(label="C_PWBDZ", paint_label=True)
+        for point in (
+            QPointF(20, 2),
+            QPointF(60, 2),
+            QPointF(60, 42),
+            QPointF(20, 42),
+        ):
+            shape.add_point(point)
+        shape.close()
+        painter = Mock()
+
+        shape.paint(painter)
+
+        text_x, text_y, label = painter.drawText.call_args.args
+        font = QFont()
+        font.setPointSize(Shape.label_font_size)
+        font.setBold(True)
+        glyph_rect = QRectF(QFontMetrics(font).tightBoundingRect(label))
+        glyph_rect.translate(text_x, text_y)
+        self.assertGreaterEqual(
+            glyph_rect.top(),
+            2 + Shape.label_outline_gap / Shape.scale,
         )
 
     def test_hidden_label_does_not_paint_highlight_when_selected(self):

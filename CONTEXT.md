@@ -44,6 +44,18 @@ _Avoid_: Default blue fill, white selection outline
 The visual state of label text belonging to every selected annotation box: white text on a black background at about 60% opacity, with a small rounded rectangle and about two pixels of padding around the text. It remains at the annotation box's existing top-left position. Hovering without selection does not apply this appearance, and hidden label text remains hidden.
 _Avoid_: Label-list highlight, active-box-only label, hover label highlight
 
+**Corner resize target**:
+The interactive area at an annotation-box corner that resizes the box along the corner's geometric diagonal. It contracts for very small boxes so that a distinct box-move target remains available.
+_Avoid_: Fixed-radius corner target, entire small-box interior
+
+**Box-move target**:
+The annotation-box interior that remains after corner and edge resize targets are resolved and moves the whole box when dragged.
+_Avoid_: Corner resize target, edge resize target
+
+**Label text placement**:
+The label text position separated from the annotation-box outline, normally above its top-left corner and moved inside the box when the canvas boundary leaves insufficient space above.
+_Avoid_: Text baseline on the outline, clipped label text
+
 **Overlap cycle**:
 A Ctrl-click sequence at a location shared by multiple visible annotation boxes that selects exactly one candidate at a time, from topmost to bottommost, clearing the rest of the selection set at each step.
 _Avoid_: Additive overlap toggle, select-through
@@ -80,6 +92,10 @@ _Avoid_: Candidate frame, label list
 The annotation boxes and review status associated with one image, whether stored as Pascal VOC, YOLO, or CreateML.
 _Avoid_: Label file, format file
 
+**CreateML annotation collection**:
+A physical CreateML JSON file that may contain annotation-document records for multiple images. File operations target the uniquely matching image record and remove the physical collection only when no records remain; before destructive record removal rewrites a retained collection, its complete prior version is preserved in the system recycle bin.
+_Avoid_: Single-image JSON document, delete-whole-file-by-default
+
 **Annotation workspace**:
 The images being annotated together with their corresponding annotation documents and the candidate labels discovered from them.
 _Avoid_: Image folder, save directory, dataset
@@ -87,3 +103,47 @@ _Avoid_: Image folder, save directory, dataset
 **File-list display path**:
 The image path shown in the file list relative to the opened annotation-workspace root. The root itself is omitted while nested folders remain visible; the full absolute path remains the image identity and is available on hover.
 _Avoid_: Absolute-path label, basename-only flattening
+
+**File selection set**:
+The zero or more image files intentionally selected in the file list, independently of the current image. An ordinary click replaces the set immediately, Ctrl-click toggles one member, Shift-click selects a contiguous range, Ctrl+A selects every file while the file list has focus, and clicking empty list space clears the set. During the system double-click interval, the prior set may retain only its blue appearance so the first half of a double-click never flashes it as unselected; file commands and the selection count already target the newly clicked file.
+_Avoid_: Current image, opened file, annotation-box selection set
+
+**Selected file appearance**:
+The persistent light theme-accent background shown across every row in the file selection set, without a leading accent block. It remains visible when another image becomes current and after keyboard focus returns to the canvas.
+_Avoid_: Leading blue block, focus-only selection, current-image highlight
+
+**File hover appearance**:
+The theme-adaptive neutral-gray row background shown only while the pointer rests on an unselected file. It does not replace or overlay the selected-file appearance, current-image emphasis, or keyboard-focus indicator.
+_Avoid_: Blue hover background, gray selected-file overlay
+
+**Current image**:
+The single image currently loaded for viewing and annotation. It is visually identified independently of the file selection set; opening or navigating to another image does not add, remove, or otherwise change selected files.
+_Avoid_: Selected file, active selection
+
+**File selection context**:
+The file selection set targeted by a file-list context menu. Right-clicking a selected file preserves the existing set, while right-clicking an unselected file replaces the set with that file before opening the menu.
+_Avoid_: Right-clicked file only, current image
+
+**Image review state**:
+The mutually exclusive review classification of an image's annotation document: unreviewed, verified, or questioned. A file-selection-context command sets every targeted image to one explicit state instead of toggling each image's prior state.
+_Avoid_: Independent verified and questioned flags, mixed-state toggle
+
+**File annotation state**:
+The one mutually exclusive progress category shown for an image in the file list: unannotated when it has neither annotation boxes nor a review state; annotated when it has boxes but no review state; verified when its review state is verified; or questioned when its review state is questioned. File selection by state uses these same visible categories.
+_Avoid_: File-system status, overlapping status filter
+
+**Recoverable image deletion**:
+Removal of one current image or every image in a file selection context by moving each image and all matching Pascal VOC, YOLO, and CreateML annotation documents from both workspace annotation locations to the system recycle bin. Deletion does not preserve or separately prompt for unsaved changes to a targeted current image.
+_Avoid_: Permanent deletion, image-only deletion, active-format-only cleanup
+
+**Recoverable annotation clearing**:
+Removal of all Pascal VOC, YOLO, and CreateML annotation documents associated with every image in a file selection context by moving the documents to the system recycle bin while preserving the images. Clearing a targeted current image also discards its unsaved annotation changes and leaves it open as unannotated.
+_Avoid_: Image deletion, active-format clearing, hiding annotations
+
+**Synchronized image rename**:
+A rename that preserves an image's directory and extension while changing its base name together with all matching annotation-document names and embedded image references. The renamed identity remains the current image or a member of the file selection set when it held that role before the rename.
+_Avoid_: Rename image only, move image, convert image
+
+**Batch rename plan**:
+A previewed, conflict-free mapping from a file selection context to synchronized image renames. Names are generated in the pre-rename file-list order from a shared prefix, a template containing original-name or sequence tokens, a shared suffix, and the unchanged extension; the plan succeeds as a whole or is rolled back.
+_Avoid_: Sequential rename prompts, partial batch rename, automatic conflict suffix
