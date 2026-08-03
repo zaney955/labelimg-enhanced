@@ -1,16 +1,13 @@
 """Session-only recovery for cross-file operations."""
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
-import os
-import tempfile
 import uuid
 
 from labelimg.annotation_storage import (
     MISSING_FINGERPRINT,
     ResourceFingerprint,
-    fingerprint_path,
 )
 
 
@@ -84,7 +81,7 @@ class FileRecoveryConflict(FileRecoveryError):
 
 
 class FileRecoveryCenter:
-    """Retain and execute the newest 20 whole-operation recoveries."""
+    """Retain the newest 20 entries and own recovery status transitions."""
 
     def __init__(self, capacity=20):
         self.capacity = capacity
@@ -148,33 +145,15 @@ class FileRecoveryCenter:
         self._prepend(entry)
         return entry
 
-    def recover(self, entry_id, trash_adapter=None, context=None):
+    def recover(self, entry_id, executor):
+        """Run one recovery implementation and own its status transition."""
         entry = self._entry(entry_id)
         if not entry.recoverable:
             raise FileRecoveryError(
                 "file operation is not currently recoverable"
             )
         try:
-            if entry.operation in (
-                RecoveryOperation.DELETE,
-                RecoveryOperation.CLEAR,
-            ):
-                if trash_adapter is None:
-                    raise FileRecoveryError("trash adapter is required")
-                self._recover_trashed(entry, trash_adapter)
-            elif entry.operation is RecoveryOperation.RENAME:
-                if context is None:
-                    raise FileRecoveryError("recovery context is required")
-                context.recover_rename(dict(entry.payload))
-            elif entry.operation is RecoveryOperation.REVIEW:
-                if context is None:
-                    raise FileRecoveryError("recovery context is required")
-                context.recover_review(entry.payload)
-            else:
-                raise FileRecoveryError(
-                    "unsupported recovery operation: %s"
-                    % entry.operation
-                )
+            result = executor(entry)
         except FileRecoveryError as error:
             entry.status = RecoveryStatus.CONFLICT
             entry.detail = str(error)
@@ -182,85 +161,7 @@ class FileRecoveryCenter:
         entry.status = RecoveryStatus.RESTORED
         if not entry.detail:
             entry.detail = "Recovered successfully"
-        return entry
-
-    def _recover_trashed(self, entry, adapter):
-        resources = entry.payload
-        conflicts = []
-        for resource in resources:
-            actual = fingerprint_path(resource.original_path)
-            if actual != resource.post_fingerprint:
-                conflicts.append(
-                    "%s no longer matches the operation result"
-                    % resource.original_path
-                )
-            if not adapter.exists(resource.identity):
-                conflicts.append(
-                    "%s is no longer available in trash"
-                    % resource.original_path
-                )
-        if conflicts:
-            raise FileRecoveryConflict("; ".join(conflicts))
-
-        backups = {}
-        restored = []
-        try:
-            for resource in resources:
-                if resource.post_fingerprint.exists:
-                    backup = _recovery_temp_path(resource.original_path)
-                    os.replace(resource.original_path, backup)
-                    backups[resource.original_path] = backup
-                adapter.restore(
-                    resource.identity,
-                    resource.original_path,
-                )
-                restored.append(resource)
-        except Exception as error:
-            rollback_errors = []
-            replacement_identities = {}
-            for resource in reversed(restored):
-                try:
-                    replacement_identities[
-                        resource.original_path
-                    ] = adapter.move(resource.original_path)
-                except Exception as rollback_error:
-                    rollback_errors.append(rollback_error)
-            for original, backup in backups.items():
-                try:
-                    if os.path.exists(backup):
-                        os.replace(backup, original)
-                except Exception as rollback_error:
-                    rollback_errors.append(rollback_error)
-            if not rollback_errors and replacement_identities:
-                entry.payload = tuple(
-                    replace(
-                        resource,
-                        identity=replacement_identities.get(
-                            resource.original_path,
-                            resource.identity,
-                        ),
-                    )
-                    for resource in resources
-                )
-            if rollback_errors:
-                raise FileRecoveryError(
-                    "recovery and rollback failed: %s"
-                    % rollback_errors[0]
-                ) from error
-            raise FileRecoveryError(str(error)) from error
-        else:
-            cleanup_errors = []
-            for backup in backups.values():
-                try:
-                    if os.path.exists(backup):
-                        os.remove(backup)
-                except OSError as error:
-                    cleanup_errors.append(str(error))
-            if cleanup_errors:
-                entry.detail = (
-                    "Recovered successfully; a temporary backup could not "
-                    "be removed: %s" % cleanup_errors[0]
-                )
+        return result
 
     def _entry(self, entry_id):
         for entry in self._entries:
@@ -271,11 +172,3 @@ class FileRecoveryCenter:
     def _prepend(self, entry):
         self._entries.insert(0, entry)
         del self._entries[self.capacity :]
-
-
-def _recovery_temp_path(path):
-    directory = os.path.dirname(os.path.abspath(path))
-    return os.path.join(
-        directory,
-        ".labelimg-recovery-%s.tmp" % uuid.uuid4().hex,
-    )

@@ -52,7 +52,8 @@ flowchart LR
     Save["AnnotationSaveCoordinator"]
     Review["ReviewStateTransaction"]
     Storage["AnnotationStorageCoordinator"]
-    Recovery["FileOperationRecoveryCenter"]
+    FileOps["FileOperationTransaction"]
+    Recovery["FileRecoveryCenter"]
     Files["Annotation storage resources"]
     Trash["PlatformTrashAdapter"]
 
@@ -70,9 +71,13 @@ flowchart LR
     Save --> Workspace
     Workspace --> Storage
     Storage --> Files
-    UI --> Recovery
-    Recovery --> Trash
-    Recovery --> Files
+    UI --> FileOps
+    FileOps --> Recovery
+    FileOps --> Review
+    FileOps --> Controller
+    FileOps --> Workspace
+    FileOps --> Trash
+    FileOps --> Files
 ```
 
 The boundaries are:
@@ -84,7 +89,8 @@ The boundaries are:
 - `AnnotationSaveCoordinator` owns baseline verification, revision-bound save requests, physical-resource grouping, external conflict state, and exact-revision baseline acknowledgements.
 - `ReviewStateTransaction` is the interface for explicit cross-file review changes and their recovery. It owns document preparation, format/resource grouping, saved-baseline updates, recovery records, leased revalidation, and rollback; forward batches retain partial-success semantics while recovery remains all-or-nothing.
 - `AnnotationStorageCoordinator` owns resource leases and atomic physical-file replacement.
-- `FileOperationRecoveryCenter` owns the 20-entry session log and recovery preflight. It does not call or depend on annotation Undo and Redo.
+- `FileOperationTransaction` is the interface for clear, delete, rename, and recovery. It owns recovery recording, resource preflight and leases, retained-history cleanup, rename-session migration, trash rollback, and dispatch to review recovery.
+- `FileRecoveryCenter` owns only the bounded 20-entry session log and recovery status transitions; it never calls `MainWindow` or interprets an untyped execution context.
 - `PlatformTrashAdapter` returns an opaque recovery identity or explicitly reports that only manual trash recovery is available.
 
 `MainWindow` remains composition and presentation. It must not contain inverse edit logic or manipulate a history cursor directly.
@@ -118,8 +124,14 @@ At rest, the controller's current immutable revision is the canonical annotation
   - fingerprints;
   - atomic single-file and rollback-capable multi-file writes;
   - physical-resource leases.
+- `src/labelimg/file_operation_transaction.py`
+  - composes forward file operations and whole-entry recovery behind one transaction interface;
+  - coordinates retained histories, workspace resources, conflicts, rename migration, review recovery, and trash rollback;
+  - returns structured outcomes for UI list, selection, and current-document projection.
 - `src/labelimg/file_recovery.py`
-  - recovery entries, preflight, execution, and status;
+  - bounded recovery entries and status transitions;
+- `src/labelimg/file_operations.py`
+  - annotation-aware clear/delete implementation and synchronized rename;
   - platform trash adapter protocol;
   - Windows and portable implementations.
 - `src/labelimg/annotation_workspace.py`
@@ -668,7 +680,7 @@ The approved sections above were compared against the implementation after the f
 | Design area | Final implementation and evidence | Result |
 | --- | --- | --- |
 | Outcome and scope | Annotation history remains per image; file recovery remains a separate confirmed File-menu flow. | Conforms |
-| Architecture and source layout | `annotation_history`, `annotation_editing`, `annotation_persistence`, `create_ml_collection`, `annotation_storage`, `annotation_workspace`, `annotation_review`, `annotation_session`, and `file_recovery` own their documented policies; `MainWindow` composes them. | Conforms |
+| Architecture and source layout | `annotation_history`, `annotation_editing`, `annotation_persistence`, `create_ml_collection`, `annotation_storage`, `annotation_workspace`, `annotation_review`, `annotation_session`, `file_operation_transaction`, and `file_recovery` own their documented policies; `MainWindow` projects their outcomes. | Conforms |
 | Immutable history and interface | Snapshot identity, prepared steps, saved baselines, rebase/migrate/remove, 100-entry retention, and memory eviction are covered by `test_annotation_history.py`. | Conforms |
 | Edit lifecycle and operation boundaries | Gesture begin/commit/cancel, arrow coalescing, label/property edits, bulk edits, previous-image copy, and review edits are covered by `test_annotation_editing.py` and Canvas interaction suites. | Conforms |
 | Projection and view state | Scene ordering, selection results, visibility preservation, focus, hover/cache reset, and no recursive recording are covered by annotation-editing and multi-selection suites. | Conforms |

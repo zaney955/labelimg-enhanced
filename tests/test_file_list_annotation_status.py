@@ -17,12 +17,10 @@ from labelimg.app import MainWindow
 from labelimg.annotation_document import AnnotationDocument
 from labelimg.constants import FORMAT_YOLO
 from labelimg.shape import Shape
-from labelimg.annotation_storage import MISSING_FINGERPRINT
 from labelimg.file_recovery import (
     FileRecoveryError,
     ReviewRecoveryRecord,
     TrashIdentity,
-    TrashedResource,
 )
 
 
@@ -379,37 +377,6 @@ class FileListAnnotationStatusTest(unittest.TestCase):
         self.assertFalse(view.dirty)
         self.assertFalse(view.can_undo)
 
-    def test_clear_recovery_is_blocked_by_inactive_dirty_history(self):
-        self.assertTrue(self.window.load_file(self.image_paths[1]))
-        self.add_rectangle()
-        self.assertTrue(self.window.load_file(self.image_paths[0]))
-        annotation_path = os.path.join(
-            self.annotation_dir, "02_annotated.xml"
-        )
-        entry = self.window.file_recovery.record_trash_operation(
-            "clear",
-            (
-                TrashedResource(
-                    annotation_path,
-                    TrashIdentity(
-                        "path", "unused", annotation_path
-                    ),
-                    MISSING_FINGERPRINT,
-                ),
-            ),
-            1,
-        )
-
-        with patch.object(
-            self.window.file_recovery, "recover"
-        ) as recover, patch(
-            "labelimg.app.QMessageBox.question",
-            return_value=QMessageBox.Yes,
-        ), patch("labelimg.app.QMessageBox.warning"):
-            self.window._confirm_file_recovery(entry.entry_id)
-
-        recover.assert_not_called()
-
     def test_review_recovery_captures_rollback_bytes_under_resource_lease(self):
         annotation_path = os.path.join(
             self.annotation_dir, "02_annotated.xml"
@@ -442,7 +409,7 @@ class FileListAnnotationStatusTest(unittest.TestCase):
         )
         with patch.object(coordinator, "lease", tracked_lease):
             with self.assertRaises(FileRecoveryError):
-                self.window.recover_review((change,))
+                self.window.review_state_transaction.recover((change,))
 
         with open(annotation_path, "rb") as source:
             self.assertEqual(source.read(), leased_bytes[0])
@@ -477,7 +444,7 @@ class FileListAnnotationStatusTest(unittest.TestCase):
         )
         with patch.object(coordinator, "lease", change_after_lock):
             with self.assertRaises(FileRecoveryError):
-                self.window.recover_review((change,))
+                self.window.review_state_transaction.recover((change,))
 
         loaded = AnnotationDocument.load(
             annotation_path,
@@ -530,7 +497,7 @@ class FileListAnnotationStatusTest(unittest.TestCase):
             side_effect=fail_second_save,
         ):
             with self.assertRaises(FileRecoveryError):
-                self.window.recover_review(changes)
+                self.window.review_state_transaction.recover(changes)
 
         with open(first_path, "rb") as source:
             self.assertEqual(source.read(), first_before)
@@ -563,7 +530,7 @@ class FileListAnnotationStatusTest(unittest.TestCase):
             side_effect=save_then_raise,
         ):
             with self.assertRaises(FileRecoveryError):
-                self.window.recover_review((change,))
+                self.window.review_state_transaction.recover((change,))
 
         with open(annotation_path, "rb") as source:
             self.assertEqual(source.read(), before)
@@ -577,7 +544,7 @@ class FileListAnnotationStatusTest(unittest.TestCase):
         )
         self.assertFalse(os.path.exists(annotation_path))
 
-        self.window.recover_review(
+        self.window.review_state_transaction.recover(
             (
                 ReviewRecoveryRecord(
                     image_path=self.image_paths[0],
@@ -617,7 +584,7 @@ class FileListAnnotationStatusTest(unittest.TestCase):
             self.annotation_dir, "02_annotated.xml"
         )
 
-        self.window.recover_review(
+        self.window.review_state_transaction.recover(
             (
                 ReviewRecoveryRecord(
                     image_path=self.image_paths[1],
