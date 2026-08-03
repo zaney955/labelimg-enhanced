@@ -2,6 +2,7 @@ import os
 import shutil
 import tempfile
 import unittest
+from contextlib import contextmanager
 from unittest.mock import patch
 from xml.etree import ElementTree
 
@@ -13,8 +14,17 @@ from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication, QMessageBox
 
 from labelimg.app import MainWindow
+from labelimg.annotation_document import AnnotationDocument
+from labelimg.annotation_review import ReviewRecoveryCoordinator
+from labelimg.constants import FORMAT_YOLO
 from labelimg.shape import Shape
-from labelimg.file_recovery import TrashIdentity
+from labelimg.annotation_storage import MISSING_FINGERPRINT
+from labelimg.file_recovery import (
+    FileRecoveryError,
+    ReviewRecoveryRecord,
+    TrashIdentity,
+    TrashedResource,
+)
 
 
 class FakeTrashAdapter:
@@ -289,6 +299,353 @@ class FileListAnnotationStatusTest(unittest.TestCase):
         self.assertEqual(
             self.item(1).text(),
             self.display_paths[1] + "  ✓",
+        )
+
+    def test_batch_review_cancels_pending_edit_before_saving(self):
+        self.item(0).setSelected(True)
+        self.window.annotation_editing.begin_edit("Move box")
+        self.window.annotation_editing.set_pending(
+            "Move box",
+            lambda: self.window.annotation_editing.cancel_edit(
+                restore=True
+            ),
+        )
+
+        self.window.set_selected_review_state("verified")
+
+        self.assertFalse(self.window.annotation_editing.pending)
+        self.assertFalse(self.window.annotation_editing.edit_open)
+        root = ElementTree.parse(
+            os.path.join(self.annotation_dir, "01_blank.xml")
+        ).getroot()
+        self.assertEqual(root.attrib.get("verified"), "yes")
+
+    def test_canceling_batch_review_confirmation_preserves_pending_edit(self):
+        self.item(0).setSelected(True)
+        self.item(1).setSelected(True)
+        self.window.annotation_editing.begin_edit("Move box")
+        self.window.annotation_editing.set_pending(
+            "Move box",
+            lambda: self.window.annotation_editing.cancel_edit(
+                restore=True
+            ),
+        )
+
+        with patch(
+            "labelimg.app.QMessageBox.question",
+            return_value=QMessageBox.No,
+        ):
+            self.window.set_selected_review_state("verified")
+
+        self.assertTrue(self.window.annotation_editing.pending)
+        self.assertTrue(self.window.annotation_editing.edit_open)
+        self.window.annotation_editing.cancel_pending_operation()
+
+    def test_batch_review_preserves_the_active_yolo_format(self):
+        self.window.change_format()
+        self.assertEqual(self.window.actions.save_format.text(), FORMAT_YOLO)
+        self.item(0).setSelected(True)
+
+        self.window.set_selected_review_state("questioned")
+
+        yolo_path = os.path.join(self.annotation_dir, "01_blank.txt")
+        self.assertTrue(os.path.isfile(yolo_path))
+        self.assertFalse(
+            os.path.exists(os.path.join(self.annotation_dir, "01_blank.xml"))
+        )
+        loaded = AnnotationDocument.load(
+            yolo_path,
+            self.image_paths[0],
+            QImage(self.image_paths[0]),
+        )
+        self.assertTrue(loaded.questioned)
+
+    def test_batch_review_rebases_an_inactive_dirty_history(self):
+        self.assertTrue(self.window.load_file(self.image_paths[1]))
+        self.add_rectangle()
+        self.assertTrue(
+            self.window.annotation_editing.view_image(
+                self.image_paths[1], touch=False
+            ).dirty
+        )
+        self.assertTrue(self.window.load_file(self.image_paths[0]))
+        self.item(1).setSelected(True)
+
+        self.window.set_selected_review_state("verified")
+
+        view = self.window.annotation_editing.view_image(
+            self.image_paths[1], touch=False
+        )
+        self.assertTrue(view.snapshot.verified)
+        self.assertFalse(view.dirty)
+        self.assertFalse(view.can_undo)
+
+    def test_clear_recovery_is_blocked_by_inactive_dirty_history(self):
+        self.assertTrue(self.window.load_file(self.image_paths[1]))
+        self.add_rectangle()
+        self.assertTrue(self.window.load_file(self.image_paths[0]))
+        annotation_path = os.path.join(
+            self.annotation_dir, "02_annotated.xml"
+        )
+        entry = self.window.file_recovery.record_trash_operation(
+            "clear",
+            (
+                TrashedResource(
+                    annotation_path,
+                    TrashIdentity(
+                        "path", "unused", annotation_path
+                    ),
+                    MISSING_FINGERPRINT,
+                ),
+            ),
+            1,
+        )
+
+        with patch.object(
+            self.window.file_recovery, "recover"
+        ) as recover, patch(
+            "labelimg.app.QMessageBox.question",
+            return_value=QMessageBox.Yes,
+        ), patch("labelimg.app.QMessageBox.warning"):
+            self.window._confirm_file_recovery(entry.entry_id)
+
+        recover.assert_not_called()
+
+    def test_review_recovery_captures_rollback_bytes_under_resource_lease(self):
+        annotation_path = os.path.join(
+            self.annotation_dir, "02_annotated.xml"
+        )
+        coordinator = self.window.annotation_workspace.storage_coordinator
+        real_lease = coordinator.lease
+        lease_depth = [0]
+
+        @contextmanager
+        def tracked_lease(resources):
+            with real_lease(resources):
+                lease_depth[0] += 1
+                try:
+                    yield
+                finally:
+                    lease_depth[0] -= 1
+
+        real_read = ReviewRecoveryCoordinator._read_resource_bytes
+
+        def checked_read(path):
+            self.assertGreater(lease_depth[0], 0)
+            return real_read(path)
+
+        change = ReviewRecoveryRecord(
+            image_path=self.image_paths[1],
+            prior_verified=True,
+            prior_questioned=False,
+            result_verified=False,
+            result_questioned=False,
+            annotation_path=annotation_path,
+        )
+        with patch.object(coordinator, "lease", tracked_lease), patch.object(
+            ReviewRecoveryCoordinator,
+            "_read_resource_bytes",
+            side_effect=checked_read,
+        ):
+            self.window.recover_review((change,))
+
+        loaded = AnnotationDocument.load(
+            annotation_path,
+            self.image_paths[1],
+            QImage(self.image_paths[1]),
+        )
+        self.assertTrue(loaded.verified)
+
+    def test_review_recovery_rechecks_review_fields_inside_resource_lease(self):
+        annotation_path = os.path.join(
+            self.annotation_dir, "02_annotated.xml"
+        )
+        coordinator = self.window.annotation_workspace.storage_coordinator
+        real_lease = coordinator.lease
+
+        @contextmanager
+        def change_after_lock(resources):
+            with real_lease(resources):
+                root = ElementTree.parse(annotation_path).getroot()
+                root.set("verified", "no")
+                root.set("questioned", "yes")
+                ElementTree.ElementTree(root).write(
+                    annotation_path,
+                    encoding="utf-8",
+                    xml_declaration=True,
+                )
+                yield
+
+        change = ReviewRecoveryRecord(
+            image_path=self.image_paths[1],
+            prior_verified=True,
+            prior_questioned=False,
+            result_verified=False,
+            result_questioned=False,
+            annotation_path=annotation_path,
+        )
+        with patch.object(coordinator, "lease", change_after_lock):
+            with self.assertRaises(FileRecoveryError):
+                self.window.recover_review((change,))
+
+        loaded = AnnotationDocument.load(
+            annotation_path,
+            self.image_paths[1],
+            QImage(self.image_paths[1]),
+        )
+        self.assertTrue(loaded.questioned)
+
+    def test_review_recovery_rolls_back_earlier_ordinary_write(self):
+        first_path = os.path.join(
+            self.annotation_dir, "02_annotated.xml"
+        )
+        second_path = os.path.join(
+            self.annotation_dir, "04_questioned.xml"
+        )
+        with open(first_path, "rb") as source:
+            first_before = source.read()
+        with open(second_path, "rb") as source:
+            second_before = source.read()
+        real_save = self.window.annotation_workspace.save
+        calls = [0]
+
+        def fail_second_save(*args, **kwargs):
+            calls[0] += 1
+            if calls[0] == 2:
+                raise RuntimeError("second review save failed")
+            return real_save(*args, **kwargs)
+
+        changes = (
+            ReviewRecoveryRecord(
+                image_path=self.image_paths[1],
+                prior_verified=True,
+                prior_questioned=False,
+                result_verified=False,
+                result_questioned=False,
+                annotation_path=first_path,
+            ),
+            ReviewRecoveryRecord(
+                image_path=self.image_paths[3],
+                prior_verified=False,
+                prior_questioned=False,
+                result_verified=False,
+                result_questioned=True,
+                annotation_path=second_path,
+            ),
+        )
+        with patch.object(
+            self.window.annotation_workspace,
+            "save",
+            side_effect=fail_second_save,
+        ):
+            with self.assertRaises(FileRecoveryError):
+                self.window.recover_review(changes)
+
+        with open(first_path, "rb") as source:
+            self.assertEqual(source.read(), first_before)
+        with open(second_path, "rb") as source:
+            self.assertEqual(source.read(), second_before)
+
+    def test_review_recovery_rolls_back_a_save_that_raises_after_commit(self):
+        annotation_path = os.path.join(
+            self.annotation_dir, "02_annotated.xml"
+        )
+        with open(annotation_path, "rb") as source:
+            before = source.read()
+        real_save = self.window.annotation_workspace.save
+
+        def save_then_raise(*args, **kwargs):
+            real_save(*args, **kwargs)
+            raise RuntimeError("post-commit bookkeeping failed")
+
+        change = ReviewRecoveryRecord(
+            image_path=self.image_paths[1],
+            prior_verified=True,
+            prior_questioned=False,
+            result_verified=False,
+            result_questioned=False,
+            annotation_path=annotation_path,
+        )
+        with patch.object(
+            self.window.annotation_workspace,
+            "save",
+            side_effect=save_then_raise,
+        ):
+            with self.assertRaises(FileRecoveryError):
+                self.window.recover_review((change,))
+
+        with open(annotation_path, "rb") as source:
+            self.assertEqual(source.read(), before)
+
+    def test_review_recovery_restores_missing_empty_pascal_document(self):
+        self.item(0).setSelected(True)
+        self.window.set_selected_review_state("verified")
+        self.window.set_selected_review_state("unreviewed")
+        annotation_path = os.path.join(
+            self.annotation_dir, "01_blank.xml"
+        )
+        self.assertFalse(os.path.exists(annotation_path))
+
+        self.window.recover_review(
+            (
+                ReviewRecoveryRecord(
+                    image_path=self.image_paths[0],
+                    prior_verified=True,
+                    prior_questioned=False,
+                    result_verified=False,
+                    result_questioned=False,
+                    annotation_path=annotation_path,
+                ),
+            )
+        )
+
+        loaded = AnnotationDocument.load(
+            annotation_path,
+            self.image_paths[0],
+            QImage(self.image_paths[0]),
+        )
+        self.assertTrue(loaded.verified)
+
+    def test_review_recovery_retains_later_dirty_candidate_override(self):
+        self.item(1).setSelected(True)
+        self.window.set_selected_review_state("verified")
+        self.assertTrue(self.window.load_file(self.image_paths[1]))
+        shape = Shape(label="later-unsaved")
+        for point in (
+            QPointF(10, 10),
+            QPointF(40, 10),
+            QPointF(40, 40),
+            QPointF(10, 40),
+        ):
+            shape.add_point(point)
+        shape.close()
+        self.window.canvas.load_shapes([shape])
+        self.window.add_label(shape)
+        self.window.set_dirty()
+        annotation_path = os.path.join(
+            self.annotation_dir, "02_annotated.xml"
+        )
+
+        self.window.recover_review(
+            (
+                ReviewRecoveryRecord(
+                    image_path=self.image_paths[1],
+                    prior_verified=False,
+                    prior_questioned=False,
+                    result_verified=True,
+                    result_questioned=False,
+                    annotation_path=annotation_path,
+                ),
+            )
+        )
+
+        view = self.window.annotation_editing.view_image(
+            self.image_paths[1], touch=False
+        )
+        self.assertTrue(view.dirty)
+        self.assertIn(
+            "later-unsaved",
+            self.window.annotation_workspace.candidate_labels,
         )
 
     def test_opening_next_annotated_image_starts_without_selection(self):

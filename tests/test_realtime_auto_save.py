@@ -164,6 +164,22 @@ class RealtimeAutoSaveTest(unittest.TestCase):
         reader = PascalVocReader(self.annotation_path)
         self.assertEqual(len(reader.get_shapes()), 2)
 
+    def test_autosave_waits_until_an_open_gesture_finishes(self):
+        shape = self.add_rectangle()
+        self.window.set_dirty()
+        self.window.canvas.select_shape(shape)
+        self.window.canvas._begin_annotation_gesture(
+            "Move box", source="mouse"
+        )
+
+        QTest.qWait(300)
+
+        self.assertFalse(os.path.exists(self.annotation_path))
+        self.assertTrue(self.window.dirty)
+        self.window.canvas.cancel_annotation_gesture()
+        QTest.qWait(300)
+        self.assertTrue(os.path.exists(self.annotation_path))
+
 
 if __name__ == "__main__":
     unittest.main()

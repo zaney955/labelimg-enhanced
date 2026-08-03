@@ -1,6 +1,6 @@
 # Undo, Redo, Save Coordination, and File Recovery Design
 
-Status: approved design; implementation has not started.
+Status: implemented and validated on 2026-07-31.
 
 ## Outcome
 
@@ -108,6 +108,11 @@ At rest, the controller's current immutable revision is the canonical annotation
   - remains the document/format facade;
   - delegates resource writes to `AnnotationSaveCoordinator`;
   - gains active-document choice, candidate derivation, and YOLO vocabulary ownership.
+- `src/labelimg/annotation_review.py`
+  - coordinates field-level batch-review recovery across retained histories and leased storage resources;
+  - captures rollback bytes only after acquiring the complete resource lease.
+- `src/labelimg/annotation_session.py`
+  - transactionally migrates histories, baselines, active targets, shared-resource identities, and conflicts after synchronized rename.
 - `src/labelimg/canvas.py`
   - emits gesture lifecycle signals;
   - exposes cancel/restore hooks for an unfinished gesture;
@@ -301,6 +306,7 @@ An exception at any step causes full projection of the source snapshot. Incremen
 Histories are keyed by canonical absolute image path inside a workspace session.
 
 - Navigating between images retains each history.
+- Navigation first cancels any open Canvas/edit-controller transaction and restores its source snapshot. A destination is never selected while the source image still owns an edit or history-step token.
 - Rename transactionally migrates histories, active-document choice, dirty state, conflicts, pending saves, selection paths, and current-image identity.
 - Image deletion removes its in-memory history.
 - Restoring a deleted image starts from the restored files as a new baseline with no old history.
@@ -321,6 +327,8 @@ When more than one supported annotation document exists for an image:
 - canceling the chooser cancels image navigation;
 - the chosen document is active for the session and becomes the clean baseline;
 - unchosen files remain untouched.
+
+A shared CreateML collection is indexed by `(collection path, normalized complete image reference)`. Qualified relative and absolute references retain their path identity; only legacy basename-only records use basename matching. A loaded record preserves its original reference on save, including when a document is rebuilt from annotation history: the workspace resolves the unique collection record before writing. Zero or multiple matching records are rejected rather than guessed or appended. Each unique record is a document choice for its image, candidate-label ambiguity is tracked per record, and collection conflicts count and associate every matching complete reference rather than collapsing same-basename records.
 
 Saving to another format makes the new target active for the current session and preserves the old file. A later session prompts again.
 
@@ -366,11 +374,11 @@ Requests sharing any key serialize. Locks are acquired in sorted canonical-key o
 
 ### Single file
 
-Write a peer temporary file, flush it, then atomically replace the destination. A failed replacement leaves the old resource and baseline.
+Write a peer temporary file, flush it, then atomically replace the destination in one replacement step. The existing destination is never deliberately removed before replacement; a failed replacement leaves the old resource and baseline.
 
 ### YOLO multi-file transaction
 
-Stage the TXT and any changed class vocabulary first. Preflight all fingerprints again immediately before commit. Replace each destination using rollback backups; acknowledge no baseline until all replacements succeed. If replacement fails, restore every already-replaced destination. A failed rollback marks the resource conflicted and prevents autosave.
+Stage the TXT and any changed class vocabulary first. Preflight all fingerprints again immediately before commit. Copy rollback backups without first moving live destinations away, replace each destination, and acknowledge no baseline until all replacements succeed. If replacement fails, restore every already-replaced destination. A failed rollback marks the resource conflicted and prevents autosave.
 
 YOLO candidate labels and class indices are different models:
 
@@ -382,7 +390,9 @@ YOLO candidate labels and class indices are different models:
 
 ### CreateML collection transaction
 
-The coordinator retains the last-known complete collection model and fingerprint. Waiting requests coalesce the latest revision per image, update one collection model, and atomically replace one JSON file. The entire batch succeeds or fails; no image baseline advances on failure.
+The coordinator retains the last-known complete collection model and fingerprint. Waiting requests coalesce the latest revision per image, update one collection model, and atomically replace one JSON file. Unsaved labels replace only their matching record contribution. The entire batch succeeds or fails; no image baseline advances on failure.
+
+Review state is stored by every active format: Pascal VOC uses its existing root attribute, YOLO uses a leading `# labelimg-review: verified|questioned|unreviewed` metadata comment, and CreateML stores `verified` and `questioned` on each image record. Existing CreateML records without those keys retain the legacy rule that a non-empty record is verified.
 
 ## Autosave
 
@@ -394,6 +404,7 @@ Autosave remains debounced by 200ms but is revision-aware and resource-aware.
 - Requests for one shared collection coalesce.
 - A conflict pauses autosave for every dependent image.
 - Degraded images cannot autosave.
+- A pending drawing, drag, label confirmation, or history step blocks ordinary manual Save and Save As, storage-format changes, and the autosave timer. Navigation, an accepted batch-review command, explicit annotation-document loading, workspace switching, and close cancel that transaction back to its source snapshot before inspecting dirty state or writing another resource. Declining batch confirmation leaves the pending transaction untouched.
 
 Autosave never reads a mutable live Canvas after it has been queued.
 
@@ -405,6 +416,8 @@ Cross-file operations acquire the same canonical resource leases as saving. They
 - Annotation clearing and batch review wait for active writes, cancel obsolete queued writes, execute against verified current resources, and rebase only successful targets.
 - Synchronized rename drains active writes, transactionally changes physical paths, then migrates histories, active documents, dirty revisions, conflicts, and any still-valid pending save requests to the new canonical keys.
 - Recovery operations take the same leases and run only after their complete preflight remains valid under lock.
+- Delete and clear are atomic per logical image target: if recycling any matching annotation resource or the image itself fails, resources already recycled for that image are restored before the next target is attempted. A partial rollback retains only identities still available in trash and reports any secondary restoration failure; consumed identities never contaminate the residual recovery payload.
+- Repeated rewrites of one shared CreateML collection in a multi-image operation coalesce to one logical recovery resource: the first original trash identity is paired with the final post-operation fingerprint.
 
 The lock acquisition order is shared with normal save coordination, preventing deadlock between a save, rename, clear, and recovery attempt.
 
@@ -489,9 +502,12 @@ Candidate labels are a derived set of labels currently used by committed annotat
 - include unambiguous unopened stored documents;
 - include chosen active documents;
 - include committed unsaved in-memory documents;
+- retain those in-memory contributions across same-workspace rescans;
 - use the in-memory side of an unresolved external conflict;
 - exclude unresolved multi-format images;
 - exclude typed-but-canceled, predefined-only, or previously-used-only labels.
+
+For a shared CreateML collection, stored and unsaved contributions are keyed by `(collection path, complete normalized image reference)`. An unresolved format conflict excludes only the conflicting image record; the collection's other unambiguous records remain eligible. A rescan rebuilds disk-derived candidates but does not erase retained dirty-history contributions or session-reserved YOLO indices.
 
 Undo of the final workspace use removes the candidate. Redo restores it. Ordering is `(label.casefold(), label)`, so case-only variants remain distinct and deterministic.
 
@@ -517,7 +533,7 @@ Recovery always performs whole-entry preflight. It never overwrites, invents suf
 
 ### Windows trash adapter
 
-Replace legacy `SHFileOperationW` with `IFileOperation` using `FOFX_RECYCLEONDELETE` and a progress sink. `PostDeleteItem` returns `psiNewlyCreated`, the `IShellItem` representing the item in the Recycle Bin. Retain that opaque item identity for the workspace session and use `IFileOperation.MoveItem` to restore it to the original parent/name after collision preflight.
+Replace legacy `SHFileOperationW` with `IFileOperation` using `FOFX_RECYCLEONDELETE`, undo-record flags, and an item progress sink. `PostDeleteItem` returns `psiNewlyCreated`, the `IShellItem` representing the item in the Recycle Bin. The callback immediately copies its absolute PIDL bytes with `SHGetIDListFromObject`; it never retains the callback-owned COM pointer. Reconstruct an `IShellItem` from that PIDL when checking availability or using `IFileOperation.MoveItem` to restore it to the original parent/name after collision preflight.
 
 Use a Windows-only conditional dependency on `comtypes>=1.4.16,<2`; it is pure Python and supports the project's Python 3.14 runtime. Do not parse private `$I`/`$R` files or guess by filename and deletion time.
 
@@ -528,7 +544,7 @@ Authoritative platform references:
 - [SHGetIDListFromObject](https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nf-shobjidl_core-shgetidlistfromobject)
 - [comtypes package](https://pypi.org/project/comtypes/)
 
-If Windows returns no newly created recycle item, the adapter must not create an actionable recovery entry and must report a hard trash failure; no permanent-delete fallback is invoked by LabelImg.
+Before touching user data, Windows recycles and restores a same-directory probe of the same logical size. If the volume returns no newly created recycle item, or the PIDL cannot be reconstructed and restored, the adapter blocks the operation. It must not create an actionable recovery entry and no permanent-delete fallback is invoked by LabelImg.
 
 ### Other platforms
 
@@ -566,9 +582,15 @@ Use `QFile.moveToTrash` only when it succeeds. A nonempty returned trash path is
 
 - every current review field must still equal the operation result;
 - later box edits are preserved;
+- later dirty candidate-label overrides are rebuilt after success or rollback;
 - any later review change blocks the whole entry;
 - restore prior review fields atomically;
 - rebase affected annotation histories after success.
+- preserve each image's selected active target and format; never force a Pascal VOC conversion;
+- capture rollback bytes and verify current review fields while holding every affected resource lease;
+- mark every attempted resource rollback-eligible before invoking its writer, so a commit followed by fingerprint or derived-index failure is still restored;
+- roll back only resources attempted by the failed leased operation, so an external change made before lease acquisition is never overwritten.
+- treat a missing empty Pascal VOC target as the valid empty-unreviewed operation result, allowing recovery to recreate a prior review-only document.
 
 ## Retention
 
@@ -594,7 +616,9 @@ Redo transitions count toward the same limits. Eviction never moves a cursor to 
 - Save failure: baseline and history unchanged.
 - Resource conflict: pause resource saves; retain current histories.
 - File operation partial success: recovery entry records only successful targets.
+- File-operation rollback partial success: recovery payload records only resources whose trash identities remain available; already-restored resources are omitted.
 - File recovery execution failure: roll back already restored/moved targets; if rollback fails, leave the entry conflicted and report every exact path.
+- Post-commit cleanup failure: keep the operation successful and restored; stale backup cleanup is diagnostic detail, not evidence that the committed restore failed.
 
 Every failure result is structured. UI code does not infer success from an absent exception alone.
 
@@ -614,6 +638,42 @@ Every failure result is structured. UI code does not infer success from an absen
 12. Run full source and isolated installed-package validation.
 
 Each phase must preserve passing tests before the next mutation family moves behind the controller. Direct `set_dirty()` calls are removed only when their behavior has an equivalent transaction or explicit view-state classification.
+
+All 12 phases are complete. Review recovery and rename-session migration are implemented as composition services rather than inverse logic in `MainWindow`.
+
+## Implementation conformance review (2026-07-31)
+
+The approved sections above were compared against the implementation after the first implementation commit `f4bab7c`. The table records the final owner and verification boundary for every design area.
+
+| Design area | Final implementation and evidence | Result |
+| --- | --- | --- |
+| Outcome and scope | Annotation history remains per image; file recovery remains a separate confirmed File-menu flow. | Conforms |
+| Architecture and source layout | `annotation_history`, `annotation_editing`, `annotation_storage`, `annotation_workspace`, `annotation_review`, `annotation_session`, and `file_recovery` own their documented policies; `MainWindow` composes them. | Conforms |
+| Immutable history and interface | Snapshot identity, prepared steps, saved baselines, rebase/migrate/remove, 100-entry retention, and memory eviction are covered by `test_annotation_history.py`. | Conforms |
+| Edit lifecycle and operation boundaries | Gesture begin/commit/cancel, arrow coalescing, label/property edits, bulk edits, previous-image copy, and review edits are covered by `test_annotation_editing.py` and Canvas interaction suites. | Conforms |
+| Projection and view state | Scene ordering, selection results, visibility preservation, focus, hover/cache reset, and no recursive recording are covered by annotation-editing and multi-selection suites. | Conforms |
+| Per-image/workspace lifecycle | Navigation cancels pending work before selection, retains completed histories, and rename/delete/rebase migrate or remove the correct image state. | Conforms |
+| Multiple formats | No implicit precedence; shared CreateML records retain qualified relative/absolute identity; zero or duplicate matches fail explicitly; ambiguity is isolated per record. | Conforms |
+| Dirty state and fingerprints | Revision/target baselines remain independent of history retention; annotation hashes and image dimensions participate in fingerprints. | Conforms |
+| Atomic storage | Single-file replacement is one step; multi-file live targets remain present while rollback backups are copied; resource leases and conflict fingerprints gate commit. | Conforms |
+| Autosave | The 200 ms request is revision-bound; Save, Save As, autosave, navigation, batch review, and close all honor the open-token boundary. | Conforms |
+| File-operation coordination | Clear/delete are atomic per logical image target; shared-collection recovery resources coalesce; partial rollback retains only still-actionable identities; batch review preserves active format and rebases every successful retained history. | Conforms |
+| External conflicts and degraded flow | Resource-wide conflict choices, apply-to-all close handling, exact error detail, and per-image degraded recovery are covered by storage/editing/Qt suites. | Conforms |
+| Shortcuts and presentation | Focus routing, auto-repeat suppression, safe menu escaping/elision, retention-boundary feedback, and persistence markers have Qt regression coverage. | Conforms |
+| Candidates and YOLO vocabulary | Candidates use committed per-document labels only; rescans preserve retained unsaved contributions; shared CreateML overrides are per record; YOLO indices use a separate session-stable vocabulary. | Conforms |
+| Recovery center and semantics | Capacity/status, strict lock-held preflight, delete/clear/rename/review recovery, post-commit-exception rollback, nonfatal cleanup failure, and one-shot restore are covered by file-operation/recovery suites. | Conforms |
+| Retention and failure handling | No-op, allocation/projection/save failure, conflict, full/partial rollback, residual recovery payload, and degraded-state outcomes remain structured and tested. | Conforms |
+| Non-goals | No persistent history, global filesystem Undo shortcut, silent merge, or automatic format deletion was introduced. | Conforms |
+
+Validation evidence:
+
+- complete source run: `tools/run_tests.py`, 26 test files passed;
+- clean wheel: `labelimg_enhanced-1.9.0-py3-none-any.whl`, SHA-256 `7077dff32833f84ba1c5ba1e1ed6d0c4437acb5fff86ec823b4cfb2c9cb6aaaf`;
+- isolated installed-wheel run: `tools/run_tests.py --installed`, 26 test files passed without source-tree import shadowing;
+- deployed DL-environment run: the same installed-package suite passed all 26 test files after wheel installation;
+- deployed package parity: all 34 packaged `labelimg/` files match the wheel byte-for-byte (`DIFF=0`, `MISSING=0`);
+- Windows system-drive smoke: real `IFileOperation` recycle, 493-byte copied PIDL availability check, and exact restore passed;
+- Windows H: negative smoke: the volume returned no restorable recycle identity, so the probe prevented any user-file mutation as designed.
 
 ## Acceptance matrix
 
@@ -673,11 +733,17 @@ Each phase must preserve passing tests before the next mutation family moves beh
 - format/path changes are save-required but not Undoable;
 - multi-format chooser and cancel-navigation behavior;
 - workspace switch preflight and rollback.
+- pending-gesture navigation cancellation and autosave exclusion;
+- Save As, batch review, workspace close, and clean pending-token boundaries;
+- image fingerprints include decoded dimensions;
+- YOLO and CreateML review-state round trips, including legacy CreateML compatibility.
 
 ### Shared resources and conflict
 
 - same-resource serialization and disjoint-resource concurrency;
 - CreateML multi-image coalescing and atomic replacement;
+- per-record shared-CreateML discovery, qualified-path identity, unsaved override, and ambiguity isolation;
+- same-workspace rescan retention for unsaved candidates and YOLO reservations;
 - YOLO TXT/vocabulary transaction rollback;
 - conflict detection before save/reload;
 - non-modal autosave conflict;
@@ -691,12 +757,17 @@ Each phase must preserve passing tests before the next mutation family moves beh
 - deletion token capture and exact restore;
 - strict collision preflight;
 - all-or-nothing recovery rollback;
+- per-image logical-target rollback when annotation or image recycling fails;
+- residual payload after partial logical-target rollback;
+- multi-image shared-CreateML recovery coalescing;
 - recovered selection/current-image behavior;
 - clear-only-while-empty;
 - inverse rename with later edits and history migration;
 - field-level batch review recovery;
+- lock-held review-field revalidation and post-commit-exception rollback;
 - shared CreateML fingerprints;
 - manual-trash and no-trash fallbacks;
+- explicit warning for successful but non-actionable manual-trash moves;
 - restored entry cannot run twice.
 
 ### Validation

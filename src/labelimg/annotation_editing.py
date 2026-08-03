@@ -9,7 +9,7 @@ from labelimg.annotation_history import (
     HistoryBusy,
     HistoryUnavailable,
 )
-from labelimg.annotation_storage import fingerprint_path
+from labelimg.annotation_storage import fingerprint_image
 
 
 @dataclass(frozen=True)
@@ -116,9 +116,11 @@ class AnnotationEditingController:
         )
 
     def open_image(self, image_key, snapshot, saved_baseline=None):
+        if self._edit_token is not None or self.pending:
+            raise HistoryBusy(
+                "cannot open another image during an annotation edit"
+            )
         self._image_key = str(image_key)
-        self._edit_token = None
-        self.clear_pending()
         return self._history.open_image(
             self._image_key,
             snapshot,
@@ -126,9 +128,11 @@ class AnnotationEditingController:
         )
 
     def select_image(self, image_key):
+        if self._edit_token is not None or self.pending:
+            raise HistoryBusy(
+                "cannot select another image during an annotation edit"
+            )
         self._image_key = str(image_key)
-        self._edit_token = None
-        self.clear_pending()
         return self.view
 
     def begin_edit(
@@ -219,12 +223,18 @@ class AnnotationEditingController:
         self._pending_kind = None
         self._pending_cancel = None
 
+    def cancel_pending_operation(self):
+        if not self.pending:
+            return None
+        cancel = self._pending_cancel
+        kind = self._pending_kind
+        self.clear_pending()
+        cancel()
+        return kind
+
     def undo(self):
         if self.pending:
-            cancel = self._pending_cancel
-            kind = self._pending_kind
-            self.clear_pending()
-            cancel()
+            kind = self.cancel_pending_operation()
             return EditingResult(
                 applied=False,
                 direction="undo",
@@ -336,11 +346,22 @@ class AnnotationEditingController:
         try:
             step = prepare(self._image_key)
         except HistoryUnavailable as error:
+            view = self._history.peek(self._image_key)
+            boundary_evicted = (
+                view.undo_boundary_evicted
+                if direction == "undo"
+                else view.redo_boundary_evicted
+            )
             return EditingResult(
                 applied=False,
                 direction=direction,
                 description=None,
-                message=str(error),
+                message=(
+                    "Earlier %s history was evicted by retention limits"
+                    % direction.capitalize()
+                    if boundary_evicted
+                    else str(error)
+                ),
             )
 
         request = ProjectionRequest(
@@ -508,7 +529,13 @@ class CanvasAnnotationScene:
             image_fingerprint=(
                 previous.image_fingerprint
                 if previous is not None
-                else fingerprint_path(image_key)
+                else fingerprint_image(
+                    image_key,
+                    (
+                        pixmap.width() if pixmap is not None else 0,
+                        pixmap.height() if pixmap is not None else 0,
+                    ),
+                )
             ),
         )
         self._last_snapshots[image_key] = snapshot

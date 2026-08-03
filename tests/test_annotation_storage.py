@@ -138,6 +138,31 @@ class AnnotationStorageTest(unittest.TestCase):
             with open(target, "rb") as source:
                 self.assertEqual(source.read(), b"new")
 
+    def test_multifile_commit_keeps_existing_targets_present(self):
+        with tempfile.TemporaryDirectory() as directory:
+            pairs = []
+            targets = []
+            for name in ("labels.txt", "classes.txt"):
+                target = os.path.join(directory, name)
+                staged = os.path.join(directory, "staged-" + name)
+                with open(target, "wb") as output:
+                    output.write(b"old")
+                with open(staged, "wb") as output:
+                    output.write(b"new")
+                pairs.append((staged, target))
+                targets.append(target)
+
+            def replace_while_present(source, target):
+                if source.startswith(os.path.join(directory, "staged-")):
+                    self.assertTrue(os.path.exists(target))
+                os.replace(source, target)
+
+            _atomic_commit_staged(pairs, replace=replace_while_present)
+
+            for target in targets:
+                with open(target, "rb") as source:
+                    self.assertEqual(source.read(), b"new")
+
 
 if __name__ == "__main__":
     unittest.main()

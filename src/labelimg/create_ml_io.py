@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf8 -*-
 import json
+import ntpath
 from pathlib import Path
 
 from labelimg.constants import DEFAULT_ENCODING
@@ -8,6 +9,33 @@ import os
 
 JSON_EXT = '.json'
 ENCODE_METHOD = DEFAULT_ENCODING
+
+
+def normalize_image_reference(value):
+    """Return a platform-independent key for a CreateML image reference."""
+    text = os.fspath(value).replace("/", "\\")
+    return ntpath.normpath(text).casefold()
+
+
+def image_reference_matches(reference, image_path, collection_path=None):
+    """Match a CreateML record without collapsing qualified paths."""
+    reference_key = normalize_image_reference(reference)
+    image_key = normalize_image_reference(os.path.abspath(image_path))
+    if ntpath.isabs(reference_key):
+        return reference_key == image_key
+    if "\\" not in reference_key:
+        return ntpath.basename(image_key) == reference_key
+    if image_key.endswith("\\" + reference_key):
+        return True
+    if collection_path is None:
+        return False
+    resolved = os.path.abspath(
+        os.path.join(
+            os.path.dirname(os.path.abspath(collection_path)),
+            *reference_key.split("\\"),
+        )
+    )
+    return normalize_image_reference(resolved) == image_key
 
 
 class CreateMLWriter:
@@ -33,7 +61,9 @@ class CreateMLWriter:
 
         output_image_dict = {
             "image": self.filename,
-            "annotations": []
+            "annotations": [],
+            "verified": bool(self.verified),
+            "questioned": bool(self.questioned),
         }
 
         for shape in self.shapes:
@@ -60,7 +90,9 @@ class CreateMLWriter:
         # check if image already in output
         exists = False
         for i in range(0, len(output_dict)):
-            if output_dict[i]["image"] == output_image_dict["image"]:
+            if normalize_image_reference(
+                output_dict[i]["image"]
+            ) == normalize_image_reference(output_image_dict["image"]):
                 exists = True
                 output_dict[i] = output_image_dict
                 break
@@ -100,25 +132,41 @@ class CreateMLReader:
         self.verified = False
         self.questioned = False
         self.filename = os.path.basename(file_path)
-        try:
-            self.parse_json()
-        except ValueError:
-            print("JSON decoding failed")
+        self.file_path = os.fspath(file_path)
+        self.record_name = None
+        self.parse_json()
 
     def parse_json(self):
         with open(self.json_path, "r") as file:
             input_data = file.read()
 
         output_dict = json.loads(input_data)
-        self.verified = True
+        self.verified = False
         self.questioned = False
 
         if len(self.shapes) > 0:
             self.shapes = []
-        for image in output_dict:
-            if image["image"] == self.filename:
-                for shape in image["annotations"]:
-                    self.add_shape(shape["label"], shape["coordinates"])
+        matches = [
+            image
+            for image in output_dict
+            if image_reference_matches(
+                image.get("image", ""), self.file_path, self.json_path
+            )
+        ]
+        if len(matches) != 1:
+            raise ValueError(
+                "CreateML collection must contain exactly one matching "
+                "record for %s" % self.file_path
+            )
+        image = matches[0]
+        self.record_name = image["image"]
+        self.filename = self.record_name
+        self.verified = bool(
+            image.get("verified", bool(image["annotations"]))
+        )
+        self.questioned = bool(image.get("questioned", False))
+        for shape in image["annotations"]:
+            self.add_shape(shape["label"], shape["coordinates"])
 
     def add_shape(self, label, bnd_box):
         x_min = bnd_box["x"] - (bnd_box["width"] / 2)

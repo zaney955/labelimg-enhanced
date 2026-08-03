@@ -139,6 +139,7 @@ class _LoadedAnnotation:
     boxes: tuple
     verified: bool
     questioned: bool
+    record_name: str | None = None
 
 
 @dataclass
@@ -149,6 +150,7 @@ class AnnotationDocument:
     class_names: tuple = ()
     verified: bool = False
     questioned: bool = False
+    create_ml_record_name: str | None = None
 
     @classmethod
     def from_shapes(
@@ -194,6 +196,7 @@ class AnnotationDocument:
             ),
             verified=loaded.verified,
             questioned=loaded.questioned,
+            create_ml_record_name=loaded.record_name,
         )
 
     @classmethod
@@ -338,11 +341,13 @@ class _YoloAdapter(_AnnotationFormatAdapter):
                 image_path,
                 image_data,
             )
-        labels, has_annotations = _inspect_yolo(annotation_path)
+        labels, has_annotations, verified, questioned = _inspect_yolo(
+            annotation_path
+        )
         return AnnotationStatus(
             has_annotations=has_annotations,
-            verified=False,
-            questioned=False,
+            verified=verified,
+            questioned=questioned,
             labels=frozenset(labels),
         )
 
@@ -404,11 +409,16 @@ class _CreateMLAdapter(_AnnotationFormatAdapter):
                 image_path,
                 image_data,
             )
-        labels, has_annotations = _inspect_create_ml(annotation_path)
+        (
+            labels,
+            has_annotations,
+            verified,
+            questioned,
+        ) = _inspect_create_ml(annotation_path)
         return AnnotationStatus(
             has_annotations=has_annotations,
-            verified=has_annotations,
-            questioned=False,
+            verified=verified,
+            questioned=questioned,
             labels=frozenset(labels),
         )
 
@@ -422,7 +432,7 @@ class _CreateMLAdapter(_AnnotationFormatAdapter):
     ):
         writer = CreateMLWriter(
             folder_name,
-            file_name,
+            document.create_ml_record_name or file_name,
             image_shape,
             [box.to_writer_shape() for box in document.boxes],
             target_path,
@@ -458,6 +468,7 @@ def _loaded_from_reader(reader):
         boxes=boxes,
         verified=bool(reader.verified),
         questioned=bool(reader.questioned),
+        record_name=getattr(reader, "record_name", None),
     )
 
 
@@ -554,10 +565,19 @@ def _inspect_yolo(annotation_path):
         classes = [line.strip() for line in class_file if line.strip()]
     used_indexes = set()
     has_annotations = False
+    verified = False
+    questioned = False
     with open(annotation_path, "r", encoding="utf8") as annotation_file:
         for line_number, line in enumerate(annotation_file, start=1):
             fields = line.split()
             if not fields:
+                continue
+            if line.lstrip().startswith("#"):
+                text = line.strip().casefold()
+                if text.startswith("# labelimg-review:"):
+                    state = text.partition(":")[2].strip()
+                    verified = state == "verified"
+                    questioned = state == "questioned"
                 continue
             if len(fields) != 5:
                 raise ValueError(
@@ -594,6 +614,8 @@ def _inspect_yolo(annotation_path):
             if index in used_indexes
         ],
         has_annotations,
+        verified,
+        questioned,
     )
 
 
@@ -602,12 +624,18 @@ def _inspect_create_ml(annotation_path):
         payload = json.load(annotation_file)
     labels = []
     has_annotations = False
+    verified = False
+    questioned = False
     for image in payload:
         annotations = image.get("annotations", ())
         has_annotations = has_annotations or bool(annotations)
+        verified = verified or bool(
+            image.get("verified", bool(annotations))
+        )
+        questioned = questioned or bool(image.get("questioned", False))
         labels.extend(
             annotation.get("label")
             for annotation in annotations
             if annotation.get("label")
         )
-    return _labels_in_order(labels), has_annotations
+    return _labels_in_order(labels), has_annotations, verified, questioned
