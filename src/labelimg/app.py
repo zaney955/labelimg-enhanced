@@ -11,8 +11,6 @@ import shutil
 import webbrowser as wb
 
 from functools import cmp_to_key, partial
-from collections import defaultdict
-from dataclasses import replace
 
 try:
     from PyQt5.QtGui import *
@@ -41,7 +39,6 @@ from labelimg.zoomWidget import ZoomWidget
 from labelimg.candidate_label_dialog import CandidateLabelDialog
 from labelimg.colorDialog import ColorDialog
 from labelimg.annotation_document import (
-    AnnotationBox,
     AnnotationDocument,
     AnnotationDocumentError,
     AnnotationFormat,
@@ -58,10 +55,7 @@ from labelimg.annotation_editing import (
     ProjectionFailed,
 )
 from labelimg.annotation_history import UnknownImageHistory
-from labelimg.annotation_review import (
-    PreparedReviewRecovery,
-    ReviewRecoveryCoordinator,
-)
+from labelimg.annotation_review import ReviewStateTransaction
 from labelimg.annotation_session import RenamedAnnotationSessionMigrator
 from labelimg.annotation_persistence import AnnotationSaveCoordinator
 from labelimg.annotation_storage import (
@@ -90,7 +84,6 @@ from labelimg.file_operations import (
 from labelimg.file_recovery import (
     FileRecoveryCenter,
     FileRecoveryConflict,
-    ReviewRecoveryRecord,
 )
 
 __appname__ = 'labelImg'
@@ -662,12 +655,14 @@ class MainWindow(QMainWindow, WindowMixin):
         self.annotation_persistence = AnnotationSaveCoordinator(
             self.annotation_workspace,
             self.annotation_editing,
-            image_data_for=lambda image_key: (
-                self.image_data
-                if image_key == self.file_path
-                else read(image_key, None)
-            ),
+            image_data_for=self._annotation_image_data,
             image_keys=lambda: tuple(self.m_img_list),
+        )
+        self.review_state_transaction = ReviewStateTransaction(
+            self.annotation_workspace,
+            self.annotation_editing,
+            self.annotation_persistence,
+            image_data_for=self._annotation_image_data,
         )
         self.canvas.newShape.connect(self.new_shape)
         self.canvas.shapeMoved.connect(self._legacy_shape_moved)
@@ -1055,6 +1050,13 @@ class MainWindow(QMainWindow, WindowMixin):
         # Open Dir if default file
         if self.file_path and os.path.isdir(self.file_path):
             self.open_dir_dialog(dir_path=self.file_path, silent=True)
+
+    def _annotation_image_data(self, image_key):
+        return (
+            self.image_data
+            if image_key == self.file_path
+            else read(image_key, None)
+        )
 
     @property
     def default_save_dir(self):
@@ -1493,30 +1495,6 @@ class MainWindow(QMainWindow, WindowMixin):
             self.auto_save_timer.start()
         else:
             self.auto_save_timer.stop()
-
-    def _document_from_snapshot(self, snapshot, image_data=None):
-        return AnnotationDocument(
-            image_path=snapshot.image_key,
-            image_data=(
-                self.image_data
-                if image_data is None
-                and snapshot.image_key == self.file_path
-                else image_data
-            ),
-            boxes=tuple(
-                AnnotationBox(
-                    label=box.label,
-                    points=box.points,
-                    line_color=box.line_rgba,
-                    fill_color=box.fill_rgba,
-                    difficult=box.difficult,
-                )
-                for box in snapshot.boxes
-            ),
-            class_names=self.annotation_workspace.yolo_vocabulary,
-            verified=snapshot.verified,
-            questioned=snapshot.questioned,
-        )
 
     def _rebase_current_history(self, annotation_path):
         if self.annotation_editing.view is None:
@@ -1976,92 +1954,23 @@ class MainWindow(QMainWindow, WindowMixin):
         self.annotation_persistence.replace_conflicts(migrated_conflicts)
 
     def recover_review(self, changes):
-        prepared = []
-        for change in changes:
-            target = change.annotation_path
-            if self.annotation_editing.has_image(change.image_path):
-                target = target or self.annotation_editing.view_image(
-                    change.image_path, touch=False
-                ).current_target
-            if target is None:
-                target = self.annotation_workspace.active_document_path(
-                    change.image_path
-                )
-            if target is None:
-                choices = self.annotation_workspace.document_choices(
-                    change.image_path
-                )
-                if len(choices) != 1:
-                    raise FileRecoveryConflict(
-                        'Review resource is ambiguous for %s'
-                        % change.image_path
-                    )
-                target = choices[0].annotation_path
-            annotation_format = AnnotationFormat.from_path(target)
-            image_data = (
-                self.image_data
-                if change.image_path == self.file_path
-                else read(change.image_path, None)
-            )
-            if (
-                not os.path.exists(target)
-                and annotation_format is AnnotationFormat.PASCAL_VOC
-                and not change.result_verified
-                and not change.result_questioned
-            ):
-                document = AnnotationDocument(
-                    image_path=change.image_path,
-                    image_data=image_data,
-                )
-            else:
-                document = self.annotation_workspace.load(
-                    target, change.image_path, image_data
-                ).document
-            if (
-                document.verified != change.result_verified
-                or document.questioned != change.result_questioned
-            ):
-                raise FileRecoveryConflict(
-                    'Review state changed again for %s'
-                    % change.image_path
-                )
-            prepared.append(
-                PreparedReviewRecovery(
-                    change,
-                    document,
-                    annotation_format,
-                    target,
-                )
-            )
-
         try:
-            completed = ReviewRecoveryCoordinator(
-                self.annotation_workspace,
-                self.annotation_editing,
-            ).recover(prepared)
+            result = self.review_state_transaction.recover(changes)
         except Exception:
             self.rescan_annotation_workspace()
             raise
 
-        for item, saved in completed:
-            change = item.change
-            self.annotation_persistence.propagate_resource_fingerprints(
-                saved.fingerprints
-            )
-            if self.annotation_editing.has_image(change.image_path):
-                view = self.annotation_editing.view_image(
-                    change.image_path, touch=False
-                )
-                if change.image_path == self.file_path:
+        for update in result.updates:
+            if update.image_path == self.file_path:
+                if update.snapshot is not None:
                     self.annotation_scene.project(
                         self._history_projection_request(
-                            view.snapshot,
+                            update.snapshot,
                             direction='recover-review',
                             preserve_selection=True,
                         )
                     )
-            if change.image_path == self.file_path:
-                self.annotation_document = saved.document
+                self.annotation_document = update.document
                 self._sync_annotation_history_ui()
 
     def pop_label_list_menu(self, point):
@@ -2336,146 +2245,31 @@ class MainWindow(QMainWindow, WindowMixin):
         ):
             self._cancel_annotation_edit_for_navigation()
 
-        prepared = []
-        failures = []
-        for image_path in paths:
-            try:
-                view = None
-                if self.annotation_editing.has_image(image_path):
-                    view = self.annotation_editing.view_image(
-                        image_path, touch=False
-                    )
-                    self.annotation_persistence.verify_snapshot(view.snapshot)
-                    self.annotation_persistence.verify_baseline(view)
-                    document = self._document_from_snapshot(
-                        view.snapshot,
-                        image_data=(
-                            self.image_data
-                            if image_path == self.file_path
-                            else read(image_path, None)
-                        ),
-                    )
-                    target = view.current_target
-                else:
-                    image_data = read(image_path, None)
-                    loaded = self.annotation_workspace.load_for_image(
-                        image_path, image_data
-                    )
-                    document = (
-                        loaded.document
-                        if loaded is not None
-                        else AnnotationDocument(
-                            image_path=image_path,
-                            image_data=image_data,
-                            boxes=(),
-                            class_names=(),
-                        )
-                    )
-                    target = (
-                        loaded.annotation_path
-                        if loaded is not None
-                        else None
-                    )
-                if target is None:
-                    target = self.annotation_workspace.entry(
-                        image_path
-                    ).path_for(self.annotation_format)
-                annotation_format = AnnotationFormat.from_path(target)
-                prior = (document.verified, document.questioned)
-                document.verified = state == 'verified'
-                document.questioned = state == 'questioned'
-                prepared.append(
-                    (
-                        image_path,
-                        view,
-                        document,
-                        annotation_format,
-                        target,
-                        prior,
-                    )
-                )
-            except Exception as error:
-                failures.append((image_path, error))
-
-        recovery_changes = []
-        create_ml_groups = defaultdict(list)
-        ordinary = []
-        for item in prepared:
-            if item[3] is AnnotationFormat.CREATE_ML:
-                create_ml_groups[self._resource_key(item[4])].append(item)
-            else:
-                ordinary.append(item)
-
-        saved_items = []
-        for item in ordinary:
-            image_path, _view, document, annotation_format, target, _prior = item
-            try:
-                saved = self.annotation_workspace.save(
-                    document,
-                    annotation_format,
-                    annotation_path=target,
-                )
-                saved_items.append((item, saved))
-            except Exception as error:
-                failures.append((image_path, error))
-        for target, group in create_ml_groups.items():
-            try:
-                saves = self.annotation_workspace.save_createml_batch(
-                    tuple((index + 1, item[2]) for index, item in enumerate(group)),
-                    target,
-                )
-                saved_items.extend(zip(group, saves))
-            except Exception as error:
-                failures.extend((item[0], error) for item in group)
-
-        for item, saved in saved_items:
-            image_path, view, document, _format, _target, prior = item
-            self.annotation_persistence.propagate_resource_fingerprints(
-                saved.fingerprints
-            )
-            if view is not None:
-                snapshot = replace(
-                    view.snapshot,
-                    verified=document.verified,
-                    questioned=document.questioned,
-                )
-                self.annotation_editing.rebase_image(
-                    image_path,
-                    snapshot,
-                    baseline=(
-                        saved.annotation_path,
-                        tuple(saved.fingerprints),
-                    ),
-                )
-                if image_path == self.file_path:
-                    self.annotation_editing.select_image(image_path)
+        result = self.review_state_transaction.apply(
+            paths,
+            state,
+            self.annotation_format,
+        )
+        for update in result.updates:
+            if update.image_path == self.file_path:
+                if update.snapshot is not None:
+                    self.annotation_editing.select_image(update.image_path)
                     self.annotation_scene.project(
                         self._history_projection_request(
-                            snapshot,
+                            update.snapshot,
                             direction='batch-review',
                             preserve_selection=True,
                         )
                     )
-            if image_path == self.file_path:
-                self.annotation_document = saved.document
-            recovery_changes.append(
-                    ReviewRecoveryRecord(
-                        image_path=image_path,
-                        prior_verified=prior[0],
-                        prior_questioned=prior[1],
-                        result_verified=document.verified,
-                        result_questioned=document.questioned,
-                        annotation_path=saved.annotation_path,
-                    )
-            )
+                self.annotation_document = update.document
         self.refresh_file_list_statuses()
         self.refresh_candidate_labels()
-        if recovery_changes:
-            self.file_recovery.record_review(recovery_changes)
-        if failures:
+        if result.recovery_records:
+            self.file_recovery.record_review(result.recovery_records)
+        if result.failures:
             self.show_file_operation_failures(
                 '部分复核状态未能保存',
-                failures,
+                result.failures,
             )
         else:
             self.status('Updated review state for %d file(s)' % len(paths))
@@ -4062,6 +3856,7 @@ class MainWindow(QMainWindow, WindowMixin):
             )
             self.annotation_persistence.replace_workspace(replacement)
             self.annotation_workspace = replacement
+            self.review_state_transaction.replace_workspace(replacement)
             self._default_save_dir = dir_path
             for label in replacement.candidate_labels:
                 if label not in self.label_hist:
