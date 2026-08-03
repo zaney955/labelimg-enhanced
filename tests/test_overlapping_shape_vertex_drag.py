@@ -103,10 +103,10 @@ class OverlappingShapeVertexDragTest(unittest.TestCase):
 
     def test_corner_cursor_matches_its_resize_diagonal_while_hovering_and_dragging(self):
         cases = (
-            ((20, 20), (15, 15), 0, Qt.SizeBDiagCursor),
-            ((80, 20), (85, 15), 1, Qt.SizeFDiagCursor),
-            ((80, 80), (85, 85), 2, Qt.SizeBDiagCursor),
-            ((20, 80), (15, 85), 3, Qt.SizeFDiagCursor),
+            ((20, 20), (15, 15), 0, Qt.SizeFDiagCursor),
+            ((80, 20), (85, 15), 1, Qt.SizeBDiagCursor),
+            ((80, 80), (85, 85), 2, Qt.SizeFDiagCursor),
+            ((20, 80), (15, 85), 3, Qt.SizeBDiagCursor),
         )
 
         for start, drag_target, vertex, expected_cursor in cases:
@@ -180,7 +180,7 @@ class OverlappingShapeVertexDragTest(unittest.TestCase):
         self.assertEqual(self.canvas.h_vertex, 0)
         self.assertEqual(
             self.canvas.current_cursor(),
-            Qt.SizeBDiagCursor,
+            Qt.SizeFDiagCursor,
         )
 
         self.canvas.mouseMoveEvent(
@@ -199,36 +199,36 @@ class OverlappingShapeVertexDragTest(unittest.TestCase):
                 0,
                 (20, 20),
                 (
-                    ((90, 15), Qt.SizeFDiagCursor),
-                    ((15, 90), Qt.SizeFDiagCursor),
-                    ((90, 90), Qt.SizeBDiagCursor),
+                    ((90, 15), Qt.SizeBDiagCursor),
+                    ((15, 90), Qt.SizeBDiagCursor),
+                    ((90, 90), Qt.SizeFDiagCursor),
                 ),
             ),
             (
                 1,
                 (80, 20),
                 (
-                    ((10, 15), Qt.SizeBDiagCursor),
-                    ((85, 90), Qt.SizeBDiagCursor),
-                    ((10, 90), Qt.SizeFDiagCursor),
+                    ((10, 15), Qt.SizeFDiagCursor),
+                    ((85, 90), Qt.SizeFDiagCursor),
+                    ((10, 90), Qt.SizeBDiagCursor),
                 ),
             ),
             (
                 2,
                 (80, 80),
                 (
-                    ((10, 85), Qt.SizeFDiagCursor),
-                    ((85, 10), Qt.SizeFDiagCursor),
-                    ((10, 10), Qt.SizeBDiagCursor),
+                    ((10, 85), Qt.SizeBDiagCursor),
+                    ((85, 10), Qt.SizeBDiagCursor),
+                    ((10, 10), Qt.SizeFDiagCursor),
                 ),
             ),
             (
                 3,
                 (20, 80),
                 (
-                    ((90, 85), Qt.SizeBDiagCursor),
-                    ((15, 10), Qt.SizeBDiagCursor),
-                    ((90, 10), Qt.SizeFDiagCursor),
+                    ((90, 85), Qt.SizeFDiagCursor),
+                    ((15, 10), Qt.SizeFDiagCursor),
+                    ((90, 10), Qt.SizeBDiagCursor),
                 ),
             ),
         )

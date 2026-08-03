@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
-import json
 import os
 import platform
 import shutil
@@ -19,9 +18,12 @@ from labelimg.annotation_storage import (
     fingerprint_path,
 )
 from labelimg.file_recovery import TrashIdentity, TrashedResource
-from labelimg.create_ml_io import (
-    image_reference_matches,
-    normalize_image_reference,
+from labelimg.create_ml_collection import (
+    CreateMLAnnotationCollection,
+    CreateMLCollectionError,
+    CreateMLCollectionFormatError,
+    CreateMLCollectionParseError,
+    CreateMLRecordAmbiguous,
 )
 
 
@@ -521,16 +523,17 @@ class AnnotationFileService:
                     found.add(key)
                     continue
                 try:
-                    entries = _read_create_ml_collection(path)
-                except FileOperationError:
+                    collection = CreateMLAnnotationCollection.read(path)
+                except (
+                    CreateMLCollectionParseError,
+                    CreateMLCollectionFormatError,
+                ):
                     if key in exact:
                         found.add(key)
                     continue
-                if entries is None:
-                    continue
-                if _matching_create_ml_indices(entries, image_path, path):
+                if collection.contains_image(image_path):
                     found.add(key)
-                elif not entries and key in exact:
+                elif not len(collection) and key in exact:
                     found.add(key)
         return len(found)
 
@@ -573,23 +576,27 @@ class AnnotationFileService:
                         affected.append(path)
                     continue
 
-                entries = _read_create_ml_collection(path)
-                if entries is None:
+                try:
+                    collection = CreateMLAnnotationCollection.read(path)
+                except CreateMLCollectionFormatError:
                     if key in exact:
                         raise FileOperationError(
                             "The associated JSON is not a CreateML collection."
                         )
                     continue
-                matches = _matching_create_ml_indices(
-                    entries, image_path, path
-                )
-                if len(matches) > 1:
+                except CreateMLCollectionParseError as error:
+                    raise FileOperationError(str(error)) from error
+                try:
+                    record = collection.resolve(
+                        image_path, required=False
+                    )
+                except CreateMLRecordAmbiguous as error:
                     raise FileOperationError(
                         "The CreateML collection contains multiple matching "
                         "image records."
-                    )
-                if not matches:
-                    if key in exact and not entries:
+                    ) from error
+                if record is None:
+                    if key in exact and not len(collection):
                         identity = _trash_identity(
                             path,
                             self._move_to_trash(path),
@@ -604,7 +611,7 @@ class AnnotationFileService:
                             "uniquely matching image record."
                         )
                     continue
-                if len(entries) == 1:
+                if len(collection) == 1:
                     identity = _trash_identity(
                         path,
                         self._move_to_trash(path),
@@ -613,14 +620,15 @@ class AnnotationFileService:
                         TrashedResource(path, identity)
                     )
                 else:
-                    retained = [
-                        entry
-                        for index, entry in enumerate(entries)
-                        if index != matches[0]
-                    ]
+                    retained = collection.remove_image(
+                        image_path, required=True
+                    )
                     identity = _recoverable_json_rewrite(
                         path,
-                        retained,
+                        retained.to_bytes(
+                            ensure_ascii=False,
+                            indent=2,
+                        ),
                         self._move_to_trash,
                     )
                     trashed.append(
@@ -826,7 +834,6 @@ class SynchronizedRenamer:
         if json_paths is None:
             json_paths = self._json_candidates(mapping)
         json_base_outputs = {}
-        json_contributions = {}
         exact_owners = self._exact_json_owners(mapping)
 
         for json_path in json_paths:
@@ -845,108 +852,50 @@ class SynchronizedRenamer:
                     byte_outputs[target] = b""
                 continue
             try:
-                entries = _read_create_ml_collection(json_path)
-            except FileOperationError:
+                collection = CreateMLAnnotationCollection.read(
+                    json_path
+                )
+            except CreateMLCollectionError as error:
                 if exact_owner is not None:
-                    raise
+                    if isinstance(
+                        error, CreateMLCollectionFormatError
+                    ):
+                        raise FileOperationError(
+                            "Associated JSON is not a CreateML collection: %s"
+                            % json_path
+                        ) from error
+                    raise FileOperationError(str(error)) from error
                 continue
-            if entries is None:
-                if exact_owner is not None:
-                    raise FileOperationError(
-                        "Associated JSON is not a CreateML collection: %s"
-                        % json_path
-                    )
-                continue
-
-            matched = []
-            updated_entries = []
-            counts = {}
-            for entry in entries:
-                image_name = entry.get("image") if isinstance(entry, dict) else None
-                owner = _create_ml_reference_owner(
-                    image_name, mapping, json_path
+            try:
+                plan = collection.plan_rename(
+                    mapping,
+                    exact_owner=exact_owner,
                 )
-                if owner is None:
-                    updated_entries.append(entry)
-                    continue
-                counts[owner] = counts.get(owner, 0) + 1
-                changed = dict(entry)
-                changed["image"] = _renamed_create_ml_reference(
-                    image_name, mapping[owner]
-                )
-                matched.append((owner, changed))
-
-            duplicate_owner = next(
-                (owner for owner, count in counts.items() if count > 1),
-                None,
-            )
-            if duplicate_owner is not None:
-                raise FileOperationError(
-                    "CreateML collection has multiple records for %s: %s"
-                    % (os.path.basename(duplicate_owner), json_path)
-                )
-            if not matched:
-                if exact_owner is not None and entries:
-                    raise FileOperationError(
-                        "Associated CreateML collection has no matching "
-                        "record: %s" % json_path
-                    )
+            except CreateMLCollectionError as error:
+                raise FileOperationError(str(error)) from error
+            if not plan.changed:
                 continue
 
             sources.add(json_path)
-            if exact_owner is None:
-                rewritten = []
-                replacements = {
-                    owner: entry for owner, entry in matched
-                }
-                for entry in entries:
-                    image_name = entry.get("image") if isinstance(entry, dict) else None
-                    owner = _create_ml_reference_owner(
-                        image_name, mapping, json_path
-                    )
-                    rewritten.append(
-                        replacements.get(owner, entry)
-                    )
-                json_base_outputs[json_path] = rewritten
-                continue
-
-            if len(entries) == 1 and len(matched) == 1:
-                owner, changed = matched[0]
-                target = _renamed_annotation_path(
-                    json_path,
-                    mapping[owner],
+            if plan.source is not None:
+                json_base_outputs[json_path] = plan.source
+            for target, contribution in plan.targets:
+                existing = json_base_outputs.get(
+                    target,
+                    CreateMLAnnotationCollection.empty(target),
                 )
-                json_contributions.setdefault(target, []).append(changed)
-                continue
-
-            if updated_entries:
-                json_base_outputs[json_path] = updated_entries
-            for owner, changed in matched:
-                target = _renamed_annotation_path(
-                    json_path,
-                    mapping[owner],
-                )
-                json_contributions.setdefault(target, []).append(changed)
-
-        for path, entries in json_contributions.items():
-            existing = json_base_outputs.setdefault(path, [])
-            existing_names = {
-                normalize_image_reference(entry.get("image", ""))
-                for entry in existing
-                if isinstance(entry, dict)
-            }
-            for entry in entries:
-                name = normalize_image_reference(entry.get("image", ""))
-                if name in existing_names:
-                    raise FileOperationError(
-                        "CreateML target already contains image %s: %s"
-                        % (entry.get("image"), path)
+                try:
+                    json_base_outputs[target] = existing.merge(
+                        contribution
                     )
-                existing_names.add(name)
-                existing.append(entry)
+                except CreateMLCollectionError as error:
+                    raise FileOperationError(str(error)) from error
 
-        for path, entries in json_base_outputs.items():
-            byte_outputs[path] = _json_bytes(entries)
+        for path, collection in json_base_outputs.items():
+            byte_outputs[path] = collection.to_bytes(
+                ensure_ascii=False,
+                indent=2,
+            )
 
         return move_outputs, byte_outputs, sources
 
@@ -1106,64 +1055,6 @@ class SynchronizedRenamer:
         claims[key] = owner
 
 
-def _read_create_ml_collection(path):
-    try:
-        with open(path, "r", encoding="utf8") as source:
-            value = json.load(source)
-    except (OSError, UnicodeError, json.JSONDecodeError) as error:
-        raise FileOperationError(
-            "Could not parse CreateML JSON %s: %s" % (path, error)
-        ) from error
-    if not isinstance(value, list):
-        return None
-    if not all(isinstance(entry, dict) for entry in value):
-        return None
-    if value and not all("image" in entry for entry in value):
-        return None
-    return value
-
-
-def _matching_create_ml_indices(
-    entries, image_path, collection_path=None
-):
-    return [
-        index
-        for index, entry in enumerate(entries)
-        if image_reference_matches(
-            entry.get("image", ""), image_path, collection_path
-        )
-    ]
-
-
-def _create_ml_reference_owner(reference, mapping, collection_path):
-    if not reference:
-        return None
-    matches = [
-        source
-        for source in mapping
-        if image_reference_matches(
-            reference, source, collection_path
-        )
-    ]
-    if len(matches) > 1:
-        raise FileOperationError(
-            "CreateML record is ambiguous for %s" % reference
-        )
-    return matches[0] if matches else None
-
-
-def _renamed_create_ml_reference(reference, target):
-    reference = os.fspath(reference)
-    normalized = reference.replace("\\", "/")
-    if os.path.isabs(reference):
-        return os.path.abspath(target)
-    if "/" not in normalized:
-        return os.path.basename(target)
-    prefix = normalized.rpartition("/")[0]
-    renamed = prefix + "/" + os.path.basename(target)
-    return renamed.replace("/", "\\") if "\\" in reference else renamed
-
-
 def _trash_identity_available(identity, trash):
     owner = trash if hasattr(trash, "exists") else getattr(
         trash, "__self__", None
@@ -1178,9 +1069,9 @@ def _trash_identity_available(identity, trash):
     return True
 
 
-def _recoverable_json_rewrite(path, entries, trash):
+def _recoverable_json_rewrite(path, content, trash):
     directory = os.path.dirname(path)
-    temporary = _write_temporary_bytes(directory, _json_bytes(entries))
+    temporary = _write_temporary_bytes(directory, content)
     backup = _temporary_peer_path(path, "backup")
     trash_result = None
     try:
@@ -1249,14 +1140,6 @@ def _renamed_annotation_path(annotation_path, new_image_path):
         os.path.splitext(os.path.basename(new_image_path))[0]
         + os.path.splitext(annotation_path)[1],
     )
-
-
-def _json_bytes(entries):
-    return json.dumps(
-        entries,
-        ensure_ascii=False,
-        indent=2,
-    ).encode("utf8")
 
 
 def _temporary_peer_path(path, purpose):

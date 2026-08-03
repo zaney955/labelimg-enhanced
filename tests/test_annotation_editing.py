@@ -22,6 +22,7 @@ from labelimg.annotation_history import (
     SavedBaseline,
 )
 from labelimg.annotation_storage import fingerprint_path
+from labelimg.annotation_persistence import AnnotationSaveCoordinator
 from labelimg.annotation_document import (
     AnnotationDocument,
     AnnotationFormat,
@@ -90,7 +91,9 @@ class AnnotationEditingControllerTest(unittest.TestCase):
             with open(classes, "w", encoding="utf8") as output:
                 output.write("dog")
 
-            mismatches = MainWindow._baseline_mismatches(baseline)
+            mismatches = AnnotationSaveCoordinator.baseline_mismatches(
+                baseline
+            )
 
         self.assertEqual(
             [os.path.normcase(path) for path, _old, _new in mismatches],
@@ -634,7 +637,7 @@ class MainWindowHistoryIntegrationTest(unittest.TestCase):
             output.write("cat\ndog")
         updated = fingerprint_path(classes)
 
-        self.window._propagate_resource_fingerprints(
+        self.window.annotation_persistence.propagate_resource_fingerprints(
             ((classes, updated),)
         )
 

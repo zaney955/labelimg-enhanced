@@ -1,7 +1,6 @@
 """Directory-level annotation paths, status, and candidate labels."""
 
 from dataclasses import dataclass, replace
-import json
 import os
 
 from labelimg.annotation_document import (
@@ -11,8 +10,11 @@ from labelimg.annotation_document import (
     AnnotationStatus,
 )
 from labelimg.file_operations import move_to_recycle_bin
-from labelimg.create_ml_io import (
-    image_reference_matches,
+from labelimg.create_ml_collection import (
+    CreateMLAnnotationCollection,
+    CreateMLCollectionError,
+    CreateMLCollectionFormatError,
+    CreateMLRecordIdentity,
     normalize_image_reference,
 )
 from labelimg.annotation_storage import (
@@ -175,9 +177,9 @@ class AnnotationWorkspace:
                 source
                 for source in self._create_ml_labels_by_record
                 if source[0] == path_key
-                and image_reference_matches(
-                    source[1], image_key, path
-                )
+                and CreateMLRecordIdentity(
+                    path, source[1]
+                ).matches(image_key)
             )
         for source, labels in self._create_ml_labels_by_record.items():
             if (
@@ -653,9 +655,9 @@ class AnnotationWorkspace:
                 source
                 for source in self._create_ml_labels_by_record
                 if source[0] == path_key
-                and image_reference_matches(
-                    source[1], image_path, annotation_path
-                )
+                and CreateMLRecordIdentity(
+                    annotation_path, source[1]
+                ).matches(image_path)
             ]
             record_key = (
                 matching_sources[0][1]
@@ -686,34 +688,17 @@ class AnnotationWorkspace:
         for paths in self._create_ml_paths_by_image_name.values():
             paths.discard(path)
         try:
-            with open(path, "r", encoding="utf8") as source:
-                records = json.load(source)
-        except (OSError, UnicodeError, ValueError):
+            collection = CreateMLAnnotationCollection.read(path)
+        except (OSError, CreateMLCollectionError):
             return
-        if not isinstance(records, list):
-            return
-        for record in records:
-            if not isinstance(record, dict):
-                continue
-            image_name = record.get("image")
-            annotations = record.get("annotations")
-            if not isinstance(image_name, str) or not isinstance(
-                annotations, list
-            ):
-                continue
-            image_name_key = normalize_image_reference(image_name)
+        for record in collection.records:
+            image_name_key = record.identity.reference_key
             self._create_ml_paths_by_image_name.setdefault(
                 image_name_key, set()
             ).add(path)
             self._create_ml_labels_by_record[
                 (path_key, image_name_key)
-            ] = {
-                annotation.get("label").strip()
-                for annotation in annotations
-                if isinstance(annotation, dict)
-                and isinstance(annotation.get("label"), str)
-                and annotation.get("label").strip()
-            }
+            ] = set(record.labels)
 
     def _bind_create_ml_record(self, document, annotation_path):
         if document.create_ml_record_name:
@@ -721,40 +706,33 @@ class AnnotationWorkspace:
         path = os.path.abspath(os.fspath(annotation_path))
         content = self._resource_bytes.get(_cache_key(path))
         try:
-            if content is None:
-                with open(path, "r", encoding="utf8") as source:
-                    records = json.load(source)
-            else:
-                records = json.loads(content.decode("utf8"))
+            collection = (
+                CreateMLAnnotationCollection.read(
+                    path, content=content
+                )
+                if content is not None
+                else CreateMLAnnotationCollection.read(
+                    path, missing_ok=True
+                )
+            )
         except FileNotFoundError:
             return document
-        except (OSError, UnicodeError, ValueError, TypeError) as error:
+        except CreateMLCollectionFormatError:
+            return document
+        except (OSError, CreateMLCollectionError) as error:
             raise AnnotationDocumentError(
                 "Could not resolve CreateML record identity: %s" % error
             ) from error
-        if not isinstance(records, list):
+        if not len(collection):
             return document
-        matches = [
-            record.get("image")
-            for record in records
-            if isinstance(record, dict)
-            and isinstance(record.get("image"), str)
-            and image_reference_matches(
-                record["image"], document.image_path, path
-            )
-        ]
-        if len(matches) > 1:
+        try:
+            record = collection.resolve(document.image_path)
+        except CreateMLCollectionError as error:
             raise AnnotationDocumentError(
-                "CreateML collection contains multiple matching records "
-                "for %s" % document.image_path
-            )
-        if not matches:
-            raise AnnotationDocumentError(
-                "CreateML collection has no matching record for %s"
-                % document.image_path
-            )
+                str(error)
+            ) from error
         return replace(
-            document, create_ml_record_name=matches[0]
+            document, create_ml_record_name=record.reference
         )
 
     def _document_paths_for_image(self, image_path):
@@ -764,9 +742,9 @@ class AnnotationWorkspace:
             self._create_ml_paths_by_image_name.items()
         ):
             for path in reference_paths:
-                if image_reference_matches(
-                    reference, image_path, path
-                ):
+                if CreateMLRecordIdentity(
+                    path, reference
+                ).matches(image_path):
                     matched.add(path)
         for path in sorted(matched, key=lambda value: value.casefold()):
             if path not in paths:
@@ -791,58 +769,48 @@ class AnnotationWorkspace:
         content = self._resource_bytes.get(_cache_key(path))
         names = []
         if content is not None:
-            names.extend(_create_ml_names(content))
+            try:
+                names.extend(
+                    CreateMLAnnotationCollection.read(
+                        path, content=content
+                    ).normalized_references
+                )
+            except CreateMLCollectionError:
+                pass
         if include_external or content is None:
             try:
-                with open(path, "r", encoding="utf8") as source:
-                    names.extend(_create_ml_names(source.read()))
-            except OSError:
+                names.extend(
+                    CreateMLAnnotationCollection.read(
+                        path
+                    ).normalized_references
+                )
+            except (OSError, CreateMLCollectionError):
                 pass
         return tuple(dict.fromkeys(names))
+
+    def create_ml_image_keys(self, annotation_path, image_keys):
+        identities = tuple(
+            CreateMLRecordIdentity(annotation_path, reference)
+            for reference in self.create_ml_image_names(annotation_path)
+        )
+        return tuple(
+            image_key
+            for image_key in image_keys
+            if any(identity.matches(image_key) for identity in identities)
+        )
 
     @staticmethod
     def validate_create_ml_resource(annotation_path):
         try:
-            with open(
-                annotation_path, "r", encoding="utf8"
-            ) as source:
-                records = json.load(source)
-        except (OSError, UnicodeError, ValueError) as error:
-            raise AnnotationDocumentError(
-                "Could not parse CreateML JSON: %s" % error
-            ) from error
-        if not isinstance(records, list):
-            raise AnnotationDocumentError(
-                "CreateML JSON root must be a list"
+            collection = CreateMLAnnotationCollection.read(
+                annotation_path,
+                strict=True,
             )
-        for record in records:
-            if (
-                not isinstance(record, dict)
-                or not isinstance(record.get("image"), str)
-                or not isinstance(record.get("annotations"), list)
-            ):
-                raise AnnotationDocumentError(
-                    "CreateML record must contain image and annotations"
-                )
-            for annotation in record["annotations"]:
-                coordinates = (
-                    annotation.get("coordinates")
-                    if isinstance(annotation, dict)
-                    else None
-                )
-                if (
-                    not isinstance(annotation, dict)
-                    or not isinstance(annotation.get("label"), str)
-                    or not isinstance(coordinates, dict)
-                    or not all(
-                        isinstance(coordinates.get(field), (int, float))
-                        for field in ("x", "y", "width", "height")
-                    )
-                ):
-                    raise AnnotationDocumentError(
-                        "CreateML annotation is structurally invalid"
-                    )
-        return tuple(records)
+        except (OSError, CreateMLCollectionError) as error:
+            raise AnnotationDocumentError(
+                str(error)
+            ) from error
+        return collection.records
 
     def hold_resource(self, path, owner=None):
         key = _cache_key(path)
@@ -914,22 +882,6 @@ class AnnotationWorkspace:
 
 def _cache_key(path):
     return os.path.normcase(os.path.abspath(os.fspath(path)))
-
-
-def _create_ml_names(content):
-    try:
-        if isinstance(content, bytes):
-            content = content.decode("utf8")
-        records = json.loads(content)
-    except (UnicodeError, ValueError, TypeError):
-        return ()
-    if not isinstance(records, list):
-        return ()
-    return tuple(
-        normalize_image_reference(record.get("image"))
-        for record in records
-        if isinstance(record, dict) and record.get("image")
-    )
 
 
 def _merge_statuses(statuses):

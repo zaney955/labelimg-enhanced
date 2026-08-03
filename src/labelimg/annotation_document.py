@@ -2,7 +2,6 @@
 
 from dataclasses import dataclass
 from enum import Enum
-import json
 import math
 import os
 from xml.etree import ElementTree
@@ -15,6 +14,7 @@ except ImportError:
     from PyQt4.QtCore import QPointF
 
 from labelimg.create_ml_io import CreateMLReader, CreateMLWriter, JSON_EXT
+from labelimg.create_ml_collection import CreateMLAnnotationCollection
 from labelimg.pascal_voc_io import PascalVocReader, PascalVocWriter, XML_EXT
 from labelimg.shape import Shape
 from labelimg.yolo_io import TXT_EXT, YOLOWriter, YoloReader
@@ -387,19 +387,10 @@ class _CreateMLAdapter(_AnnotationFormatAdapter):
         return _loaded_from_reader(reader)
 
     def image_path_hint(self, annotation_path):
-        with open(
-            annotation_path,
-            "r",
-            encoding="utf8",
-        ) as annotation_file:
-            images = json.load(annotation_file)
+        collection = CreateMLAnnotationCollection.read(annotation_path)
         return _first_existing_image_path(
             annotation_path,
-            tuple(
-                image.get("image")
-                for image in images
-                if image.get("image")
-            ),
+            collection.references,
         )
 
     def inspect(self, annotation_path, image_path, image_data):
@@ -620,22 +611,10 @@ def _inspect_yolo(annotation_path):
 
 
 def _inspect_create_ml(annotation_path):
-    with open(annotation_path, "r", encoding="utf8") as annotation_file:
-        payload = json.load(annotation_file)
-    labels = []
-    has_annotations = False
-    verified = False
-    questioned = False
-    for image in payload:
-        annotations = image.get("annotations", ())
-        has_annotations = has_annotations or bool(annotations)
-        verified = verified or bool(
-            image.get("verified", bool(annotations))
-        )
-        questioned = questioned or bool(image.get("questioned", False))
-        labels.extend(
-            annotation.get("label")
-            for annotation in annotations
-            if annotation.get("label")
-        )
-    return _labels_in_order(labels), has_annotations, verified, questioned
+    collection = CreateMLAnnotationCollection.read(annotation_path)
+    return (
+        _labels_in_order(collection.labels),
+        collection.has_annotations,
+        collection.verified,
+        collection.questioned,
+    )
