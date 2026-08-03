@@ -21,6 +21,15 @@ MISSING_FINGERPRINT = ResourceFingerprint(False)
 
 
 @dataclass(frozen=True)
+class ImageFingerprint:
+    exists: bool
+    dimensions: tuple = (0, 0)
+    size: int = 0
+    modified_ns: int = 0
+    sha256: str = ""
+
+
+@dataclass(frozen=True)
 class AnnotationResource:
     path: str
     expected_fingerprint: ResourceFingerprint | None = None
@@ -211,6 +220,17 @@ def fingerprint_path(path):
     )
 
 
+def fingerprint_image(path, dimensions):
+    resource = fingerprint_path(path)
+    return ImageFingerprint(
+        exists=resource.exists,
+        dimensions=tuple(int(value) for value in dimensions),
+        size=resource.size,
+        modified_ns=resource.modified_ns,
+        sha256=resource.sha256,
+    )
+
+
 def _resource_key(path):
     return os.path.normcase(os.path.abspath(os.fspath(path)))
 
@@ -380,13 +400,18 @@ def _atomic_commit_staged(staged_pairs, replace=os.replace):
         (os.path.abspath(staged), os.path.abspath(target))
         for staged, target in staged_pairs
     )
+    if len(staged_pairs) == 1:
+        staged, target = staged_pairs[0]
+        replace(staged, target)
+        return
+
     backups = {}
     committed = []
     try:
         for _staged, target in staged_pairs:
             if os.path.exists(target):
                 backup = _peer_temp_path(target) + ".backup"
-                replace(target, backup)
+                shutil.copy2(target, backup)
                 backups[target] = backup
         for staged, target in staged_pairs:
             replace(staged, target)
@@ -395,13 +420,18 @@ def _atomic_commit_staged(staged_pairs, replace=os.replace):
         rollback_errors = []
         for target in reversed(committed):
             try:
-                if os.path.exists(target):
+                backup = backups.get(target)
+                if backup is not None and os.path.exists(backup):
+                    replace(backup, target)
+                elif os.path.exists(target):
                     os.remove(target)
             except Exception as error:
                 rollback_errors.append(error)
         for target, backup in reversed(tuple(backups.items())):
             try:
-                if os.path.exists(backup):
+                if target not in committed and os.path.exists(backup):
+                    os.remove(backup)
+                elif os.path.exists(backup):
                     replace(backup, target)
             except Exception as error:
                 rollback_errors.append(error)

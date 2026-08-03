@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import json
 import os
 import platform
@@ -19,6 +19,10 @@ from labelimg.annotation_storage import (
     fingerprint_path,
 )
 from labelimg.file_recovery import TrashIdentity, TrashedResource
+from labelimg.create_ml_io import (
+    image_reference_matches,
+    normalize_image_reference,
+)
 
 
 ANNOTATION_EXTENSIONS = (".xml", ".txt", ".json")
@@ -62,6 +66,33 @@ class FileOperationResult:
                 reason=str(error),
             )
         )
+
+    def merge_trashed_resources(self, resources):
+        """Keep one recovery identity per logical physical resource."""
+        for resource in resources:
+            key = os.path.normcase(
+                os.path.abspath(resource.original_path)
+            )
+            existing_index = next(
+                (
+                    index
+                    for index, existing in enumerate(
+                        self.trashed_resources
+                    )
+                    if os.path.normcase(
+                        os.path.abspath(existing.original_path)
+                    ) == key
+                ),
+                None,
+            )
+            if existing_index is None:
+                self.trashed_resources.append(resource)
+            else:
+                existing = self.trashed_resources[existing_index]
+                self.trashed_resources[existing_index] = replace(
+                    existing,
+                    post_fingerprint=resource.post_fingerprint,
+                )
 
 
 def move_to_recycle_bin(path):
@@ -248,8 +279,23 @@ class AnnotationFileService:
                 affected, failures, trashed = (
                     self._clear_image_annotations(image_path)
                 )
+                if failures:
+                    trashed, rollback_errors = self._rollback_trashed(
+                        trashed
+                    )
+                    failures.extend(
+                        (resource.original_path, error)
+                        for resource, error in rollback_errors
+                    )
+                    if not rollback_errors:
+                        affected = []
+                    else:
+                        affected = [
+                            resource.original_path
+                            for resource in trashed
+                        ]
             result.affected_paths.extend(affected)
-            result.trashed_resources.extend(trashed)
+            result.merge_trashed_resources(trashed)
             for path, error in failures:
                 result.add_failure(image_path, path, error)
             if not failures:
@@ -273,11 +319,25 @@ class AnnotationFileService:
                 affected, failures, trashed = (
                     self._clear_image_annotations(image_path)
                 )
-                result.affected_paths.extend(affected)
-                result.trashed_resources.extend(trashed)
-                for path, error in failures:
-                    result.add_failure(image_path, path, error)
                 if failures:
+                    trashed, rollback_errors = self._rollback_trashed(
+                        trashed
+                    )
+                    failures.extend(
+                        (resource.original_path, error)
+                        for resource, error in rollback_errors
+                    )
+                    if not rollback_errors:
+                        affected = []
+                    else:
+                        affected = [
+                            resource.original_path
+                            for resource in trashed
+                        ]
+                    result.affected_paths.extend(affected)
+                    result.merge_trashed_resources(trashed)
+                    for path, error in failures:
+                        result.add_failure(image_path, path, error)
                     continue
                 try:
                     if not os.path.isfile(image_path):
@@ -286,20 +346,92 @@ class AnnotationFileService:
                         )
                     identity = _trash_identity(
                         image_path,
-                        self.trash(image_path),
+                        self._move_to_trash(image_path),
                     )
-                    result.affected_paths.append(image_path)
-                    result.trashed_resources.append(
-                        TrashedResource(
-                            image_path,
-                            identity,
-                            MISSING_FINGERPRINT,
-                        )
+                    image_resource = TrashedResource(
+                        image_path,
+                        identity,
+                        MISSING_FINGERPRINT,
                     )
+                    affected.append(image_path)
+                    trashed.append(image_resource)
+                    result.affected_paths.extend(affected)
+                    result.merge_trashed_resources(trashed)
                     result.succeeded_images.append(image_path)
                 except Exception as error:
+                    trashed, rollback_errors = self._rollback_trashed(
+                        trashed
+                    )
+                    if rollback_errors:
+                        result.affected_paths.extend(
+                            resource.original_path
+                            for resource in trashed
+                        )
+                        result.merge_trashed_resources(trashed)
+                        for resource, rollback_error in rollback_errors:
+                            result.add_failure(
+                                image_path,
+                                resource.original_path,
+                                rollback_error,
+                            )
                     result.add_failure(image_path, image_path, error)
         return result
+
+    def _move_to_trash(self, path):
+        mover = getattr(self.trash, "move", None)
+        return mover(path) if mover is not None else self.trash(path)
+
+    def _restore_trash_identity(self, identity, destination):
+        adapter = self.trash
+        if not hasattr(adapter, "restore"):
+            adapter = getattr(adapter, "__self__", None)
+        if adapter is not None and hasattr(adapter, "restore"):
+            adapter.restore(identity, destination)
+            return
+        if identity.backend in ("path", "qt") and identity.token:
+            shutil.move(os.fspath(identity.token), destination)
+            return
+        SystemTrashAdapter().restore(identity, destination)
+
+    def _rollback_trashed(self, resources):
+        remaining = []
+        errors = []
+        for resource in reversed(tuple(resources)):
+            temporary = None
+            try:
+                if os.path.lexists(resource.original_path):
+                    temporary = _temporary_peer_path(
+                        resource.original_path, "operation-rollback"
+                    )
+                    os.replace(resource.original_path, temporary)
+                self._restore_trash_identity(
+                    resource.identity,
+                    resource.original_path,
+                )
+                if temporary is not None and os.path.lexists(temporary):
+                    os.remove(temporary)
+            except Exception as error:
+                recovery_error = None
+                if (
+                    temporary is not None
+                    and os.path.lexists(temporary)
+                    and not os.path.lexists(resource.original_path)
+                ):
+                    try:
+                        os.replace(temporary, resource.original_path)
+                    except OSError as secondary_error:
+                        recovery_error = secondary_error
+                if _trash_identity_available(resource.identity, self.trash):
+                    remaining.append(resource)
+                detail = error
+                if recovery_error is not None:
+                    detail = FileOperationError(
+                        "%s; restoring the displaced current file also "
+                        "failed: %s" % (error, recovery_error)
+                    )
+                errors.append((resource, detail))
+        remaining.reverse()
+        return remaining, errors
 
     def _operation_resources(self, image_path, candidates):
         resources = list(
@@ -396,10 +528,7 @@ class AnnotationFileService:
                     continue
                 if entries is None:
                     continue
-                if _matching_create_ml_indices(
-                    entries,
-                    os.path.basename(image_path),
-                ):
+                if _matching_create_ml_indices(entries, image_path, path):
                     found.add(key)
                 elif not entries and key in exact:
                     found.add(key)
@@ -413,7 +542,6 @@ class AnnotationFileService:
             os.path.normcase(os.path.abspath(path))
             for path in exact_annotation_paths(image_path, self.save_dir)
         }
-        basename = os.path.basename(image_path)
         seen = set()
         for path in self._annotation_candidates(image_path):
             path = os.path.abspath(path)
@@ -425,7 +553,7 @@ class AnnotationFileService:
                 if not path.lower().endswith(".json"):
                     identity = _trash_identity(
                         path,
-                        self.trash(path),
+                        self._move_to_trash(path),
                     )
                     trashed.append(
                         TrashedResource(path, identity)
@@ -437,7 +565,7 @@ class AnnotationFileService:
                     if key in exact:
                         identity = _trash_identity(
                             path,
-                            self.trash(path),
+                            self._move_to_trash(path),
                         )
                         trashed.append(
                             TrashedResource(path, identity)
@@ -452,7 +580,9 @@ class AnnotationFileService:
                             "The associated JSON is not a CreateML collection."
                         )
                     continue
-                matches = _matching_create_ml_indices(entries, basename)
+                matches = _matching_create_ml_indices(
+                    entries, image_path, path
+                )
                 if len(matches) > 1:
                     raise FileOperationError(
                         "The CreateML collection contains multiple matching "
@@ -462,7 +592,7 @@ class AnnotationFileService:
                     if key in exact and not entries:
                         identity = _trash_identity(
                             path,
-                            self.trash(path),
+                            self._move_to_trash(path),
                         )
                         trashed.append(
                             TrashedResource(path, identity)
@@ -477,7 +607,7 @@ class AnnotationFileService:
                 if len(entries) == 1:
                     identity = _trash_identity(
                         path,
-                        self.trash(path),
+                        self._move_to_trash(path),
                     )
                     trashed.append(
                         TrashedResource(path, identity)
@@ -491,7 +621,7 @@ class AnnotationFileService:
                     identity = _recoverable_json_rewrite(
                         path,
                         retained,
-                        self.trash,
+                        self._move_to_trash,
                     )
                     trashed.append(
                         TrashedResource(
@@ -697,7 +827,6 @@ class SynchronizedRenamer:
             json_paths = self._json_candidates(mapping)
         json_base_outputs = {}
         json_contributions = {}
-        basename_mapping = self._basename_mapping(mapping)
         exact_owners = self._exact_json_owners(mapping)
 
         for json_path in json_paths:
@@ -734,18 +863,17 @@ class SynchronizedRenamer:
             counts = {}
             for entry in entries:
                 image_name = entry.get("image") if isinstance(entry, dict) else None
-                key = (
-                    os.path.basename(os.fspath(image_name)).casefold()
-                    if image_name
-                    else None
+                owner = _create_ml_reference_owner(
+                    image_name, mapping, json_path
                 )
-                owner = basename_mapping.get(key)
                 if owner is None:
                     updated_entries.append(entry)
                     continue
                 counts[owner] = counts.get(owner, 0) + 1
                 changed = dict(entry)
-                changed["image"] = os.path.basename(mapping[owner])
+                changed["image"] = _renamed_create_ml_reference(
+                    image_name, mapping[owner]
+                )
                 matched.append((owner, changed))
 
             duplicate_owner = next(
@@ -773,12 +901,9 @@ class SynchronizedRenamer:
                 }
                 for entry in entries:
                     image_name = entry.get("image") if isinstance(entry, dict) else None
-                    key = (
-                        os.path.basename(os.fspath(image_name)).casefold()
-                        if image_name
-                        else None
+                    owner = _create_ml_reference_owner(
+                        image_name, mapping, json_path
                     )
-                    owner = basename_mapping.get(key)
                     rewritten.append(
                         replacements.get(owner, entry)
                     )
@@ -806,12 +931,12 @@ class SynchronizedRenamer:
         for path, entries in json_contributions.items():
             existing = json_base_outputs.setdefault(path, [])
             existing_names = {
-                os.path.basename(entry.get("image", "")).casefold()
+                normalize_image_reference(entry.get("image", ""))
                 for entry in existing
                 if isinstance(entry, dict)
             }
             for entry in entries:
-                name = os.path.basename(entry.get("image", "")).casefold()
+                name = normalize_image_reference(entry.get("image", ""))
                 if name in existing_names:
                     raise FileOperationError(
                         "CreateML target already contains image %s: %s"
@@ -998,15 +1123,59 @@ def _read_create_ml_collection(path):
     return value
 
 
-def _matching_create_ml_indices(entries, image_name):
-    expected = os.path.basename(image_name).casefold()
+def _matching_create_ml_indices(
+    entries, image_path, collection_path=None
+):
     return [
         index
         for index, entry in enumerate(entries)
-        if os.path.basename(
-            os.fspath(entry.get("image", ""))
-        ).casefold() == expected
+        if image_reference_matches(
+            entry.get("image", ""), image_path, collection_path
+        )
     ]
+
+
+def _create_ml_reference_owner(reference, mapping, collection_path):
+    if not reference:
+        return None
+    matches = [
+        source
+        for source in mapping
+        if image_reference_matches(
+            reference, source, collection_path
+        )
+    ]
+    if len(matches) > 1:
+        raise FileOperationError(
+            "CreateML record is ambiguous for %s" % reference
+        )
+    return matches[0] if matches else None
+
+
+def _renamed_create_ml_reference(reference, target):
+    reference = os.fspath(reference)
+    normalized = reference.replace("\\", "/")
+    if os.path.isabs(reference):
+        return os.path.abspath(target)
+    if "/" not in normalized:
+        return os.path.basename(target)
+    prefix = normalized.rpartition("/")[0]
+    renamed = prefix + "/" + os.path.basename(target)
+    return renamed.replace("/", "\\") if "\\" in reference else renamed
+
+
+def _trash_identity_available(identity, trash):
+    owner = trash if hasattr(trash, "exists") else getattr(
+        trash, "__self__", None
+    )
+    if owner is not None and hasattr(owner, "exists"):
+        try:
+            return bool(owner.exists(identity))
+        except Exception:
+            return True
+    if identity.backend in ("path", "qt") and identity.token:
+        return os.path.lexists(os.fspath(identity.token))
+    return True
 
 
 def _recoverable_json_rewrite(path, entries, trash):

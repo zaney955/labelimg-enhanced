@@ -1,6 +1,6 @@
 """Directory-level annotation paths, status, and candidate labels."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import json
 import os
 
@@ -11,6 +11,10 @@ from labelimg.annotation_document import (
     AnnotationStatus,
 )
 from labelimg.file_operations import move_to_recycle_bin
+from labelimg.create_ml_io import (
+    image_reference_matches,
+    normalize_image_reference,
+)
 from labelimg.annotation_storage import (
     AnnotationResource,
     AnnotationSaveRequest,
@@ -86,6 +90,11 @@ class AnnotationWorkspace:
         self._active_paths = {}
         self._ambiguous_annotation_paths = set()
         self._held_resources = {}
+        self._create_ml_paths_by_image_name = {}
+        self._create_ml_labels_by_record = {}
+        self._ambiguous_create_ml_records = set()
+        self._in_memory_labels_by_image = {}
+        self._yolo_vocabulary = []
 
     @property
     def save_dir(self):
@@ -96,8 +105,24 @@ class AnnotationWorkspace:
         return self._storage
 
     @property
+    def yolo_vocabulary(self):
+        return tuple(self._yolo_vocabulary)
+
+    def reserve_yolo_labels(self, labels):
+        for label in labels:
+            label = str(label).strip()
+            if label and label not in self._yolo_vocabulary:
+                self._yolo_vocabulary.append(label)
+        return self.yolo_vocabulary
+
+    @property
     def candidate_labels(self):
         discovered = set()
+        memory_path_keys = {
+            path_key
+            for path_key, _image_name, _labels
+            in self._in_memory_labels_by_image.values()
+        }
         selected = {
             _cache_key(path)
             for path in self._active_paths.values()
@@ -107,6 +132,21 @@ class AnnotationWorkspace:
             for path in self._active_paths.values()
         }
         for path_key, labels in self._labels_by_path.items():
+            if (
+                path_key in memory_path_keys
+                and not any(
+                    source_path == path_key
+                    for source_path, _image_name
+                    in self._create_ml_labels_by_record
+                )
+            ):
+                continue
+            if any(
+                source_path == path_key
+                for source_path, _image_name
+                in self._create_ml_labels_by_record
+            ):
+                continue
             if (
                 _cache_key(os.path.splitext(path_key)[0])
                 in selected_stems
@@ -118,6 +158,43 @@ class AnnotationWorkspace:
                 and path_key not in selected
             ):
                 continue
+            discovered.update(labels)
+        memory_sources = {
+            (path_key, image_name)
+            for path_key, image_name, _labels
+            in self._in_memory_labels_by_image.values()
+        }
+        selected_create_ml_sources = set()
+        for image_key, path in self._active_paths.items():
+            if not str(path).lower().endswith(
+                AnnotationFormat.CREATE_ML.extension
+            ):
+                continue
+            path_key = _cache_key(path)
+            selected_create_ml_sources.update(
+                source
+                for source in self._create_ml_labels_by_record
+                if source[0] == path_key
+                and image_reference_matches(
+                    source[1], image_key, path
+                )
+            )
+        for source, labels in self._create_ml_labels_by_record.items():
+            if (
+                source not in memory_sources
+                and not (
+                    source in self._ambiguous_create_ml_records
+                    and source not in selected_create_ml_sources
+                )
+                and not (
+                    source[0] in self._ambiguous_annotation_paths
+                    and source[0] not in selected
+                )
+            ):
+                discovered.update(labels)
+        for _path_key, _image_name, labels in (
+            self._in_memory_labels_by_image.values()
+        ):
             discovered.update(labels)
         return tuple(
             sorted(
@@ -135,13 +212,16 @@ class AnnotationWorkspace:
         if new_value != self._save_dir:
             self._active_paths.clear()
             self._ambiguous_annotation_paths.clear()
+            self._ambiguous_create_ml_records.clear()
+            self._in_memory_labels_by_image.clear()
+            self._yolo_vocabulary.clear()
         self._save_dir = new_value
 
     def entry(self, image_path):
         image_path = os.path.abspath(os.fspath(image_path))
         paths = self._paths_for_image(image_path)
         statuses = []
-        for annotation_path in paths:
+        for annotation_path in self._document_paths_for_image(image_path):
             if not os.path.isfile(annotation_path):
                 continue
             statuses.append(
@@ -214,7 +294,7 @@ class AnnotationWorkspace:
                 ),
                 modified_ns=os.stat(annotation_path).st_mtime_ns,
             )
-            for annotation_path in self.entry(image_path).paths
+            for annotation_path in self._document_paths_for_image(image_path)
             if os.path.isfile(annotation_path)
         )
 
@@ -247,6 +327,23 @@ class AnnotationWorkspace:
             if active is not None:
                 active = target_mapping.get(source, active)
                 self._active_paths[_cache_key(destination)] = active
+            memory = self._in_memory_labels_by_image.pop(
+                source_key, None
+            )
+            if memory is not None:
+                path_key, _image_name, labels = memory
+                new_target = target_mapping.get(source)
+                if new_target is not None:
+                    path_key = _cache_key(new_target)
+                self._in_memory_labels_by_image[
+                    _cache_key(destination)
+                ] = (
+                    path_key,
+                    normalize_image_reference(
+                        os.path.basename(destination)
+                    ),
+                    labels,
+                )
 
     def save(
         self,
@@ -264,6 +361,10 @@ class AnnotationWorkspace:
             annotation_format.extension
         ):
             annotation_path += annotation_format.extension
+        if annotation_format is AnnotationFormat.CREATE_ML:
+            document = self._bind_create_ml_record(
+                document, annotation_path
+            )
 
         empty_pascal = (
             annotation_format is AnnotationFormat.PASCAL_VOC
@@ -316,6 +417,9 @@ class AnnotationWorkspace:
             self._remember_resource_bytes(resource)
         if empty_pascal:
             self.record(annotation_path, ())
+            self._in_memory_labels_by_image.pop(
+                _cache_key(document.image_path), None
+            )
             return WorkspaceSave(
                 annotation_path,
                 None,
@@ -324,12 +428,11 @@ class AnnotationWorkspace:
                 fingerprints=storage_result.fingerprints,
             )
 
-        labels = (
-            AnnotationDocument.inspect(saved_path).labels
-            if annotation_format is AnnotationFormat.CREATE_ML
-            else (box.label for box in document.boxes if box.label)
-        )
+        labels = (box.label for box in document.boxes if box.label)
         self.record(saved_path, labels)
+        self._in_memory_labels_by_image.pop(
+            _cache_key(document.image_path), None
+        )
         return WorkspaceSave(
             saved_path,
             document,
@@ -356,7 +459,13 @@ class AnnotationWorkspace:
             )
             for resource in resources
         )
-        revision_documents = tuple(revision_documents)
+        revision_documents = tuple(
+            (
+                revision_id,
+                self._bind_create_ml_record(document, annotation_path),
+            )
+            for revision_id, document in revision_documents
+        )
         requests = tuple(
             AnnotationSaveRequest(
                 image_key=document.image_path,
@@ -404,8 +513,17 @@ class AnnotationWorkspace:
             )
         self.record(
             annotation_path,
-            AnnotationDocument.inspect(annotation_path).labels,
+            (
+                box.label
+                for _revision, document in revision_documents
+                for box in document.boxes
+                if box.label
+            ),
         )
+        for _revision, document in revision_documents:
+            self._in_memory_labels_by_image.pop(
+                _cache_key(document.image_path), None
+            )
         return tuple(saves)
 
     def scan(self, directory):
@@ -425,10 +543,25 @@ class AnnotationWorkspace:
         self._resource_fingerprints.update(held_fingerprints)
         self._resource_bytes.update(held_bytes)
         self._ambiguous_annotation_paths.clear()
+        self._ambiguous_create_ml_records.clear()
+        self._create_ml_paths_by_image_name.clear()
+        self._create_ml_labels_by_record.clear()
         format_paths_by_stem = {}
+        annotation_paths_by_filename_stem = {}
         for root, _directories, files in os.walk(directory):
             for filename in files:
                 if filename.casefold() == "classes.txt":
+                    try:
+                        with open(
+                            os.path.join(root, filename),
+                            "r",
+                            encoding="utf8",
+                        ) as class_file:
+                            self.reserve_yolo_labels(
+                                line.strip() for line in class_file
+                            )
+                    except OSError:
+                        pass
                     continue
                 annotation_path = os.path.join(root, filename)
                 try:
@@ -440,11 +573,19 @@ class AnnotationWorkspace:
                 self._labels_by_path[path_key] = set(
                     status.labels
                 )
+                if annotation_path.lower().endswith(
+                    AnnotationFormat.CREATE_ML.extension
+                ):
+                    self._record_create_ml_resource(annotation_path)
                 stem_key = _cache_key(
                     os.path.splitext(annotation_path)[0]
                 )
                 format_paths_by_stem.setdefault(
                     stem_key,
+                    set(),
+                ).add(path_key)
+                annotation_paths_by_filename_stem.setdefault(
+                    os.path.splitext(filename)[0].casefold(),
                     set(),
                 ).add(path_key)
                 annotation_format = AnnotationFormat.from_path(
@@ -463,9 +604,29 @@ class AnnotationWorkspace:
         for paths in format_paths_by_stem.values():
             if len(paths) > 1:
                 self._ambiguous_annotation_paths.update(paths)
+        for source in self._create_ml_labels_by_record:
+            source_path, image_name = source
+            image_stem = os.path.splitext(
+                os.path.basename(image_name)
+            )[0].casefold()
+            competing_paths = {
+                path
+                for path in annotation_paths_by_filename_stem.get(
+                    image_stem, ()
+                )
+                if path != source_path
+            }
+            if competing_paths:
+                self._ambiguous_create_ml_records.add(source)
+                self._ambiguous_annotation_paths.update(competing_paths)
         return self.candidate_labels
 
     def record(self, annotation_path, labels):
+        if str(annotation_path).lower().endswith(
+            AnnotationFormat.CREATE_ML.extension
+        ) and os.path.isfile(annotation_path):
+            self._record_create_ml_resource(annotation_path)
+            return self.candidate_labels
         self._labels_by_path[_cache_key(annotation_path)] = {
             label.strip()
             for label in labels
@@ -474,10 +635,143 @@ class AnnotationWorkspace:
         return self.candidate_labels
 
     def record_document(self, image_path, annotation_path, labels):
-        self._active_paths[_cache_key(image_path)] = os.path.abspath(
+        image_key = _cache_key(image_path)
+        annotation_path = os.path.abspath(
             os.fspath(annotation_path)
         )
-        return self.record(annotation_path, labels)
+        self._active_paths[image_key] = annotation_path
+        labels = frozenset(
+            label.strip()
+            for label in labels
+            if label and label.strip()
+        )
+        if annotation_path.lower().endswith(
+            AnnotationFormat.CREATE_ML.extension
+        ):
+            path_key = _cache_key(annotation_path)
+            matching_sources = [
+                source
+                for source in self._create_ml_labels_by_record
+                if source[0] == path_key
+                and image_reference_matches(
+                    source[1], image_path, annotation_path
+                )
+            ]
+            record_key = (
+                matching_sources[0][1]
+                if len(matching_sources) == 1
+                else normalize_image_reference(
+                    os.path.basename(image_path)
+                )
+            )
+            self._in_memory_labels_by_image[image_key] = (
+                path_key,
+                record_key,
+                labels,
+            )
+            return self.candidate_labels
+        self._in_memory_labels_by_image[image_key] = (
+            _cache_key(annotation_path),
+            normalize_image_reference(os.path.basename(image_path)),
+            labels,
+        )
+        return self.candidate_labels
+
+    def _record_create_ml_resource(self, annotation_path):
+        path = os.path.abspath(os.fspath(annotation_path))
+        path_key = _cache_key(path)
+        for source in tuple(self._create_ml_labels_by_record):
+            if source[0] == path_key:
+                self._create_ml_labels_by_record.pop(source, None)
+        for paths in self._create_ml_paths_by_image_name.values():
+            paths.discard(path)
+        try:
+            with open(path, "r", encoding="utf8") as source:
+                records = json.load(source)
+        except (OSError, UnicodeError, ValueError):
+            return
+        if not isinstance(records, list):
+            return
+        for record in records:
+            if not isinstance(record, dict):
+                continue
+            image_name = record.get("image")
+            annotations = record.get("annotations")
+            if not isinstance(image_name, str) or not isinstance(
+                annotations, list
+            ):
+                continue
+            image_name_key = normalize_image_reference(image_name)
+            self._create_ml_paths_by_image_name.setdefault(
+                image_name_key, set()
+            ).add(path)
+            self._create_ml_labels_by_record[
+                (path_key, image_name_key)
+            ] = {
+                annotation.get("label").strip()
+                for annotation in annotations
+                if isinstance(annotation, dict)
+                and isinstance(annotation.get("label"), str)
+                and annotation.get("label").strip()
+            }
+
+    def _bind_create_ml_record(self, document, annotation_path):
+        if document.create_ml_record_name:
+            return document
+        path = os.path.abspath(os.fspath(annotation_path))
+        content = self._resource_bytes.get(_cache_key(path))
+        try:
+            if content is None:
+                with open(path, "r", encoding="utf8") as source:
+                    records = json.load(source)
+            else:
+                records = json.loads(content.decode("utf8"))
+        except FileNotFoundError:
+            return document
+        except (OSError, UnicodeError, ValueError, TypeError) as error:
+            raise AnnotationDocumentError(
+                "Could not resolve CreateML record identity: %s" % error
+            ) from error
+        if not isinstance(records, list):
+            return document
+        matches = [
+            record.get("image")
+            for record in records
+            if isinstance(record, dict)
+            and isinstance(record.get("image"), str)
+            and image_reference_matches(
+                record["image"], document.image_path, path
+            )
+        ]
+        if len(matches) > 1:
+            raise AnnotationDocumentError(
+                "CreateML collection contains multiple matching records "
+                "for %s" % document.image_path
+            )
+        if not matches:
+            raise AnnotationDocumentError(
+                "CreateML collection has no matching record for %s"
+                % document.image_path
+            )
+        return replace(
+            document, create_ml_record_name=matches[0]
+        )
+
+    def _document_paths_for_image(self, image_path):
+        paths = list(self._paths_for_image(image_path))
+        matched = set()
+        for reference, reference_paths in (
+            self._create_ml_paths_by_image_name.items()
+        ):
+            for path in reference_paths:
+                if image_reference_matches(
+                    reference, image_path, path
+                ):
+                    matched.add(path)
+        for path in sorted(matched, key=lambda value: value.casefold()):
+            if path not in paths:
+                paths.append(path)
+        return tuple(paths)
 
     def accept_resource_fingerprints(self, resources):
         """Adopt verified external identities for an explicit overwrite."""
@@ -632,7 +926,7 @@ def _create_ml_names(content):
     if not isinstance(records, list):
         return ()
     return tuple(
-        os.path.basename(os.fspath(record.get("image")))
+        normalize_image_reference(record.get("image"))
         for record in records
         if isinstance(record, dict) and record.get("image")
     )

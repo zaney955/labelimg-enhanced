@@ -2,8 +2,9 @@ import os
 import shutil
 import tempfile
 import unittest
+from unittest import mock
 
-from labelimg.annotation_storage import MISSING_FINGERPRINT
+from labelimg.annotation_storage import MISSING_FINGERPRINT, fingerprint_path
 from labelimg.file_recovery import (
     FileRecoveryCenter,
     FileRecoveryConflict,
@@ -46,6 +47,43 @@ class FailSecondRestoreOnce(FakeTrashAdapter):
 
 
 class FileRecoveryCenterTest(unittest.TestCase):
+    def test_committed_recovery_ignores_backup_cleanup_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            trash_dir = os.path.join(directory, "trash")
+            os.makedirs(trash_dir)
+            path = os.path.join(directory, "labels.xml")
+            with open(path, "wb") as output:
+                output.write(b"old")
+            adapter = FakeTrashAdapter(trash_dir)
+            identity = adapter.move(path)
+            with open(path, "wb") as output:
+                output.write(b"empty")
+            center = FileRecoveryCenter()
+            entry = center.record_trash_operation(
+                "clear",
+                (
+                    TrashedResource(
+                        path,
+                        identity,
+                        fingerprint_path(path),
+                    ),
+                ),
+                1,
+            )
+            real_remove = os.remove
+
+            def fail_backup_cleanup(candidate):
+                if ".labelimg-recovery-" in candidate:
+                    raise PermissionError("locked backup")
+                return real_remove(candidate)
+
+            with mock.patch("labelimg.file_recovery.os.remove", fail_backup_cleanup):
+                center.recover(entry.entry_id, trash_adapter=adapter)
+
+            with open(path, "rb") as source:
+                self.assertEqual(source.read(), b"old")
+            self.assertEqual(entry.status, RecoveryStatus.RESTORED)
+
     def test_delete_recovery_is_strict_and_cannot_run_twice(self):
         with tempfile.TemporaryDirectory() as directory:
             trash_dir = os.path.join(directory, "trash")

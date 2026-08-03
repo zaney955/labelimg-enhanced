@@ -11,6 +11,7 @@ from labelimg.file_operations import (
     AnnotationFileService,
     SynchronizedRenamer,
 )
+from labelimg.file_recovery import FileRecoveryCenter
 
 
 class FakeTrash:
@@ -25,6 +26,17 @@ class FakeTrash:
         )
         shutil.move(path, destination)
         self.paths.append(destination)
+        return destination
+
+    def restore(self, identity, destination):
+        shutil.move(identity.token, destination)
+
+    def move(self, path):
+        return self(path)
+
+    @staticmethod
+    def exists(identity):
+        return os.path.lexists(identity.token)
 
 
 def save_image(path, color):
@@ -87,6 +99,33 @@ class FileOperationsTest(unittest.TestCase):
             )
         self.assertEqual(len(self.trash.paths), 1)
         with open(self.trash.paths[0], "r", encoding="utf8") as source:
+            self.assertEqual(json.load(source), original)
+
+    def test_clear_two_records_in_one_collection_has_one_recoverable_resource(self):
+        first = os.path.join(self.images, "first.png")
+        second = os.path.join(self.images, "second.png")
+        save_image(first, "white")
+        save_image(second, "black")
+        collection = os.path.join(self.images, "annotations.json")
+        original = [
+            {"image": "first.png", "annotations": []},
+            {"image": "second.png", "annotations": []},
+        ]
+        with open(collection, "w", encoding="utf8") as output:
+            json.dump(original, output)
+
+        result = AnnotationFileService(
+            trash=self.trash
+        ).clear_annotations((first, second))
+
+        self.assertEqual(result.failed_images, [])
+        self.assertEqual(len(result.trashed_resources), 1)
+        center = FileRecoveryCenter()
+        entry = center.record_trash_operation(
+            "clear", result.trashed_resources, 2
+        )
+        center.recover(entry.entry_id, self.trash)
+        with open(collection, "r", encoding="utf8") as source:
             self.assertEqual(json.load(source), original)
 
     def test_delete_clears_annotations_from_both_locations(self):
@@ -206,6 +245,84 @@ class FileOperationsTest(unittest.TestCase):
                 json.load(source_file),
                 [{"image": "c.png", "annotations": []}],
             )
+
+    def test_failed_logical_target_rolls_back_already_trashed_resources(self):
+        image = os.path.join(self.images, "sample.png")
+        save_image(image, "red")
+        xml = os.path.join(self.annotations, "sample.xml")
+        yolo = os.path.join(self.annotations, "sample.txt")
+        write_xml(xml, image)
+        with open(yolo, "w", encoding="utf8") as output:
+            output.write("0 0.5 0.5 0.2 0.2\n")
+
+        class FailSecondTrash(FakeTrash):
+            def __call__(self, path):
+                if len(self.paths) == 1:
+                    raise RuntimeError("second trash failure")
+                return super().__call__(path)
+
+        result = AnnotationFileService(
+            save_dir=self.annotations,
+            trash=FailSecondTrash(self.trash_directory),
+        ).clear_annotations((image,))
+
+        self.assertEqual(result.succeeded_images, [])
+        self.assertEqual(result.trashed_resources, [])
+        self.assertTrue(os.path.isfile(xml))
+        self.assertTrue(os.path.isfile(yolo))
+
+    def test_failed_image_delete_restores_its_trashed_annotations(self):
+        image = os.path.join(self.images, "sample.png")
+        save_image(image, "red")
+        xml = os.path.join(self.annotations, "sample.xml")
+        write_xml(xml, image)
+
+        class FailImageTrash(FakeTrash):
+            def __call__(self, path):
+                if path == image:
+                    raise RuntimeError("image trash failure")
+                return super().__call__(path)
+
+        result = AnnotationFileService(
+            save_dir=self.annotations,
+            trash=FailImageTrash(self.trash_directory),
+        ).delete_images((image,))
+
+        self.assertEqual(result.succeeded_images, [])
+        self.assertEqual(result.trashed_resources, [])
+        self.assertTrue(os.path.isfile(image))
+        self.assertTrue(os.path.isfile(xml))
+
+    def test_partial_rollback_retains_only_still_trashed_resources(self):
+        image = os.path.join(self.images, "sample.png")
+        save_image(image, "red")
+        xml = os.path.join(self.annotations, "sample.xml")
+        yolo = os.path.join(self.annotations, "sample.txt")
+        invalid_json = os.path.join(self.annotations, "sample.json")
+        write_xml(xml, image)
+        with open(yolo, "w", encoding="utf8") as output:
+            output.write("0 0.5 0.5 0.2 0.2\n")
+        with open(invalid_json, "w", encoding="utf8") as output:
+            json.dump({"not": "createml"}, output)
+
+        class FailYoloRestore(FakeTrash):
+            def restore(self, identity, destination):
+                if identity.original_path == yolo:
+                    raise RuntimeError("yolo restore failure")
+                super().restore(identity, destination)
+
+        trash = FailYoloRestore(self.trash_directory)
+        result = AnnotationFileService(
+            save_dir=self.annotations,
+            trash=trash,
+        ).clear_annotations((image,))
+
+        self.assertEqual(len(result.trashed_resources), 1)
+        self.assertEqual(
+            result.trashed_resources[0].original_path, yolo
+        )
+        self.assertTrue(os.path.isfile(xml))
+        self.assertFalse(os.path.exists(yolo))
 
 
 if __name__ == "__main__":

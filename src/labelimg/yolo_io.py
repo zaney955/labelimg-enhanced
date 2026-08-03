@@ -70,6 +70,13 @@ class YOLOWriter:
             out_class_file = open(classes_file, 'w')
 
 
+        review_state = (
+            "questioned" if self.questioned
+            else "verified" if self.verified
+            else "unreviewed"
+        )
+        out_file.write("# labelimg-review: %s\n" % review_state)
+
         for box in self.box_list:
             class_index, x_center, y_center, w, h = self.bnd_box_to_yolo_line(box, class_list)
             # print (classIndex, x_center, y_center, w, h)
@@ -144,7 +151,17 @@ class YoloReader:
     def parse_yolo_format(self):
         with open(self.file_path, 'r', encoding=ENCODE_METHOD) as bnd_box_file:
             for bndBox in bnd_box_file:
-                class_index, x_center, y_center, w, h = bndBox.strip().split(' ')
+                line = bndBox.strip()
+                if not line:
+                    continue
+                if line.startswith("# labelimg-review:"):
+                    state = line.partition(":")[2].strip().casefold()
+                    self.verified = state == "verified"
+                    self.questioned = state == "questioned"
+                    continue
+                if line.startswith("#"):
+                    continue
+                class_index, x_center, y_center, w, h = line.split()
                 label, x_min, y_min, x_max, y_max = self.yolo_line_to_shape(class_index, x_center, y_center, w, h)
 
                 # Caveat: difficult flag is discarded when saved as yolo format.

@@ -142,6 +142,7 @@ def _interfaces():
             self.delete_hresult = None
             self.delete_flags = None
             self.delete_new_item_present = None
+            self.delete_callbacks = []
 
         def StartOperations(self, this):
             return 0
@@ -174,8 +175,11 @@ def _interfaces():
             self.delete_flags = flags
             self.delete_hresult = hr
             self.delete_new_item_present = bool(newItem)
+            self.delete_callbacks.append(
+                (flags, hr, bool(newItem))
+            )
             if newItem:
-                self.deleted_item = newItem.QueryInterface(IShellItem)
+                self.deleted_item = _pidl_from_shell_item(newItem)
             return 0
 
         def PreNewItem(self, this, *args):
@@ -225,6 +229,65 @@ def _shell_item(path, guid_type, interface):
     return item
 
 
+def _pidl_from_shell_item(item):
+    """Copy an absolute PIDL while the callback-owned item is valid."""
+    import ctypes
+
+    shell32 = ctypes.windll.shell32
+    shell32.SHGetIDListFromObject.argtypes = (
+        c_void_p,
+        POINTER(c_void_p),
+    )
+    shell32.SHGetIDListFromObject.restype = ctypes.c_long
+    shell32.ILGetSize.argtypes = (c_void_p,)
+    shell32.ILGetSize.restype = c_uint
+    ctypes.windll.ole32.CoTaskMemFree.argtypes = (c_void_p,)
+    ctypes.windll.ole32.CoTaskMemFree.restype = None
+    pidl = c_void_p()
+    result = shell32.SHGetIDListFromObject(item, byref(pidl))
+    if result < 0 or not pidl.value:
+        raise WindowsTrashError(
+            "SHGetIDListFromObject failed: 0x%08X"
+            % (result & 0xFFFFFFFF)
+        )
+    try:
+        size = shell32.ILGetSize(pidl)
+        if not size:
+            raise WindowsTrashError(
+                "The Recycle Bin item returned an empty PIDL."
+            )
+        return ctypes.string_at(pidl, size)
+    finally:
+        ctypes.windll.ole32.CoTaskMemFree(pidl)
+
+
+def _shell_item_from_pidl(token, guid_type, interface):
+    import ctypes
+
+    if not isinstance(token, bytes) or not token:
+        raise WindowsTrashError("The Recycle Bin identity is invalid.")
+    shell32 = ctypes.windll.shell32
+    shell32.SHCreateItemFromIDList.argtypes = (
+        c_void_p,
+        POINTER(guid_type),
+        POINTER(POINTER(interface)),
+    )
+    shell32.SHCreateItemFromIDList.restype = ctypes.c_long
+    buffer = ctypes.create_string_buffer(token)
+    item = POINTER(interface)()
+    result = shell32.SHCreateItemFromIDList(
+        ctypes.cast(buffer, c_void_p),
+        byref(interface._iid_),
+        byref(item),
+    )
+    if result < 0:
+        raise WindowsTrashError(
+            "SHCreateItemFromIDList failed: 0x%08X"
+            % (result & 0xFFFFFFFF)
+        )
+    return item
+
+
 def _new_operation(interface):
     from comtypes import CLSCTX_INPROC_SERVER, CoCreateInstance, GUID
 
@@ -235,6 +298,8 @@ def _new_operation(interface):
     )
     operation.SetOperationFlags(
         FOFX_RECYCLEONDELETE
+        | FOFX_ADDUNDORECORD
+        | FOF_ALLOWUNDO
         | FOF_NOCONFIRMATION
         | FOF_SILENT
         | FOF_NOERRORUI
@@ -279,7 +344,9 @@ def recycle_item_exists(token):
     if token is None:
         return False
     try:
-        path = token.GetDisplayName(SIGDN_FILESYSPATH)
+        GUID, IShellItem, _IFileOperation, _ProgressSink = _interfaces()
+        item = _shell_item_from_pidl(token, GUID, IShellItem)
+        path = item.GetDisplayName(SIGDN_FILESYSPATH)
     except Exception:
         return False
     return bool(path and os.path.lexists(os.fspath(path)))
@@ -290,12 +357,8 @@ def _delete_to_recycle_bin_raw(path):
     item = _shell_item(path, GUID, IShellItem)
     operation = _new_operation(IFileOperation)
     sink = ProgressSink()
-    cookie = operation.Advise(sink)
-    try:
-        operation.DeleteItem(item, None)
-        operation.PerformOperations()
-    finally:
-        operation.Unadvise(cookie)
+    operation.DeleteItem(item, sink)
+    operation.PerformOperations()
     aborted = operation.GetAnyOperationsAborted()
     if aborted or sink.deleted_item is None:
         raise WindowsTrashError(
@@ -307,6 +370,7 @@ def _delete_to_recycle_bin_raw(path):
                     sink.delete_flags,
                     sink.delete_hresult,
                     sink.delete_new_item_present,
+                    tuple(sink.delete_callbacks),
                 ),
             )
         )
@@ -318,8 +382,9 @@ def restore_recycle_item(token, destination):
     parent_path = os.path.dirname(os.path.abspath(destination))
     name = os.path.basename(destination)
     parent = _shell_item(parent_path, GUID, IShellItem)
+    item = _shell_item_from_pidl(token, GUID, IShellItem)
     operation = _new_operation(IFileOperation)
-    operation.MoveItem(token, parent, name, None)
+    operation.MoveItem(item, parent, name, None)
     operation.PerformOperations()
     aborted = operation.GetAnyOperationsAborted()
     if aborted or not os.path.lexists(destination):

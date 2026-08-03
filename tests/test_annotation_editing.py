@@ -1,6 +1,8 @@
 import unittest
 import os
 import tempfile
+from dataclasses import replace
+from types import SimpleNamespace
 from unittest import mock
 
 from PyQt5.QtCore import QEvent, QPointF, Qt
@@ -16,11 +18,17 @@ from labelimg.annotation_editing import (
 from labelimg.annotation_history import (
     AnnotationBoxState,
     AnnotationSnapshot,
+    HistoryBusy,
     SavedBaseline,
 )
 from labelimg.annotation_storage import fingerprint_path
+from labelimg.annotation_document import (
+    AnnotationDocument,
+    AnnotationFormat,
+)
 from labelimg.canvas import Canvas
 from labelimg.app import MainWindow
+from labelimg.constants import FORMAT_YOLO
 from labelimg.shape import Shape
 
 
@@ -39,6 +47,28 @@ def snapshot(label):
 
 
 class AnnotationEditingControllerTest(unittest.TestCase):
+    def test_switching_images_cannot_abandon_an_open_history_token(self):
+        current = snapshot("cat")
+        controller = AnnotationEditingController(
+            capture=lambda _image_key: current,
+            project=lambda _request: None,
+        )
+        controller.open_image("image-a", current, saved_baseline=None)
+        controller.open_image(
+            "image-b",
+            replace(current, image_key="image-b"),
+            saved_baseline=None,
+        )
+        controller.select_image("image-a")
+        controller.begin_edit("Move box")
+
+        with self.assertRaises(HistoryBusy):
+            controller.select_image("image-b")
+
+        controller.cancel_edit(restore=False)
+        controller.select_image("image-b")
+        self.assertEqual(controller.image_key, "image-b")
+
     def test_baseline_mismatch_identifies_changed_yolo_classes(self):
         with tempfile.TemporaryDirectory() as directory:
             labels = os.path.join(directory, "image.txt")
@@ -241,6 +271,11 @@ class CanvasAnnotationSceneTest(unittest.TestCase):
         shape.close()
         return shape
 
+    def test_image_fingerprint_contains_canvas_dimensions(self):
+        captured = self.scene.capture("missing-image.png")
+
+        self.assertEqual(captured.image_fingerprint.dimensions, (100, 100))
+
     def test_projection_preserves_surviving_visibility_and_selects_results(self):
         first = self.shape("cat", 10)
         second = self.shape("dog", 50)
@@ -429,6 +464,22 @@ class MainWindowHistoryIntegrationTest(unittest.TestCase):
             ["cat"],
         )
 
+    def test_history_menu_escapes_and_elides_label_values(self):
+        transition = SimpleNamespace(
+            description="Change label",
+            old_label="cat&tab\t" + "x" * 100,
+            new_label="dog&bird",
+            affected_count=1,
+        )
+
+        text = self.window._history_action_text(
+            "Undo", transition, "Ctrl+Z"
+        )
+
+        self.assertIn("cat&&tab", text)
+        self.assertIn("…", text)
+        self.assertEqual(text.count("\t"), 1)
+
     def test_ctrl_z_routes_from_canvas_but_not_file_list(self):
         self.window.annotation_clipboard = [
             (
@@ -481,6 +532,77 @@ class MainWindowHistoryIntegrationTest(unittest.TestCase):
         self.assertTrue(self.window.actions.create.isEnabled())
         self.assertTrue(self.window.canvas.editing())
 
+    def test_navigation_cancels_an_open_gesture_before_switching_images(self):
+        original = self.window.file_path
+        second = os.path.join(self.temp_dir.name, "second.png")
+        image = QPixmap(20, 20)
+        self.assertTrue(image.save(second))
+        self.window.canvas._begin_annotation_gesture(
+            "Move box", source="mouse"
+        )
+
+        self.assertTrue(self.window.load_file(second))
+
+        self.assertFalse(self.window.annotation_editing.edit_open)
+        self.window.annotation_editing.select_image(original)
+        self.assertEqual(self.window.annotation_editing.image_key, original)
+
+    def test_may_continue_cancels_a_clean_pending_edit(self):
+        self.window.annotation_editing.begin_edit("Move box")
+        self.window.annotation_editing.set_pending(
+            "Move box",
+            lambda: self.window.annotation_editing.cancel_edit(
+                restore=True
+            ),
+        )
+
+        self.assertTrue(self.window.may_continue())
+
+        self.assertFalse(self.window.annotation_editing.pending)
+        self.assertFalse(self.window.annotation_editing.edit_open)
+
+    def test_save_as_refuses_an_open_annotation_edit(self):
+        self.window.annotation_editing.begin_edit("Move box")
+
+        with mock.patch.object(
+            self.window, "save_file_dialog"
+        ) as dialog, mock.patch.object(
+            self.window, "_save_file"
+        ) as save:
+            self.window.save_file_as()
+
+        dialog.assert_not_called()
+        save.assert_not_called()
+        self.window.annotation_editing.cancel_edit(restore=False)
+
+    def test_format_change_refuses_an_open_annotation_edit(self):
+        original_format = self.window.annotation_format
+        self.window.annotation_editing.begin_edit("Move box")
+
+        self.window.change_format()
+
+        self.assertEqual(self.window.annotation_format, original_format)
+        self.assertTrue(self.window.annotation_editing.edit_open)
+        self.window.annotation_editing.cancel_edit(restore=False)
+
+    def test_explicit_annotation_load_cancels_open_edit_before_projection(self):
+        target = AnnotationDocument(
+            image_path=self.window.file_path,
+            image_data=self.window.image_data,
+            verified=True,
+        ).save(
+            os.path.join(self.temp_dir.name, "explicit"),
+            AnnotationFormat.PASCAL_VOC,
+        )
+        self.window.annotation_editing.begin_edit("Move box")
+
+        self.assertTrue(
+            self.window.load_annotation_by_filename(target)
+        )
+
+        self.assertFalse(self.window.annotation_editing.edit_open)
+        self.assertTrue(self.window.canvas.verified)
+
     def test_shared_classes_save_refreshes_all_peer_baselines(self):
         classes = os.path.join(self.temp_dir.name, "classes.txt")
         with open(classes, "w", encoding="utf8") as output:
@@ -523,6 +645,33 @@ class MainWindowHistoryIntegrationTest(unittest.TestCase):
             self.assertEqual(
                 dict(baseline.fingerprint)[classes], updated
             )
+
+    def test_yolo_save_does_not_persist_unused_predefined_labels(self):
+        self.window.label_hist.extend(("unused-one", "unused-two"))
+        self.window.set_format(FORMAT_YOLO)
+        target = os.path.join(self.temp_dir.name, "test.512.512.txt")
+        self.window.annotation_editing.set_target(
+            self.window.file_path, target
+        )
+        self.window.annotation_clipboard = [
+            (
+                "cat",
+                ((10, 10), (30, 10), (30, 30), (10, 30)),
+                None,
+                None,
+                False,
+            ),
+        ]
+        self.window.paste_copied_bounding_boxes()
+
+        self.window.save_file()
+
+        with open(
+            os.path.join(self.temp_dir.name, "classes.txt"),
+            "r",
+            encoding="utf8",
+        ) as source:
+            self.assertEqual(source.read().splitlines(), ["cat"])
 
 
 if __name__ == "__main__":

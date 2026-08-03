@@ -371,6 +371,52 @@ class AnnotationWorkspaceTest(unittest.TestCase):
             [os.path.basename(self.image_path)],
         )
 
+    def test_createml_save_does_not_depend_on_post_commit_inspection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = os.path.join(directory, "annotations.json")
+            workspace = AnnotationWorkspace(save_dir=directory)
+
+            with patch.object(
+                AnnotationDocument,
+                "inspect",
+                side_effect=RuntimeError("derived index unavailable"),
+            ):
+                saved = workspace.save(
+                    self.document("cat"),
+                    AnnotationFormat.CREATE_ML,
+                    annotation_path=target,
+                )
+
+            self.assertEqual(saved.annotation_path, target)
+            with open(target, "r", encoding="utf8") as source:
+                records = json.load(source)
+            self.assertEqual(
+                records[0]["annotations"][0]["label"], "cat"
+            )
+
+    def test_existing_createml_collection_rejects_zero_record_match(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = os.path.join(directory, "annotations.json")
+            with open(target, "w", encoding="utf8") as output:
+                json.dump(
+                    [{"image": "other.png", "annotations": []}],
+                    output,
+                )
+            workspace = AnnotationWorkspace(save_dir=directory)
+
+            with self.assertRaises(AnnotationDocumentError):
+                workspace.save(
+                    self.document("cat"),
+                    AnnotationFormat.CREATE_ML,
+                    annotation_path=target,
+                )
+
+            with open(target, "r", encoding="utf8") as source:
+                self.assertEqual(
+                    json.load(source),
+                    [{"image": "other.png", "annotations": []}],
+                )
+
     def test_createml_batch_writes_two_revision_bound_images_once(self):
         with tempfile.TemporaryDirectory() as directory:
             workspace = AnnotationWorkspace(save_dir=directory)
@@ -406,6 +452,194 @@ class AnnotationWorkspaceTest(unittest.TestCase):
         self.assertEqual(
             workspace.candidate_labels, ("cat", "dog")
         )
+
+    def test_shared_createml_collection_is_a_choice_for_every_record(self):
+        with tempfile.TemporaryDirectory() as directory:
+            first = os.path.join(directory, "first.png")
+            second = os.path.join(directory, "second.png")
+            QImage(20, 20, QImage.Format_RGB32).save(first)
+            QImage(20, 20, QImage.Format_RGB32).save(second)
+            collection = os.path.join(directory, "annotations.json")
+            with open(collection, "w", encoding="utf8") as output:
+                json.dump(
+                    [
+                        {"image": "first.png", "annotations": []},
+                        {"image": "second.png", "annotations": []},
+                    ],
+                    output,
+                )
+
+            workspace = AnnotationWorkspace(save_dir=directory)
+            workspace.scan(directory)
+
+            self.assertEqual(
+                [choice.annotation_path for choice in workspace.document_choices(first)],
+                [collection],
+            )
+            self.assertEqual(
+                [choice.annotation_path for choice in workspace.document_choices(second)],
+                [collection],
+            )
+
+    def test_createml_qualified_record_paths_keep_distinct_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            left_dir = os.path.join(directory, "left")
+            right_dir = os.path.join(directory, "right")
+            os.makedirs(left_dir)
+            os.makedirs(right_dir)
+            left = os.path.join(left_dir, "same.png")
+            right = os.path.join(right_dir, "same.png")
+            QImage(20, 20, QImage.Format_RGB32).save(left)
+            QImage(20, 20, QImage.Format_RGB32).save(right)
+            collection = os.path.join(directory, "annotations.json")
+            with open(collection, "w", encoding="utf8") as output:
+                json.dump(
+                    [
+                        {"image": "left/same.png", "annotations": []},
+                        {"image": os.path.abspath(right), "annotations": []},
+                    ],
+                    output,
+                )
+
+            workspace = AnnotationWorkspace(save_dir=directory)
+            workspace.scan(directory)
+
+            self.assertEqual(
+                [choice.annotation_path for choice in workspace.document_choices(left)],
+                [collection],
+            )
+            self.assertEqual(
+                [choice.annotation_path for choice in workspace.document_choices(right)],
+                [collection],
+            )
+            loaded = workspace.load(collection, left, QImage(left)).document
+            workspace.save(
+                loaded,
+                AnnotationFormat.CREATE_ML,
+                annotation_path=collection,
+            )
+            with open(collection, "r", encoding="utf8") as source:
+                records = json.load(source)
+            self.assertEqual(len(records), 2)
+            self.assertEqual(records[0]["image"], "left/same.png")
+
+            rebuilt_from_history = replace(
+                loaded,
+                create_ml_record_name=None,
+                verified=True,
+            )
+            workspace.save(
+                rebuilt_from_history,
+                AnnotationFormat.CREATE_ML,
+                annotation_path=collection,
+            )
+            with open(collection, "r", encoding="utf8") as source:
+                records = json.load(source)
+            self.assertEqual(len(records), 2)
+            self.assertEqual(records[0]["image"], "left/same.png")
+            self.assertEqual(
+                workspace.create_ml_image_count(collection), 2
+            )
+
+    def test_unsaved_shared_createml_labels_replace_only_one_record(self):
+        with tempfile.TemporaryDirectory() as directory:
+            first = os.path.join(directory, "first.png")
+            collection = os.path.join(directory, "annotations.json")
+            with open(collection, "w", encoding="utf8") as output:
+                json.dump(
+                    [
+                        {
+                            "image": "first.png",
+                            "annotations": [
+                                {
+                                    "label": "cat",
+                                    "coordinates": {
+                                        "x": 10,
+                                        "y": 10,
+                                        "width": 5,
+                                        "height": 5,
+                                    },
+                                }
+                            ],
+                        },
+                        {
+                            "image": "second.png",
+                            "annotations": [
+                                {
+                                    "label": "dog",
+                                    "coordinates": {
+                                        "x": 10,
+                                        "y": 10,
+                                        "width": 5,
+                                        "height": 5,
+                                    },
+                                }
+                            ],
+                        },
+                    ],
+                    output,
+                )
+            workspace = AnnotationWorkspace(save_dir=directory)
+            workspace.scan(directory)
+            workspace.record_document(first, collection, ("bird",))
+
+            self.assertEqual(workspace.candidate_labels, ("bird", "dog"))
+
+    def test_scan_preserves_unsaved_candidates_and_yolo_reservations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            image = os.path.join(directory, "sample.png")
+            annotation = os.path.join(directory, "sample.xml")
+            workspace = AnnotationWorkspace(save_dir=directory)
+            workspace.record_document(image, annotation, ("unsaved",))
+            workspace.reserve_yolo_labels(("reserved",))
+
+            workspace.scan(directory)
+
+            self.assertEqual(workspace.candidate_labels, ("unsaved",))
+            self.assertEqual(workspace.yolo_vocabulary, ("reserved",))
+
+    def test_shared_createml_ambiguity_is_scoped_to_one_record(self):
+        with tempfile.TemporaryDirectory() as directory:
+            first = os.path.join(directory, "first.png")
+            second = os.path.join(directory, "second.png")
+            collection = os.path.join(directory, "annotations.json")
+            first_xml = os.path.join(directory, "first.xml")
+            first_image = QImage(20, 20, QImage.Format_RGB32)
+            first_image.save(first)
+            QImage(20, 20, QImage.Format_RGB32).save(second)
+            with open(collection, "w", encoding="utf8") as output:
+                json.dump(
+                    [
+                        {
+                            "image": "first.png",
+                            "annotations": [
+                                {"label": "cat", "coordinates": {}}
+                            ],
+                        },
+                        {
+                            "image": "second.png",
+                            "annotations": [
+                                {"label": "dog", "coordinates": {}}
+                            ],
+                        },
+                    ],
+                    output,
+                )
+            replace(
+                self.document("bird"),
+                image_path=first,
+                image_data=first_image,
+            ).save(
+                os.path.splitext(first_xml)[0],
+                AnnotationFormat.PASCAL_VOC,
+            )
+
+            workspace = AnnotationWorkspace(save_dir=directory)
+            workspace.scan(directory)
+            self.assertEqual(workspace.candidate_labels, ("dog",))
+
+            workspace.select_active_document(first, first_xml)
+            self.assertEqual(workspace.candidate_labels, ("bird", "dog"))
 
     def test_strict_createml_validation_rejects_malformed_records(self):
         with tempfile.TemporaryDirectory() as directory:

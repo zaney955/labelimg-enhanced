@@ -54,6 +54,7 @@ class ReviewRecoveryRecord:
     prior_questioned: bool
     result_verified: bool
     result_questioned: bool
+    annotation_path: str | None = None
 
 
 @dataclass
@@ -179,7 +180,8 @@ class FileRecoveryCenter:
             entry.detail = str(error)
             raise
         entry.status = RecoveryStatus.RESTORED
-        entry.detail = "Recovered successfully"
+        if not entry.detail:
+            entry.detail = "Recovered successfully"
         return entry
 
     def _recover_trashed(self, entry, adapter):
@@ -247,9 +249,18 @@ class FileRecoveryCenter:
                 ) from error
             raise FileRecoveryError(str(error)) from error
         else:
+            cleanup_errors = []
             for backup in backups.values():
-                if os.path.exists(backup):
-                    os.remove(backup)
+                try:
+                    if os.path.exists(backup):
+                        os.remove(backup)
+                except OSError as error:
+                    cleanup_errors.append(str(error))
+            if cleanup_errors:
+                entry.detail = (
+                    "Recovered successfully; a temporary backup could not "
+                    "be removed: %s" % cleanup_errors[0]
+                )
 
     def _entry(self, entry_id):
         for entry in self._entries:
