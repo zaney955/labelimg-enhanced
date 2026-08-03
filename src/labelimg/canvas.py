@@ -159,12 +159,12 @@ class Canvas(QWidget):
                 * (point.y() - opposite.y())
             )
             if diagonal_product > 0:
-                return CURSOR_SIZE_BACKWARD_DIAGONAL
-            if diagonal_product < 0:
                 return CURSOR_SIZE_FORWARD_DIAGONAL
+            if diagonal_product < 0:
+                return CURSOR_SIZE_BACKWARD_DIAGONAL
         return (
-            CURSOR_SIZE_BACKWARD_DIAGONAL if index % 2 == 0
-            else CURSOR_SIZE_FORWARD_DIAGONAL
+            CURSOR_SIZE_FORWARD_DIAGONAL if index % 2 == 0
+            else CURSOR_SIZE_BACKWARD_DIAGONAL
         )
 
     def selected_edge(self):

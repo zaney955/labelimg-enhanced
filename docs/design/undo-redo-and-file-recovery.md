@@ -49,7 +49,8 @@ flowchart LR
     History["AnnotationHistory"]
     Projector["AnnotationSceneProjector"]
     Workspace["AnnotationWorkspace"]
-    Storage["AnnotationSaveCoordinator"]
+    Save["AnnotationSaveCoordinator"]
+    Storage["AnnotationStorageCoordinator"]
     Recovery["FileOperationRecoveryCenter"]
     Files["Annotation storage resources"]
     Trash["PlatformTrashAdapter"]
@@ -59,7 +60,9 @@ flowchart LR
     Controller --> History
     Controller --> Projector
     Projector --> Canvas
-    Controller --> Workspace
+    UI --> Save
+    Save --> Controller
+    Save --> Workspace
     Workspace --> Storage
     Storage --> Files
     UI --> Recovery
@@ -70,10 +73,11 @@ flowchart LR
 The boundaries are:
 
 - `AnnotationHistory` is Qt-free and owns immutable per-image histories, cursors, revision identities, saved-baseline identities, retention, and branch rules.
-- `AnnotationEditController` is the only annotation mutation boundary. It captures snapshots, commits or cancels edit transactions, executes Undo and Redo, updates derived state, and routes saves.
+- `AnnotationEditController` is the only annotation mutation boundary. It captures snapshots, commits or cancels edit transactions, executes Undo and Redo, and updates derived state.
 - `AnnotationSceneProjector` converts between Canvas/label-list state and immutable snapshots under signal guards.
 - `AnnotationWorkspace` owns active document choice, format adapters, candidate labels, YOLO vocabulary, image-to-resource mapping, and workspace identity.
-- `AnnotationSaveCoordinator` owns fingerprints, resource queues, immutable save requests, atomic file replacement, conflicts, and baseline acknowledgements.
+- `AnnotationSaveCoordinator` owns baseline verification, revision-bound save requests, physical-resource grouping, external conflict state, and exact-revision baseline acknowledgements.
+- `AnnotationStorageCoordinator` owns resource leases and atomic physical-file replacement.
 - `FileOperationRecoveryCenter` owns the 20-entry session log and recovery preflight. It does not call or depend on annotation Undo and Redo.
 - `PlatformTrashAdapter` returns an opaque recovery identity or explicitly reports that only manual trash recovery is available.
 
@@ -81,7 +85,7 @@ The boundaries are:
 
 At rest, the controller's current immutable revision is the canonical annotation document. Canvas shapes are its Qt projection. During an open mouse or keyboard gesture, Canvas is a transient working copy; commit captures the next canonical revision and cancel projects the prior one. The existing `SelectionSet` remains canonical only for transient selection. Saves build adapter documents from immutable revisions and never recapture a mutable Canvas when a timer fires.
 
-## Proposed source layout
+## Source layout
 
 - `src/labelimg/annotation_history.py`
   - immutable snapshot and history dataclasses;
@@ -94,20 +98,28 @@ At rest, the controller's current immutable revision is the canonical annotation
   - Canvas/label-list snapshot capture and projection;
   - selection result policy;
   - shortcut routing and history action presentation helpers.
+- `src/labelimg/annotation_persistence.py`
+  - revision-bound single and grouped save coordination;
+  - saved-baseline verification and acknowledgement;
+  - shared-resource fingerprint propagation;
+  - external annotation conflict state and overwrite coordination.
+- `src/labelimg/create_ml_collection.py`
+  - complete-reference record identity and strict validation;
+  - collection inspection, unique record resolution, and record rewrites;
+  - shared-collection removal, merge, and synchronized-rename plans.
 - `src/labelimg/annotation_storage.py`
   - storage target and resource keys;
   - fingerprints;
-  - save request batching;
   - atomic single-file and rollback-capable multi-file writes;
-  - resource conflict state.
+  - physical-resource leases.
 - `src/labelimg/file_recovery.py`
   - recovery entries, preflight, execution, and status;
   - platform trash adapter protocol;
   - Windows and portable implementations.
 - `src/labelimg/annotation_workspace.py`
-  - remains the document/format facade;
-  - delegates resource writes to `AnnotationSaveCoordinator`;
-  - gains active-document choice, candidate derivation, and YOLO vocabulary ownership.
+  - owns the document/format facade and active-document choice;
+  - performs physical writes through `AnnotationStorageCoordinator`;
+  - owns candidate derivation and YOLO vocabulary.
 - `src/labelimg/annotation_review.py`
   - coordinates field-level batch-review recovery across retained histories and leased storage resources;
   - captures rollback bytes only after acquiring the complete resource lease.
@@ -648,7 +660,7 @@ The approved sections above were compared against the implementation after the f
 | Design area | Final implementation and evidence | Result |
 | --- | --- | --- |
 | Outcome and scope | Annotation history remains per image; file recovery remains a separate confirmed File-menu flow. | Conforms |
-| Architecture and source layout | `annotation_history`, `annotation_editing`, `annotation_storage`, `annotation_workspace`, `annotation_review`, `annotation_session`, and `file_recovery` own their documented policies; `MainWindow` composes them. | Conforms |
+| Architecture and source layout | `annotation_history`, `annotation_editing`, `annotation_persistence`, `create_ml_collection`, `annotation_storage`, `annotation_workspace`, `annotation_review`, `annotation_session`, and `file_recovery` own their documented policies; `MainWindow` composes them. | Conforms |
 | Immutable history and interface | Snapshot identity, prepared steps, saved baselines, rebase/migrate/remove, 100-entry retention, and memory eviction are covered by `test_annotation_history.py`. | Conforms |
 | Edit lifecycle and operation boundaries | Gesture begin/commit/cancel, arrow coalescing, label/property edits, bulk edits, previous-image copy, and review edits are covered by `test_annotation_editing.py` and Canvas interaction suites. | Conforms |
 | Projection and view state | Scene ordering, selection results, visibility preservation, focus, hover/cache reset, and no recursive recording are covered by annotation-editing and multi-selection suites. | Conforms |
