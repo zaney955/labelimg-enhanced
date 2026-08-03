@@ -2,9 +2,12 @@ import os
 import shutil
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 from labelimg.annotation_storage import MISSING_FINGERPRINT, fingerprint_path
+from labelimg.annotation_workspace import AnnotationWorkspace
+from labelimg.file_operation_transaction import FileOperationTransaction
 from labelimg.file_recovery import (
     FileRecoveryCenter,
     FileRecoveryConflict,
@@ -12,6 +15,64 @@ from labelimg.file_recovery import (
     TrashIdentity,
     TrashedResource,
 )
+
+
+class _Editing:
+    @property
+    def image_keys(self):
+        return ()
+
+    def has_image(self, _image_key):
+        return False
+
+    def dirty_views(self):
+        return ()
+
+
+class _Scene:
+    def forget_image(self, _image_key):
+        pass
+
+
+class _Persistence:
+    conflicts = {}
+
+    def release(self, _view):
+        pass
+
+    def track(self, _view):
+        pass
+
+    def resource_keys_for(self, _view):
+        return ()
+
+    def replace_conflicts(self, _conflicts):
+        pass
+
+
+class _ReviewTransaction:
+    def recover(self, _changes):
+        raise AssertionError("review recovery was not expected")
+
+
+def file_transaction(
+    directory,
+    center,
+    trash,
+    *,
+    editing=None,
+    persistence=None,
+    review_transaction=None,
+):
+    return FileOperationTransaction(
+        AnnotationWorkspace(save_dir=directory),
+        editing or _Editing(),
+        _Scene(),
+        persistence or _Persistence(),
+        review_transaction or _ReviewTransaction(),
+        trash,
+        recovery_center=center,
+    )
 
 
 class FakeTrashAdapter:
@@ -47,6 +108,78 @@ class FailSecondRestoreOnce(FakeTrashAdapter):
 
 
 class FileRecoveryCenterTest(unittest.TestCase):
+    def test_review_recovery_dispatches_without_a_window_context(self):
+        with tempfile.TemporaryDirectory() as directory:
+            trash_dir = os.path.join(directory, "trash")
+            os.makedirs(trash_dir)
+            center = FileRecoveryCenter()
+            entry = center.record_review(("change",))
+
+            class ReviewTransaction:
+                def __init__(self):
+                    self.changes = None
+
+                def recover(self, changes):
+                    self.changes = tuple(changes)
+                    return "review-result"
+
+            review = ReviewTransaction()
+            transaction = file_transaction(
+                directory,
+                center,
+                FakeTrashAdapter(trash_dir),
+                review_transaction=review,
+            )
+
+            outcome = transaction.recover(entry.entry_id)
+
+            self.assertEqual(review.changes, ("change",))
+            self.assertEqual(outcome.review_result, "review-result")
+            self.assertEqual(entry.status, RecoveryStatus.RESTORED)
+
+    def test_clear_recovery_is_blocked_by_dirty_history(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "labels.xml")
+            view = SimpleNamespace(image_key="image.png")
+
+            class DirtyEditing(_Editing):
+                def dirty_views(self):
+                    return (view,)
+
+            class DirtyPersistence(_Persistence):
+                def resource_keys_for(self, _view):
+                    return (os.path.normcase(os.path.abspath(path)),)
+
+            trash_dir = os.path.join(directory, "trash")
+            os.makedirs(trash_dir)
+            trash = FakeTrashAdapter(trash_dir)
+            center = FileRecoveryCenter()
+            entry = center.record_trash_operation(
+                "clear",
+                (
+                    TrashedResource(
+                        path,
+                        TrashIdentity("fake", "missing", path),
+                    ),
+                ),
+                target_count=1,
+            )
+            transaction = file_transaction(
+                directory,
+                center,
+                trash,
+                editing=DirtyEditing(),
+                persistence=DirtyPersistence(),
+            )
+
+            with self.assertRaisesRegex(
+                FileRecoveryConflict,
+                "Unsaved annotation content",
+            ):
+                transaction.recover(entry.entry_id)
+
+            self.assertEqual(entry.status, RecoveryStatus.CONFLICT)
+
     def test_committed_recovery_ignores_backup_cleanup_failure(self):
         with tempfile.TemporaryDirectory() as directory:
             trash_dir = os.path.join(directory, "trash")
@@ -70,6 +203,7 @@ class FileRecoveryCenterTest(unittest.TestCase):
                 ),
                 1,
             )
+            transaction = file_transaction(directory, center, adapter)
             real_remove = os.remove
 
             def fail_backup_cleanup(candidate):
@@ -77,8 +211,11 @@ class FileRecoveryCenterTest(unittest.TestCase):
                     raise PermissionError("locked backup")
                 return real_remove(candidate)
 
-            with mock.patch("labelimg.file_recovery.os.remove", fail_backup_cleanup):
-                center.recover(entry.entry_id, trash_adapter=adapter)
+            with mock.patch(
+                "labelimg.file_operation_transaction.os.remove",
+                fail_backup_cleanup,
+            ):
+                transaction.recover(entry.entry_id)
 
             with open(path, "rb") as source:
                 self.assertEqual(source.read(), b"old")
@@ -105,13 +242,14 @@ class FileRecoveryCenterTest(unittest.TestCase):
                 ),
                 target_count=1,
             )
+            transaction = file_transaction(directory, center, trash)
 
-            center.recover(entry.entry_id, trash_adapter=trash)
+            transaction.recover(entry.entry_id)
 
             self.assertTrue(os.path.isfile(path))
             self.assertEqual(entry.status, RecoveryStatus.RESTORED)
             with self.assertRaises(Exception):
-                center.recover(entry.entry_id, trash_adapter=trash)
+                transaction.recover(entry.entry_id)
 
     def test_collision_blocks_the_whole_entry_before_any_restore(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -138,15 +276,16 @@ class FileRecoveryCenterTest(unittest.TestCase):
                 resources,
                 target_count=2,
             )
+            transaction = file_transaction(directory, center, trash)
 
             with self.assertRaises(FileRecoveryConflict):
-                center.recover(entry.entry_id, trash_adapter=trash)
+                transaction.recover(entry.entry_id)
 
             self.assertFalse(os.path.exists(paths[0]))
             self.assertEqual(entry.status, RecoveryStatus.CONFLICT)
 
             os.remove(paths[1])
-            center.recover(entry.entry_id, trash_adapter=trash)
+            transaction.recover(entry.entry_id)
             self.assertTrue(all(os.path.isfile(path) for path in paths))
             self.assertEqual(entry.status, RecoveryStatus.RESTORED)
 
@@ -179,12 +318,13 @@ class FileRecoveryCenterTest(unittest.TestCase):
             entry = center.record_trash_operation(
                 "delete", resources, target_count=2
             )
+            transaction = file_transaction(directory, center, trash)
 
             with self.assertRaises(Exception):
-                center.recover(entry.entry_id, trash_adapter=trash)
+                transaction.recover(entry.entry_id)
             self.assertFalse(any(os.path.exists(path) for path in paths))
 
-            center.recover(entry.entry_id, trash_adapter=trash)
+            transaction.recover(entry.entry_id)
             self.assertTrue(all(os.path.isfile(path) for path in paths))
 
 

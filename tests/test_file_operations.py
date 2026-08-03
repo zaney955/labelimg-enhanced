@@ -7,11 +7,37 @@ from xml.etree import ElementTree
 
 from PyQt5.QtGui import QColor, QImage
 
+from labelimg.annotation_workspace import AnnotationWorkspace
+from labelimg.file_operation_transaction import FileOperationTransaction
 from labelimg.file_operations import (
     AnnotationFileService,
     SynchronizedRenamer,
 )
-from labelimg.file_recovery import FileRecoveryCenter
+
+
+class _NoEditing:
+    @property
+    def image_keys(self):
+        return ()
+
+    def has_image(self, _image_key):
+        return False
+
+    def dirty_views(self):
+        return ()
+
+
+class _NoScene:
+    def forget_image(self, _image_key):
+        pass
+
+
+class _NoPersistence:
+    conflicts = {}
+
+
+class _NoReviewTransaction:
+    pass
 
 
 class FakeTrash:
@@ -114,17 +140,20 @@ class FileOperationsTest(unittest.TestCase):
         with open(collection, "w", encoding="utf8") as output:
             json.dump(original, output)
 
-        result = AnnotationFileService(
-            trash=self.trash
-        ).clear_annotations((first, second))
+        transaction = FileOperationTransaction(
+            AnnotationWorkspace(),
+            _NoEditing(),
+            _NoScene(),
+            _NoPersistence(),
+            _NoReviewTransaction(),
+            self.trash,
+        )
+        outcome = transaction.execute("clear", (first, second))
+        result = outcome.file_result
 
         self.assertEqual(result.failed_images, [])
         self.assertEqual(len(result.trashed_resources), 1)
-        center = FileRecoveryCenter()
-        entry = center.record_trash_operation(
-            "clear", result.trashed_resources, 2
-        )
-        center.recover(entry.entry_id, self.trash)
+        transaction.recover(outcome.recovery_entry.entry_id)
         with open(collection, "r", encoding="utf8") as source:
             self.assertEqual(json.load(source), original)
 

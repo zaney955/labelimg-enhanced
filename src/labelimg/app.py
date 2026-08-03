@@ -56,7 +56,6 @@ from labelimg.annotation_editing import (
 )
 from labelimg.annotation_history import UnknownImageHistory
 from labelimg.annotation_review import ReviewStateTransaction
-from labelimg.annotation_session import RenamedAnnotationSessionMigrator
 from labelimg.annotation_persistence import AnnotationSaveCoordinator
 from labelimg.annotation_storage import (
     AnnotationStorageConflict,
@@ -76,14 +75,13 @@ from labelimg.file_list import (
     validate_rename_mapping,
 )
 from labelimg.file_operations import (
-    AnnotationFileService,
     FileOperationError,
     SystemTrashAdapter,
-    SynchronizedRenamer,
 )
-from labelimg.file_recovery import (
-    FileRecoveryCenter,
-    FileRecoveryConflict,
+from labelimg.file_operation_transaction import (
+    FileOperationBlocked,
+    FileOperationTransaction,
+    FileRecoveryBlocked,
 )
 
 __appname__ = 'labelImg'
@@ -505,7 +503,6 @@ class MainWindow(QMainWindow, WindowMixin):
         # Whether we need to save or not.
         self.dirty = False
         self._autosave_request = False
-        self.file_recovery = FileRecoveryCenter()
         self.system_trash = SystemTrashAdapter()
 
         self._beginner = True
@@ -663,6 +660,14 @@ class MainWindow(QMainWindow, WindowMixin):
             self.annotation_editing,
             self.annotation_persistence,
             image_data_for=self._annotation_image_data,
+        )
+        self.file_operations = FileOperationTransaction(
+            self.annotation_workspace,
+            self.annotation_editing,
+            self.annotation_scene,
+            self.annotation_persistence,
+            self.review_state_transaction,
+            self.system_trash,
         )
         self.canvas.newShape.connect(self.new_shape)
         self.canvas.shapeMoved.connect(self._legacy_shape_moved)
@@ -1057,6 +1062,16 @@ class MainWindow(QMainWindow, WindowMixin):
             if image_key == self.file_path
             else read(image_key, None)
         )
+
+    @property
+    def system_trash(self):
+        return self._system_trash
+
+    @system_trash.setter
+    def system_trash(self, value):
+        self._system_trash = value
+        if hasattr(self, 'file_operations'):
+            self.file_operations.replace_trash_adapter(value)
 
     @property
     def default_save_dir(self):
@@ -1746,7 +1761,9 @@ class MainWindow(QMainWindow, WindowMixin):
         dialog = QDialog(self)
         dialog.setWindowTitle('Recent File Operations')
         layout = QVBoxLayout(dialog)
-        table = QTableWidget(len(self.file_recovery.entries), 5, dialog)
+        table = QTableWidget(
+            len(self.file_operations.recovery_entries), 5, dialog
+        )
         table.setHorizontalHeaderLabels(
             ('Time', 'Operation', 'Targets', 'Status', '')
         )
@@ -1754,7 +1771,9 @@ class MainWindow(QMainWindow, WindowMixin):
             QHeaderView.ResizeToContents
         )
         table.horizontalHeader().setStretchLastSection(True)
-        for row, entry in enumerate(self.file_recovery.entries):
+        for row, entry in enumerate(
+            self.file_operations.recovery_entries
+        ):
             values = (
                 entry.created_at.astimezone().strftime('%H:%M:%S'),
                 entry.operation,
@@ -1792,7 +1811,7 @@ class MainWindow(QMainWindow, WindowMixin):
     ):
         entry = next(
             item
-            for item in self.file_recovery.entries
+            for item in self.file_operations.recovery_entries
             if item.entry_id == entry_id
         )
         answer = QMessageBox.question(
@@ -1808,47 +1827,15 @@ class MainWindow(QMainWindow, WindowMixin):
         if answer != QMessageBox.Yes:
             return
         selected_before = tuple(self.selected_file_paths())
-        if entry.operation == 'clear':
-            recovery_resources = {
-                self._resource_key(resource.original_path)
-                for resource in entry.payload
-            }
-            blocking_images = []
-            for view in self.annotation_editing.dirty_views():
-                if recovery_resources.intersection(
-                    self.annotation_persistence.resource_keys_for(view)
-                ):
-                    blocking_images.append(view.image_key)
-            if blocking_images:
-                QMessageBox.warning(
-                    self,
-                    'Recovery blocked',
-                    (
-                        'Unsaved annotation content exists for %d target '
-                        'image(s), including %s.'
-                    ) % (
-                        len(blocking_images),
-                        os.path.basename(blocking_images[0]),
-                    ),
-                )
-                return
         try:
-            resources = (
-                tuple(
-                    resource.original_path
-                    for resource in entry.payload
-                )
-                if entry.operation in ('delete', 'clear')
-                else ()
+            outcome = self.file_operations.recover(entry_id)
+        except FileRecoveryBlocked as error:
+            QMessageBox.warning(
+                self,
+                'Recovery blocked',
+                str(error),
             )
-            with self.annotation_workspace.storage_coordinator.lease(
-                resources
-            ):
-                self.file_recovery.recover(
-                    entry_id,
-                    trash_adapter=self.system_trash,
-                    context=self,
-                )
+            return
         except Exception as error:
             QMessageBox.warning(
                 self,
@@ -1857,28 +1844,29 @@ class MainWindow(QMainWindow, WindowMixin):
             )
             return
 
+        renamed = dict(outcome.renamed)
+        if self.file_path in renamed:
+            self.file_path = renamed[self.file_path]
+        if outcome.review_result is not None:
+            self._project_review_recovery(outcome.review_result)
         restored_images = []
-        if entry.operation in ('delete', 'clear'):
+        if outcome.restored_paths:
             image_extensions = {
                 '.%s' % value.data().decode('ascii').lower()
                 for value in QImageReader.supportedImageFormats()
             }
             restored_images = [
-                resource.original_path
-                for resource in entry.payload
-                if os.path.splitext(resource.original_path)[1].lower()
+                path
+                for path in outcome.restored_paths
+                if os.path.splitext(path)[1].lower()
                 in image_extensions
             ]
         if self.dir_name and os.path.isdir(self.dir_name):
             self.populate_file_list(self.scan_all_images(self.dir_name))
             selected_after = set(selected_before)
-            if entry.operation == 'rename':
-                inverse = {
-                    destination: source
-                    for source, destination in entry.payload
-                }
+            if renamed:
                 selected_after = {
-                    inverse.get(path, path)
+                    renamed.get(path, path)
                     for path in selected_after
                 }
             selected_after.update(restored_images)
@@ -1909,57 +1897,7 @@ class MainWindow(QMainWindow, WindowMixin):
         if dialog is not None:
             dialog.accept()
 
-    def recover_rename(self, forward_mapping):
-        if self.annotation_persistence.conflicts:
-            raise FileRecoveryConflict(
-                'Resolve annotation conflicts before recovering a rename.'
-            )
-        inverse = {
-            destination: source
-            for source, destination in forward_mapping.items()
-        }
-        renamer = SynchronizedRenamer(
-            save_dir=self.default_save_dir,
-            storage_coordinator=(
-                self.annotation_workspace.storage_coordinator
-            ),
-        )
-        restored = renamer.rename(inverse)
-        self._migrate_renamed_annotation_state(
-            restored,
-            renamer.last_fingerprints,
-            renamer.last_resource_bytes,
-        )
-        if self.file_path in restored:
-            self.file_path = restored[self.file_path]
-
-    def _migrate_renamed_annotation_state(
-        self,
-        renamed,
-        transaction_fingerprints=None,
-        transaction_contents=None,
-    ):
-        migrated_conflicts = RenamedAnnotationSessionMigrator(
-            self.annotation_workspace,
-            self.annotation_editing,
-            self.annotation_scene,
-            self.annotation_persistence.release,
-            self.annotation_persistence.track,
-        ).migrate(
-            renamed,
-            transaction_fingerprints,
-            transaction_contents,
-            self.annotation_persistence.conflicts,
-        )
-        self.annotation_persistence.replace_conflicts(migrated_conflicts)
-
-    def recover_review(self, changes):
-        try:
-            result = self.review_state_transaction.recover(changes)
-        except Exception:
-            self.rescan_annotation_workspace()
-            raise
-
+    def _project_review_recovery(self, result):
         for update in result.updates:
             if update.image_path == self.file_path:
                 if update.snapshot is not None:
@@ -2119,8 +2057,7 @@ class MainWindow(QMainWindow, WindowMixin):
             )
 
         menu.addSeparator()
-        annotation_service = self.file_annotation_service()
-        annotation_count = annotation_service.annotation_count(paths)
+        annotation_count = self.file_operations.annotation_count(paths)
         clear_annotations = menu.addAction(
             '清除选中的 %d 个文件的全部标注…' % count
         )
@@ -2210,15 +2147,6 @@ class MainWindow(QMainWindow, WindowMixin):
             return 'annotated'
         return 'unannotated'
 
-    def file_annotation_service(self):
-        return AnnotationFileService(
-            save_dir=self.default_save_dir,
-            trash=self.system_trash.move,
-            storage_coordinator=(
-                self.annotation_workspace.storage_coordinator
-            ),
-        )
-
     def set_selected_review_state(self, state, _checked=False):
         paths = self.selected_file_paths()
         if not paths:
@@ -2265,7 +2193,7 @@ class MainWindow(QMainWindow, WindowMixin):
         self.refresh_file_list_statuses()
         self.refresh_candidate_labels()
         if result.recovery_records:
-            self.file_recovery.record_review(result.recovery_records)
+            self.file_operations.record_review(result.recovery_records)
         if result.failures:
             self.show_file_operation_failures(
                 '部分复核状态未能保存',
@@ -2323,7 +2251,7 @@ class MainWindow(QMainWindow, WindowMixin):
         paths = self.selected_file_paths()
         if not paths:
             return
-        count = self.file_annotation_service().annotation_count(paths)
+        count = self.file_operations.annotation_count(paths)
         answer = QMessageBox.question(
             self,
             '清除全部标注',
@@ -2338,32 +2266,13 @@ class MainWindow(QMainWindow, WindowMixin):
         if answer != QMessageBox.Yes:
             return
         current_path = self.file_path
-        result = self.run_file_operation(
+        outcome = self.run_file_operation(
             paths,
             '正在清除标注…',
-            self.file_annotation_service().clear_annotations,
+            partial(self.file_operations.execute, 'clear'),
         )
+        result = outcome.file_result
         self._warn_manual_trash_recovery(result)
-        self.file_recovery.record_trash_operation(
-            'clear',
-            result.trashed_resources,
-            target_count=len(result.succeeded_images),
-        )
-        histories = tuple(
-            path
-            for path in result.succeeded_images
-            if self.annotation_editing.has_image(path)
-        )
-        if histories:
-            for path in histories:
-                self.annotation_persistence.release(
-                    self.annotation_editing.view_image(
-                        path, touch=False
-                    )
-                )
-            self.annotation_editing.remove_images(histories)
-            for path in histories:
-                self.annotation_scene.forget_image(path)
         self.rescan_annotation_workspace()
         self.refresh_file_list_statuses()
         processed = set(
@@ -2402,32 +2311,13 @@ class MainWindow(QMainWindow, WindowMixin):
             if old_current in before
             else 0
         )
-        result = self.run_file_operation(
+        outcome = self.run_file_operation(
             paths,
             '正在删除文件…',
-            self.file_annotation_service().delete_images,
+            partial(self.file_operations.execute, 'delete'),
         )
+        result = outcome.file_result
         self._warn_manual_trash_recovery(result)
-        self.file_recovery.record_trash_operation(
-            'delete',
-            result.trashed_resources,
-            target_count=len(result.succeeded_images),
-        )
-        histories = tuple(
-            path
-            for path in result.succeeded_images
-            if self.annotation_editing.has_image(path)
-        )
-        if histories:
-            for path in histories:
-                self.annotation_persistence.release(
-                    self.annotation_editing.view_image(
-                        path, touch=False
-                    )
-                )
-            self.annotation_editing.remove_images(histories)
-            for path in histories:
-                self.annotation_scene.forget_image(path)
         self.rebuild_file_list_after_deletion(
             before,
             old_current,
@@ -2635,13 +2525,14 @@ class MainWindow(QMainWindow, WindowMixin):
         old_current = self.file_path
         selected_before = self.selected_file_paths()
         try:
-            renamer = SynchronizedRenamer(
-                save_dir=self.default_save_dir,
-                storage_coordinator=(
-                    self.annotation_workspace.storage_coordinator
-                ),
+            outcome = self.file_operations.execute('rename', mapping)
+        except FileOperationBlocked:
+            QMessageBox.warning(
+                self,
+                '重命名暂不可用',
+                '请先解决标注资源冲突，再重命名文件。',
             )
-            renamed = renamer.rename(mapping)
+            return
         except FileOperationError as error:
             QMessageBox.warning(
                 self,
@@ -2650,14 +2541,8 @@ class MainWindow(QMainWindow, WindowMixin):
             )
             return
 
+        renamed = dict(outcome.renamed)
         current_after = renamed.get(old_current, old_current)
-        self._migrate_renamed_annotation_state(
-            renamed,
-            renamer.last_fingerprints,
-            renamer.last_resource_bytes,
-        )
-        if renamed:
-            self.file_recovery.record_rename(renamed)
         selected_after = {
             renamed.get(path, path)
             for path in selected_before
@@ -3857,13 +3742,14 @@ class MainWindow(QMainWindow, WindowMixin):
             self.annotation_persistence.replace_workspace(replacement)
             self.annotation_workspace = replacement
             self.review_state_transaction.replace_workspace(replacement)
+            self.file_operations.replace_workspace(replacement)
             self._default_save_dir = dir_path
             for label in replacement.candidate_labels:
                 if label not in self.label_hist:
                     self.label_hist.append(label)
             self.annotation_editing.clear_workspace()
             self.annotation_scene.clear_workspace()
-            self.file_recovery.clear()
+            self.file_operations.clear_recovery()
             if self.file_path:
                 self.clear_current_labels()
                 if loaded is not None:
@@ -3941,7 +3827,7 @@ class MainWindow(QMainWindow, WindowMixin):
             )
             self.annotation_editing.clear_workspace()
             self.annotation_scene.clear_workspace()
-            self.file_recovery.clear()
+            self.file_operations.clear_recovery()
         self.last_open_dir = dir_path
         self.dir_name = dir_path
         self.file_path = None
