@@ -1,6 +1,6 @@
 # Undo, Redo, Save Coordination, and File Recovery Design
 
-Status: implemented and validated on 2026-07-31.
+Status: implemented and validated through 2026-08-03.
 
 ## Outcome
 
@@ -50,6 +50,7 @@ flowchart LR
     Projector["AnnotationSceneProjector"]
     Workspace["AnnotationWorkspace"]
     Save["AnnotationSaveCoordinator"]
+    Review["ReviewStateTransaction"]
     Storage["AnnotationStorageCoordinator"]
     Recovery["FileOperationRecoveryCenter"]
     Files["Annotation storage resources"]
@@ -61,6 +62,10 @@ flowchart LR
     Controller --> Projector
     Projector --> Canvas
     UI --> Save
+    UI --> Review
+    Review --> Controller
+    Review --> Save
+    Review --> Workspace
     Save --> Controller
     Save --> Workspace
     Workspace --> Storage
@@ -77,6 +82,7 @@ The boundaries are:
 - `AnnotationSceneProjector` converts between Canvas/label-list state and immutable snapshots under signal guards.
 - `AnnotationWorkspace` owns active document choice, format adapters, candidate labels, YOLO vocabulary, image-to-resource mapping, and workspace identity.
 - `AnnotationSaveCoordinator` owns baseline verification, revision-bound save requests, physical-resource grouping, external conflict state, and exact-revision baseline acknowledgements.
+- `ReviewStateTransaction` is the interface for explicit cross-file review changes and their recovery. It owns document preparation, format/resource grouping, saved-baseline updates, recovery records, leased revalidation, and rollback; forward batches retain partial-success semantics while recovery remains all-or-nothing.
 - `AnnotationStorageCoordinator` owns resource leases and atomic physical-file replacement.
 - `FileOperationRecoveryCenter` owns the 20-entry session log and recovery preflight. It does not call or depend on annotation Undo and Redo.
 - `PlatformTrashAdapter` returns an opaque recovery identity or explicitly reports that only manual trash recovery is available.
@@ -121,7 +127,9 @@ At rest, the controller's current immutable revision is the canonical annotation
   - performs physical writes through `AnnotationStorageCoordinator`;
   - owns candidate derivation and YOLO vocabulary.
 - `src/labelimg/annotation_review.py`
-  - coordinates field-level batch-review recovery across retained histories and leased storage resources;
+  - applies and recovers explicit cross-file review state through one transaction interface;
+  - groups shared CreateML resources and acknowledges successful histories and baselines;
+  - coordinates field-level recovery across retained histories and leased storage resources;
   - captures rollback bytes only after acquiring the complete resource lease.
 - `src/labelimg/annotation_session.py`
   - transactionally migrates histories, baselines, active targets, shared-resource identities, and conflicts after synchronized rename.

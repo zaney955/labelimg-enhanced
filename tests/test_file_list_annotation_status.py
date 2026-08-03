@@ -15,7 +15,6 @@ from PyQt5.QtWidgets import QApplication, QMessageBox
 
 from labelimg.app import MainWindow
 from labelimg.annotation_document import AnnotationDocument
-from labelimg.annotation_review import ReviewRecoveryCoordinator
 from labelimg.constants import FORMAT_YOLO
 from labelimg.shape import Shape
 from labelimg.annotation_storage import MISSING_FINGERPRINT
@@ -417,22 +416,21 @@ class FileListAnnotationStatusTest(unittest.TestCase):
         )
         coordinator = self.window.annotation_workspace.storage_coordinator
         real_lease = coordinator.lease
-        lease_depth = [0]
+        leased_bytes = []
 
         @contextmanager
         def tracked_lease(resources):
             with real_lease(resources):
-                lease_depth[0] += 1
-                try:
-                    yield
-                finally:
-                    lease_depth[0] -= 1
-
-        real_read = ReviewRecoveryCoordinator._read_resource_bytes
-
-        def checked_read(path):
-            self.assertGreater(lease_depth[0], 0)
-            return real_read(path)
+                root = ElementTree.parse(annotation_path).getroot()
+                root.set("leased-version", "preserve")
+                ElementTree.ElementTree(root).write(
+                    annotation_path,
+                    encoding="utf-8",
+                    xml_declaration=True,
+                )
+                with open(annotation_path, "rb") as source:
+                    leased_bytes.append(source.read())
+                yield
 
         change = ReviewRecoveryRecord(
             image_path=self.image_paths[1],
@@ -442,19 +440,12 @@ class FileListAnnotationStatusTest(unittest.TestCase):
             result_questioned=False,
             annotation_path=annotation_path,
         )
-        with patch.object(coordinator, "lease", tracked_lease), patch.object(
-            ReviewRecoveryCoordinator,
-            "_read_resource_bytes",
-            side_effect=checked_read,
-        ):
-            self.window.recover_review((change,))
+        with patch.object(coordinator, "lease", tracked_lease):
+            with self.assertRaises(FileRecoveryError):
+                self.window.recover_review((change,))
 
-        loaded = AnnotationDocument.load(
-            annotation_path,
-            self.image_paths[1],
-            QImage(self.image_paths[1]),
-        )
-        self.assertTrue(loaded.verified)
+        with open(annotation_path, "rb") as source:
+            self.assertEqual(source.read(), leased_bytes[0])
 
     def test_review_recovery_rechecks_review_fields_inside_resource_lease(self):
         annotation_path = os.path.join(
