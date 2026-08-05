@@ -27,7 +27,6 @@ except ImportError:
     from PyQt4.QtGui import *
     from PyQt4.QtCore import *
 
-from labelimg.combobox import ComboBox
 from labelimg.resources import *
 from labelimg.constants import *
 from labelimg.utils import *
@@ -63,7 +62,6 @@ from labelimg.annotation_storage import (
 )
 from labelimg.toolBar import ToolBar
 from labelimg.ustr import ustr
-from labelimg.hashableQListWidgetItem import HashableQListWidgetItem
 from labelimg.file_list import (
     BatchRenameDialog,
     CURRENT_IMAGE_ROLE,
@@ -83,6 +81,7 @@ from labelimg.file_operation_transaction import (
     FileOperationTransaction,
     FileRecoveryBlocked,
 )
+from labelimg.label_group_list import LabelGroupListWidget
 
 __appname__ = 'labelImg'
 FILE_LIST_ANNOTATED_MARK = '\u25cb'
@@ -618,8 +617,6 @@ class MainWindow(QMainWindow, WindowMixin):
             list_item=self.candidate_labels,
         )
 
-        self.items_to_shapes = {}
-        self.shapes_to_items = {}
         self.annotation_clipboard = []
         self.prev_label_text = ''
 
@@ -649,26 +646,43 @@ class MainWindow(QMainWindow, WindowMixin):
         list_layout.addWidget(self.diffc_button)
         list_layout.addWidget(use_default_label_container)
 
-        # Create and add combobox for showing unique labels in group
-        self.combo_box = ComboBox(self)
-        list_layout.addWidget(self.combo_box)
+        self.label_filter = QLineEdit()
+        self.label_filter.setPlaceholderText('筛选标签…')
+        self.label_filter.setClearButtonEnabled(True)
+        list_layout.addWidget(self.label_filter)
 
-        # Create and add a widget for showing current label items
-        self.label_list = LabelListWidget()
-        self.label_list.setSelectionMode(
-            QAbstractItemView.ExtendedSelection
-        )
-        self.label_list.setSortingEnabled(True)
-        self.label_list.setItemDelegate(
-            LabelListItemDelegate(self.label_list)
-        )
+        self.label_summary_label = QLabel()
+        self.label_summary_label.setContentsMargins(6, 1, 6, 2)
+        self.label_summary_label.setStyleSheet('color: palette(mid);')
+        list_layout.addWidget(self.label_summary_label)
+
+        self.label_list = LabelGroupListWidget()
         label_list_container = QWidget()
         label_list_container.setLayout(list_layout)
-        self.label_list.itemActivated.connect(self.label_selection_changed)
-        self.label_list.itemSelectionChanged.connect(self.label_selection_changed)
-        self.label_list.itemDoubleClicked.connect(self.edit_label)
-        # Connect to itemChanged to detect checkbox changes.
-        self.label_list.itemChanged.connect(self.label_item_changed)
+        self.label_filter.textChanged.connect(
+            self.label_list.set_filter_text
+        )
+        self.label_list.summaryChanged.connect(
+            self.label_summary_label.setText
+        )
+        self.label_list.selectionRequested.connect(
+            self.label_selection_requested
+        )
+        self.label_list.visibilityRequested.connect(
+            self.label_visibility_requested
+        )
+        self.label_list.groupEditRequested.connect(
+            self.edit_label_group
+        )
+        self.label_list.instanceEditRequested.connect(
+            self.edit_shape_label
+        )
+        self.label_list.contextMenuRequested.connect(
+            self.pop_label_group_menu
+        )
+        self.label_summary_label.setText(
+            self.label_list.summary_text()
+        )
         list_layout.addWidget(self.label_list)
 
 
@@ -770,7 +784,7 @@ class MainWindow(QMainWindow, WindowMixin):
         self.canvas.hoverShapeChanged.connect(
             self.canvas_hover_shape_changed
         )
-        self.label_list.rowHoverChanged.connect(
+        self.label_list.hoverRequested.connect(
             self.label_hover_changed
         )
         self.canvas.drawingPolygon.connect(self.toggle_drawing_sensitive)
@@ -958,12 +972,9 @@ class MainWindow(QMainWindow, WindowMixin):
         labels.setText(get_str('showHide'))
         labels.setShortcut('Ctrl+Shift+L')
 
-        # Label list context menu.
+        # The grouped annotation list builds scope-explicit context menus
+        # from the semantic target under the pointer.
         label_menu = QMenu()
-        add_actions(label_menu, (edit, delete))
-        self.label_list.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.label_list.customContextMenuRequested.connect(
-            self.pop_label_list_menu)
 
         # Draw squares/rectangles
         self.draw_squares_option = QAction(get_str('drawSquares'), self)
@@ -1234,7 +1245,7 @@ class MainWindow(QMainWindow, WindowMixin):
             self.set_dirty()
 
     def no_shapes(self):
-        return not self.items_to_shapes
+        return not self.canvas.shapes
 
     def toggle_advanced_mode(self, value=True):
         self._beginner = not value
@@ -1337,29 +1348,18 @@ class MainWindow(QMainWindow, WindowMixin):
         active_shape,
     ):
         focus = QApplication.focusWidget()
-        blocker = QSignalBlocker(self.label_list)
-        self.items_to_shapes.clear()
-        self.shapes_to_items.clear()
-        self.label_list.clear()
-        self.combo_box.cb.clear()
         for shape in shapes:
-            self.add_label(shape)
-            item = self.shapes_to_items[shape]
-            item.setCheckState(
-                Qt.Checked
+            shape.paint_label = self.display_label_option.isChecked()
+        self.label_list.set_scene(
+            shapes,
+            visible_shapes=(
+                shape for shape in shapes
                 if self.canvas.isVisible(shape)
-                else Qt.Unchecked
-            )
-        self.update_combo_box()
-        del blocker
+            ),
+        )
         self.shape_selection_changed(bool(self.canvas.selected_shapes))
         if active_shape is not None:
-            active_item = self.shapes_to_items.get(active_shape)
-            if active_item is not None:
-                self.label_list.scrollToItem(
-                    active_item,
-                    QAbstractItemView.EnsureVisible,
-                )
+            self.label_list.ensure_shape_visible(active_shape)
         if focus is not None:
             focus.setFocus(Qt.OtherFocusReason)
 
@@ -1748,26 +1748,18 @@ class MainWindow(QMainWindow, WindowMixin):
         self.statusBar().showMessage(message, delay)
 
     def reset_state(self):
-        self.items_to_shapes.clear()
-        self.shapes_to_items.clear()
         self.label_list.clear()
+        self.label_filter.clear()
         self.file_path = None
         self.image_data = None
         self.annotation_document = None
         self.canvas.reset_state()
         self.label_coordinates.clear()
-        self.combo_box.cb.clear()
         if hasattr(self, 'file_list_widget'):
             self.update_current_file_marker()
 
     def current_item(self):
-        current = self.label_list.currentItem()
-        if current is not None and current.isSelected():
-            return current
-        items = self.label_list.selectedItems()
-        if items:
-            return items[0]
-        return None
+        return self.canvas.selection_snapshot.active
 
     def add_recent_file(self, file_path):
         if file_path in self.recent_files:
@@ -2012,8 +2004,124 @@ class MainWindow(QMainWindow, WindowMixin):
                 self.annotation_document = update.document
                 self._sync_annotation_history_ui()
 
+    def pop_label_group_menu(self, context, global_pos):
+        kind, target = context
+        menu = QMenu(self)
+        if kind == 'instance':
+            shape = target
+            selected = tuple(self.canvas.selected_shapes)
+            scoped = selected if shape in selected else (shape,)
+            menu.addAction(
+                '修改此标注标签',
+                lambda: self.edit_shape_label(shape),
+            )
+            all_visible = all(self.canvas.isVisible(item) for item in scoped)
+            menu.addAction(
+                ('隐藏所选标注' if len(scoped) > 1 else '隐藏此标注')
+                if all_visible
+                else ('显示所选标注' if len(scoped) > 1 else '显示此标注'),
+                lambda: self.label_visibility_requested(
+                    scoped,
+                    not all_visible,
+                ),
+            )
+            menu.addSeparator()
+            menu.addAction(
+                '删除所选 %d 个标注' % len(scoped)
+                if len(scoped) > 1
+                else '删除此标注',
+                lambda: self.delete_annotation_shapes(
+                    scoped,
+                    'Delete selected boxes',
+                ),
+            )
+        else:
+            label = target
+            shapes = tuple(
+                shape for shape in self.canvas.shapes
+                if shape.label == label
+            )
+            if not shapes:
+                return
+            menu.addAction(
+                '选择此标签组的 %d 个标注' % len(shapes),
+                lambda: self.canvas.set_selected_shapes(
+                    shapes,
+                    active_shape=shapes[0] if len(shapes) == 1 else None,
+                ),
+            )
+            menu.addAction(
+                '重命名此标签组',
+                lambda: self.edit_label_group(label),
+            )
+            all_visible = all(self.canvas.isVisible(shape) for shape in shapes)
+            menu.addAction(
+                '隐藏此标签组' if all_visible else '显示此标签组',
+                lambda: self.label_visibility_requested(
+                    shapes,
+                    not all_visible,
+                ),
+            )
+            menu.addAction(
+                '仅显示此标签组',
+                lambda: self.isolate_label_group(label),
+            )
+            menu.addAction('显示所有标签组', lambda: self.toggle_polygons(True))
+            menu.addSeparator()
+            menu.addAction(
+                '删除此标签组的 %d 个标注' % len(shapes),
+                lambda: self.delete_annotation_shapes(
+                    shapes,
+                    'Delete label group: %s' % label,
+                ),
+            )
+        menu.exec_(global_pos)
+
     def pop_label_list_menu(self, point):
-        self.menus.labelList.exec_(self.label_list.mapToGlobal(point))
+        # Compatibility entry point for extensions using the historical name.
+        target = self.label_list.target_at(point)
+        if target is not None:
+            self.pop_label_group_menu(
+                ('instance', target)
+                if target in self.canvas.shapes
+                else ('group', target),
+                self.label_list.viewport().mapToGlobal(point),
+            )
+
+    def isolate_label_group(self, label):
+        for shape in self.canvas.shapes:
+            visible = shape.label == label
+            self.canvas.set_shape_visible(shape, visible)
+            self.label_list.set_shape_visible(shape, visible)
+
+    def delete_annotation_shapes(self, shapes, description='Delete boxes'):
+        requested = set(shapes)
+        targets = tuple(
+            shape for shape in self.canvas.shapes
+            if shape in requested
+        )
+        if not targets:
+            return tuple()
+
+        def delete_shapes():
+            removed = self.canvas.delete_shapes(targets)
+            for shape in removed:
+                self.remove_label(shape)
+            return tuple(removed)
+
+        removed = self._perform_annotation_edit(
+            description,
+            delete_shapes,
+            affected=lambda result: result,
+        )
+        if removed:
+            self.status(
+                '已删除 %d 个标注｜Ctrl+Z 撤销' % len(removed)
+            )
+            if self.no_shapes():
+                for action in self.actions.onShapesPresent:
+                    action.setEnabled(False)
+        return removed
 
     def selected_file_paths(self):
         selected = {
@@ -2667,14 +2775,62 @@ class MainWindow(QMainWindow, WindowMixin):
     def edit_label(self):
         if not self.canvas.editing():
             return
-        item = self.current_item()
-        if not item:
+        self.edit_shape_label(self.current_item())
+
+    def edit_shape_label(self, shape):
+        if shape is None or shape not in self.canvas.shapes:
             return
-        text = self.candidate_label_dialog.choose(item.text())
-        if text is not None:
-            item.setText(text)
-            item.setBackground(label_display_color(text))
-            self.update_combo_box()
+        old_label = shape.label
+        label = self.candidate_label_dialog.choose(old_label)
+        if label is None or label == old_label:
+            return
+
+        def apply_label():
+            shape.label = label
+            shape.line_color = generate_color_by_text(label)
+
+        self._perform_annotation_edit(
+            'Change label: %s \u2192 %s' % (old_label, label),
+            apply_label,
+            affected=(shape,),
+            old_label=old_label,
+            new_label=label,
+        )
+        self.label_list.refresh_shape(shape)
+        self.shape_selection_changed(True)
+
+    def edit_label_group(self, old_label):
+        shapes = tuple(
+            shape for shape in self.canvas.shapes
+            if shape.label == old_label
+        )
+        if not shapes:
+            return
+        label = self.candidate_label_dialog.choose(old_label)
+        if label is None or label == old_label:
+            return
+
+        def apply_label():
+            color = generate_color_by_text(label)
+            for shape in shapes:
+                shape.label = label
+                shape.line_color = QColor(color)
+
+        self._perform_annotation_edit(
+            'Rename label group: %s \u2192 %s' % (old_label, label),
+            apply_label,
+            affected=shapes,
+            old_label=old_label,
+            new_label=label,
+        )
+        self.label_list.set_scene(
+            self.canvas.shapes,
+            visible_shapes=(
+                shape for shape in self.canvas.shapes
+                if self.canvas.isVisible(shape)
+            ),
+        )
+        self.shape_selection_changed(True)
 
     # Tzutalin 20160906 : Add file list and dock to move faster
     def file_item_double_clicked(self, item=None):
@@ -2712,51 +2868,36 @@ class MainWindow(QMainWindow, WindowMixin):
     # React to canvas signals.
     def shape_selection_changed(self, selected=False):
         selection = self.canvas.selection_snapshot
-        blocker = QSignalBlocker(self.label_list)
-        self.label_list.clearSelection()
-        for shape in selection.selected:
-            item = self.shapes_to_items.get(shape)
-            if item is not None:
-                item.setSelected(True)
-        active_item = self.shapes_to_items.get(
-            selection.active
+        self.label_list.project_selection(
+            selection.selected,
+            selection.active,
         )
-        if active_item is not None:
-            self.label_list.setCurrentItem(
-                active_item,
-                QItemSelectionModel.NoUpdate,
-            )
-        else:
-            self.label_list.setCurrentItem(None)
-        del blocker
         self.update_selection_actions(selection)
 
     def canvas_hover_shape_changed(self, shape):
-        """Project Canvas pointer hover onto the matching list row."""
-        self.label_list.set_projected_hover_item(
-            self.shapes_to_items.get(shape)
-        )
+        """Project Canvas pointer hover onto its group and instance."""
+        self.label_list.project_canvas_hover(shape)
 
-    def label_hover_changed(self, item):
-        """Project local row hover onto a visible edit-mode Canvas box."""
-        shape = self.items_to_shapes.get(item)
-        if item is not None:
+    def label_hover_changed(self, shapes):
+        """Project grouped row or instance hover onto visible Canvas boxes."""
+        shapes = tuple(shapes)
+        if shapes:
             self.canvas.un_highlight()
-        if (
-            shape is None
-            or item.checkState() != Qt.Checked
-            or not self.canvas.editing()
-        ):
-            shape = None
-        self.canvas.set_external_hover_shape(shape)
+        self.canvas.set_external_hover_shapes(shapes)
 
     def selected_label_shapes(self):
-        return [
-            self.items_to_shapes[item]
-            for index in range(self.label_list.count())
-            for item in (self.label_list.item(index),)
-            if item.isSelected() and item in self.items_to_shapes
-        ]
+        return list(self.label_list.selected_shapes())
+
+    def label_selection_requested(self, shapes, active_shape):
+        self.canvas.set_selected_shapes(
+            shapes,
+            active_shape=active_shape,
+        )
+
+    def label_visibility_requested(self, shapes, visible):
+        for shape in shapes:
+            self.canvas.set_shape_visible(shape, visible)
+            self.label_list.set_shape_visible(shape, visible)
 
     def update_selection_actions(self, selection=None):
         if selection is None:
@@ -2786,28 +2927,17 @@ class MainWindow(QMainWindow, WindowMixin):
 
     def add_label(self, shape):
         shape.paint_label = self.display_label_option.isChecked()
-        item = HashableQListWidgetItem(shape.label)
-        item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-        item.setCheckState(Qt.Checked)
-        item.setBackground(label_display_color(shape.label))
-        self.items_to_shapes[item] = shape
-        self.shapes_to_items[shape] = item
-        self.label_list.addItem(item)
+        self.label_list.add_shape(
+            shape,
+            visible=self.canvas.isVisible(shape),
+        )
         for action in self.actions.onShapesPresent:
             action.setEnabled(True)
-        self.update_combo_box()
 
     def remove_label(self, shape):
         if shape is None:
-            # print('rm empty label')
             return
-        item = self.shapes_to_items.get(shape)
-        if item is None:
-            return
-        self.label_list.takeItem(self.label_list.row(item))
-        del self.shapes_to_items[shape]
-        del self.items_to_shapes[item]
-        self.update_combo_box()
+        self.label_list.remove_shape(shape)
 
     def shape_from_annotation(self, annotation_shape):
         label, points, line_color, fill_color, difficult = annotation_shape
@@ -2853,15 +2983,10 @@ class MainWindow(QMainWindow, WindowMixin):
         self.canvas.questioned = document.questioned
 
     def update_combo_box(self):
-        # Get the unique labels and add them to the Combobox.
-        items_text_list = [str(self.label_list.item(i).text()) for i in range(self.label_list.count())]
-
-        unique_text_list = list(set(items_text_list))
-        # Add a null row for showing all the labels
-        unique_text_list.append("")
-        unique_text_list.sort()
-
-        self.combo_box.update_items(unique_text_list)
+        # Kept as a compatibility seam for legacy call sites. The old
+        # visibility combobox was replaced by the side-effect-free group
+        # filter, and the grouped list updates itself from scene mutations.
+        self.label_list.viewport().update()
 
     def save_labels(self, annotation_file_path):
         annotation_file_path = ustr(annotation_file_path)
@@ -2970,52 +3095,16 @@ class MainWindow(QMainWindow, WindowMixin):
         self.status('Duplicated %d label(s)' % len(copied_shapes))
 
     def combo_selection_changed(self, index):
-        text = self.combo_box.cb.itemText(index)
-        for i in range(self.label_list.count()):
-            if text == "":
-                self.label_list.item(i).setCheckState(2)
-            elif text != self.label_list.item(i).text():
-                self.label_list.item(i).setCheckState(0)
-            else:
-                self.label_list.item(i).setCheckState(2)
+        return
 
     def label_selection_changed(self):
-        shapes = self.selected_label_shapes()
-        current_item = self.label_list.currentItem()
-        active_shape = None
-        if (
-            current_item is not None
-            and current_item.isSelected()
-        ):
-            active_shape = self.items_to_shapes.get(current_item)
-
-        self.canvas.set_selected_shapes(
-            shapes,
-            active_shape=active_shape,
+        self.label_selection_requested(
+            self.label_list.selected_shapes(),
+            self.label_list.active_shape(),
         )
-        self.update_selection_actions()
 
     def label_item_changed(self, item):
-        shape = self.items_to_shapes[item]
-        label = item.text()
-        if label != shape.label:
-            old_label = shape.label
-            def apply_label():
-                shape.label = label
-                shape.line_color = generate_color_by_text(label)
-            self._perform_annotation_edit(
-                'Change label: %s \u2192 %s' % (old_label, label),
-                apply_label,
-                affected=(shape,),
-                old_label=old_label,
-                new_label=label,
-            )
-            item.setBackground(label_display_color(label))
-            self.update_combo_box()
-        else:  # User probably changed item visibility
-            self.canvas.set_shape_visible(shape, item.checkState() == Qt.Checked)
-            if item is self.label_list.hovered_item():
-                self.label_hover_changed(item)
+        return
 
     # Callback functions:
     def new_shape(self):
@@ -3147,8 +3236,7 @@ class MainWindow(QMainWindow, WindowMixin):
         self.adjust_scale()
 
     def toggle_polygons(self, value):
-        for item, shape in self.items_to_shapes.items():
-            item.setCheckState(Qt.Checked if value else Qt.Unchecked)
+        self.label_visibility_requested(tuple(self.canvas.shapes), value)
 
     def load_file(self, file_path=None):
         """Load the specified file, or the last opened file if None."""
@@ -4360,23 +4448,10 @@ class MainWindow(QMainWindow, WindowMixin):
             self.canvas.update()
 
     def delete_selected_shape(self):
-        selected = tuple(self.canvas.selected_shapes)
-        def delete_shapes():
-            shapes = self.canvas.delete_selected()
-            for shape in shapes:
-                self.remove_label(shape)
-            return shapes
-        shapes = self._perform_annotation_edit(
+        self.delete_annotation_shapes(
+            tuple(self.canvas.selected_shapes),
             'Delete boxes',
-            delete_shapes,
-            affected=lambda removed: removed,
         )
-        if not shapes:
-            return
-        self.status('Deleted %d label(s)' % len(shapes))
-        if self.no_shapes():
-            for action in self.actions.onShapesPresent:
-                action.setEnabled(False)
 
     def choose_shape_line_color(self):
         selection = self.canvas.selection_snapshot
@@ -4391,6 +4466,7 @@ class MainWindow(QMainWindow, WindowMixin):
                 lambda: setattr(shape, 'line_color', color),
                 affected=(shape,),
             )
+            self.label_list.refresh_shape(shape)
             self.canvas.update()
 
     def choose_shape_fill_color(self):
@@ -4476,10 +4552,7 @@ class MainWindow(QMainWindow, WindowMixin):
         return shape.label, points, line_color, fill_color, shape.difficult
 
     def clear_current_labels(self):
-        self.items_to_shapes.clear()
-        self.shapes_to_items.clear()
         self.label_list.clear()
-        self.combo_box.cb.clear()
         self.canvas.load_shapes([])
 
     def copy_current_bounding_boxes(self):
@@ -4574,15 +4647,10 @@ class MainWindow(QMainWindow, WindowMixin):
                 shape = self.shape_from_annotation(annotation_shape)
                 self.annotation_scene.identities.assign(shape)
                 copied.append(shape)
-            blocker = QSignalBlocker(self.label_list)
-            self.items_to_shapes.clear()
-            self.shapes_to_items.clear()
             self.label_list.clear()
-            self.combo_box.cb.clear()
             self.canvas.load_shapes(copied)
             for shape in copied:
                 self.add_label(shape)
-            del blocker
             return copied
 
         copied = self._perform_annotation_edit(

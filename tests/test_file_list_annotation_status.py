@@ -611,8 +611,8 @@ class FileListAnnotationStatusTest(unittest.TestCase):
         self.app.processEvents()
 
         self.assertEqual(self.window.file_path, self.image_paths[1])
-        self.assertEqual(self.window.label_list.selectedItems(), [])
-        self.assertIsNone(self.window.label_list.currentItem())
+        self.assertEqual(self.window.label_list.selected_shapes(), ())
+        self.assertIsNone(self.window.label_list.active_shape())
         self.assertEqual(self.window.canvas.selected_shapes, [])
         self.assertFalse(self.window.actions.delete.isEnabled())
         self.assertFalse(self.window.actions.copy.isEnabled())

@@ -45,6 +45,12 @@ class SelectionSetTest(unittest.TestCase):
         self.assertEqual(second.selected, (self.second,))
         self.assertIs(second.active, self.second)
 
+    def test_multi_selection_can_have_no_arbitrary_active_member(self):
+        snapshot = self.selection.replace((self.first, self.second))
+
+        self.assertEqual(snapshot.selected, (self.first, self.second))
+        self.assertIsNone(snapshot.active)
+
     def test_scene_change_preserves_only_surviving_selection(self):
         self.selection.replace(
             (self.first, self.third),

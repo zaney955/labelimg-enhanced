@@ -469,27 +469,27 @@ class MainWindowMultiSelectionTest(unittest.TestCase):
         self.load_shapes([first, second])
 
         self.window.canvas.set_selected_shapes([first, second])
-        selected_items = set(self.window.label_list.selectedItems())
         self.assertEqual(
-            selected_items,
-            {
-                self.window.shapes_to_items[first],
-                self.window.shapes_to_items[second],
-            },
+            set(self.window.label_list.selected_shapes()),
+            {first, second},
         )
 
-        self.window.label_list.clearSelection()
-        self.window.shapes_to_items[first].setSelected(True)
-        self.window.shapes_to_items[second].setSelected(True)
+        QTest.mouseClick(
+            self.window.label_list.viewport(),
+            Qt.LeftButton,
+            pos=self.window.label_list.instance_rect(first).center(),
+        )
+        QTest.mouseClick(
+            self.window.label_list.viewport(),
+            Qt.LeftButton,
+            Qt.ControlModifier,
+            pos=self.window.label_list.instance_rect(second).center(),
+        )
         self.app.processEvents()
 
         self.assertEqual(
             self.window.canvas.selected_shapes,
             [first, second],
-        )
-        self.assertEqual(
-            self.window.label_list.selectionMode(),
-            QAbstractItemView.ExtendedSelection,
         )
         self.assertTrue(self.window.actions.delete.isEnabled())
         self.assertTrue(self.window.actions.copy.isEnabled())
@@ -508,12 +508,8 @@ class MainWindowMultiSelectionTest(unittest.TestCase):
             buttons=Qt.LeftButton,
             modifiers=Qt.ControlModifier,
         ))
-        self.assertTrue(
-            self.window.shapes_to_items[first].isSelected()
-        )
-        self.assertFalse(
-            self.window.shapes_to_items[second].isSelected()
-        )
+        self.assertIn(first, self.window.label_list.selected_shapes())
+        self.assertNotIn(second, self.window.label_list.selected_shapes())
         self.window.canvas.mouseReleaseEvent(mouse_event(
             QEvent.MouseButtonRelease,
             (40, 40),
@@ -523,35 +519,33 @@ class MainWindowMultiSelectionTest(unittest.TestCase):
     def test_canvas_hover_projects_to_row_without_changing_selection(self):
         shape = rectangle("shape", 10, 10, 80, 80)
         self.load_shapes([shape])
-        item = self.window.shapes_to_items[shape]
         before_selection = self.window.canvas.selection_snapshot
-        before_current = self.window.label_list.currentItem()
         before_dirty = self.window.dirty
 
         self.window.canvas.mouseMoveEvent(
             mouse_event(QEvent.MouseMove, (50, 50))
         )
 
-        index = self.window.label_list.indexFromItem(item)
-        self.assertTrue(self.window.label_list.row_hovered(index))
+        self.assertTrue(self.window.label_list.is_group_hovered("shape"))
+        self.assertIs(
+            self.window.label_list.projected_hover_shape(),
+            shape,
+        )
         self.assertIs(self.window.canvas.h_shape, shape)
         self.assertIs(
             self.window.canvas.selection_snapshot,
             before_selection,
         )
-        self.assertIs(self.window.label_list.currentItem(), before_current)
         self.assertEqual(self.window.dirty, before_dirty)
 
     def test_row_hover_projects_visible_shape_and_hidden_row_stays_row_only(self):
         shape = rectangle("shape", 10, 10, 80, 80)
         self.load_shapes([shape])
-        item = self.window.shapes_to_items[shape]
         self.window.label_list.resize(300, 100)
         self.window.label_list.show()
         self.app.processEvents()
-        row_rect = self.window.label_list.visualItemRect(item)
+        row_rect = self.window.label_list.group_body_rect("shape")
         before_selection = self.window.canvas.selection_snapshot
-        before_current = self.window.label_list.currentItem()
         before_dirty = self.window.dirty
 
         self.window.label_list.mouseMoveEvent(QMouseEvent(
@@ -562,22 +556,44 @@ class MainWindowMultiSelectionTest(unittest.TestCase):
             Qt.NoModifier,
         ))
 
-        index = self.window.label_list.indexFromItem(item)
-        self.assertTrue(self.window.label_list.row_hovered(index))
+        self.assertTrue(self.window.label_list.is_group_hovered("shape"))
         self.assertIs(self.window.canvas.hover_shape_for_paint, shape)
         self.assertIs(
             self.window.canvas.selection_snapshot,
             before_selection,
         )
-        self.assertIs(self.window.label_list.currentItem(), before_current)
         self.assertEqual(self.window.dirty, before_dirty)
 
-        item.setCheckState(Qt.Unchecked)
+        self.window.label_visibility_requested((shape,), False)
         self.app.processEvents()
 
-        self.assertTrue(self.window.label_list.row_hovered(index))
+        self.assertTrue(self.window.label_list.is_group_hovered("shape"))
         self.assertIsNone(self.window.canvas.hover_shape_for_paint)
         self.assertFalse(self.window.canvas.isVisible(shape))
+
+    def test_group_row_hover_projects_every_visible_instance(self):
+        first = rectangle("car", 10, 10, 30, 30)
+        second = rectangle("car", 50, 50, 80, 80)
+        hidden = rectangle("car", 90, 90, 110, 110)
+        self.load_shapes([first, second, hidden])
+        self.window.label_visibility_requested((hidden,), False)
+        self.window.label_list.resize(300, 100)
+        self.window.label_list.show()
+        self.app.processEvents()
+
+        point = self.window.label_list.group_body_rect("car").center()
+        self.window.label_list.mouseMoveEvent(QMouseEvent(
+            QEvent.MouseMove,
+            QPointF(point),
+            Qt.NoButton,
+            Qt.NoButton,
+            Qt.NoModifier,
+        ))
+
+        self.assertEqual(
+            self.window.canvas.hover_shapes_for_paint,
+            (first, second),
+        )
 
     def test_shift_click_selects_the_visible_sorted_range(self):
         shapes = [
@@ -589,12 +605,8 @@ class MainWindowMultiSelectionTest(unittest.TestCase):
         self.window.label_list.resize(300, 200)
         self.app.processEvents()
 
-        first_rect = self.window.label_list.visualItemRect(
-            self.window.label_list.item(0)
-        )
-        last_rect = self.window.label_list.visualItemRect(
-            self.window.label_list.item(2)
-        )
+        first_rect = self.window.label_list.group_body_rect("alpha")
+        last_rect = self.window.label_list.group_body_rect("charlie")
         first_pos = QPoint(
             max(first_rect.left() + 60, first_rect.center().x()),
             first_rect.center().y(),
@@ -616,7 +628,7 @@ class MainWindowMultiSelectionTest(unittest.TestCase):
         )
         self.app.processEvents()
 
-        self.assertEqual(len(self.window.label_list.selectedItems()), 3)
+        self.assertEqual(len(self.window.label_list.selected_shapes()), 3)
         self.assertEqual(
             self.window.canvas.selected_shapes,
             shapes,
@@ -631,9 +643,9 @@ class MainWindowMultiSelectionTest(unittest.TestCase):
         self.window.label_list.resize(300, 200)
         self.app.processEvents()
 
-        third_item = self.window.shapes_to_items[third]
-        third_index = self.window.label_list.indexFromItem(third_item)
-        visibility_rect = self.window.label_list.visibility_rect(third_index)
+        visibility_rect = self.window.label_list.visibility_rect_for_label(
+            "third"
+        )
         self.assertGreater(
             visibility_rect.center().x(),
             self.window.label_list.viewport().width() // 2,
@@ -649,7 +661,10 @@ class MainWindowMultiSelectionTest(unittest.TestCase):
             self.window.canvas.selected_shapes,
             [first, second],
         )
-        self.assertEqual(third_item.checkState(), Qt.Unchecked)
+        self.assertEqual(
+            self.window.label_list.group_visibility("third"),
+            Qt.Unchecked,
+        )
         self.assertFalse(self.window.canvas.isVisible(third))
 
     def test_clicking_empty_list_space_clears_selection(self):
@@ -664,7 +679,7 @@ class MainWindowMultiSelectionTest(unittest.TestCase):
             self.window.label_list.viewport().width() // 2,
             self.window.label_list.viewport().height() - 2,
         )
-        self.assertIsNone(self.window.label_list.itemAt(empty_pos))
+        self.assertIsNone(self.window.label_list.target_at(empty_pos))
         QTest.mouseClick(
             self.window.label_list.viewport(),
             Qt.LeftButton,
@@ -674,11 +689,11 @@ class MainWindowMultiSelectionTest(unittest.TestCase):
 
         self.assertEqual(self.window.canvas.selected_shapes, [])
 
-    def test_ctrl_a_keeps_show_all_action_instead_of_selecting_all(self):
+    def test_ctrl_a_selects_all_visible_groups_without_changing_visibility(self):
         first = rectangle("first", 10, 10, 20, 20)
         second = rectangle("second", 30, 30, 40, 40)
         self.load_shapes([first, second])
-        self.window.shapes_to_items[second].setCheckState(Qt.Unchecked)
+        self.window.label_visibility_requested((second,), False)
         self.window.canvas.select_shape(first)
         self.window.label_list.setFocus()
         self.app.processEvents()
@@ -690,8 +705,8 @@ class MainWindowMultiSelectionTest(unittest.TestCase):
         ))
         self.app.processEvents()
 
-        self.assertEqual(self.window.canvas.selected_shapes, [first])
-        self.assertTrue(self.window.canvas.isVisible(second))
+        self.assertEqual(self.window.canvas.selected_shapes, [first, second])
+        self.assertFalse(self.window.canvas.isVisible(second))
 
     def test_ctrl_enters_selection_mode_without_enabling_square_drawing(self):
         self.window.canvas.set_drawing_shape_to_square(False)
@@ -729,7 +744,7 @@ class MainWindowMultiSelectionTest(unittest.TestCase):
         self.assertEqual(len(copies), 2)
         self.assertNotIn(first, copies)
         self.assertNotIn(second, copies)
-        self.assertEqual(self.window.label_list.count(), 4)
+        self.assertEqual(self.window.label_list.group_count(), 2)
         for copy, points in zip(copies, original_points):
             self.assertNotEqual(copy.points, points)
 
@@ -743,7 +758,7 @@ class MainWindowMultiSelectionTest(unittest.TestCase):
         self.window.delete_selected_shape()
 
         self.assertEqual(self.window.canvas.shapes, [])
-        self.assertEqual(self.window.label_list.count(), 0)
+        self.assertEqual(self.window.label_list.group_count(), 0)
         self.assertEqual(self.window.canvas.selected_shapes, [])
 
     def test_clipboard_copy_uses_selection_and_paste_appends(self):
@@ -761,7 +776,7 @@ class MainWindowMultiSelectionTest(unittest.TestCase):
         self.assertEqual(len(self.window.canvas.selected_shapes), 2)
         self.assertNotIn(first, self.window.canvas.selected_shapes)
         self.assertNotIn(second, self.window.canvas.selected_shapes)
-        self.assertEqual(self.window.label_list.count(), 5)
+        self.assertEqual(self.window.label_list.group_count(), 3)
 
 
 if __name__ == "__main__":

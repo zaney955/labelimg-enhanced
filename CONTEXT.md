@@ -205,7 +205,7 @@ A paste operation that adds the clipboard selection to the target image without 
 _Avoid_: Replace paste, overwrite labels
 
 **Selected appearance**:
-The visual state of a selected annotation box: an opaque outline in its own label color and a light translucent fill in the same color at 60/255 opacity. Hover feedback does not fill an unselected box, so it remains distinct from selection.
+The visual state of a selected annotation box: an opaque outline in its own label color and a light translucent fill in the same color at 30/255 opacity. Hover feedback does not fill an unselected box, so it remains distinct from selection.
 _Avoid_: Default blue fill, white selection outline
 
 **Label display color**:
@@ -249,16 +249,72 @@ The annotation box recomputed at mouse press and retained for that click or drag
 _Avoid_: Cached hover target, mid-drag retargeting
 
 **Synchronized selection**:
-A selection set whose members are identical on the canvas and in the label list. The label list follows file-explorer conventions: an ordinary click replaces the set, Ctrl-click toggles one member, and Shift-click selects a contiguous range in the currently displayed list order.
-_Avoid_: Current row, independent list selection
+A selection set projected between canvas boxes, annotation-instance buttons, and their label-group rows. An ordinary instance-button click selects only its box, while an ordinary click on the group-row body selects every box in the group; Shift ranges follow one global visual order across groups, reading rows top-to-bottom and buttons left-to-right, regardless of horizontal scroll position. A single box is a point anchor, while a group selection is an interval anchor that remains complete when a later Shift range extends before or after it. A multi-member group selection has no arbitrary active box and disables single-instance editing, while a one-member group remains a single selection. Each row reports none, partial, or all according to the resulting selection set.
+_Avoid_: Current row, independent list selection, one-row-one-box
+
+**Label group**:
+The annotation boxes in the current image that share exactly the same label, including letter case. A label group exists only while at least one matching box exists.
+_Avoid_: Dataset class, case-insensitive class, persistent group
+
+**Label-group row**:
+The single compact, theme-background right annotation-list row representing one label group, ordered by case-insensitive natural label order with exact text as the stable tie-breaker. Faint theme dividers separate rows and delineate the instance strip, count, and visibility columns; the neutral count is written as `×N` without a capsule, while category color is carried only by annotation-instance button borders.
+_Avoid_: Annotation row, instance row, category row
+
+**Annotation-instance button**:
+The compact numbered in-row control representing exactly one annotation box within its label group, with an opaque background matching that box's actual outline color. Every group member has a button in current annotation-document order; ordinary click selects only that box, hover previews only that box, and its tooltip identifies the current ordinal and box geometry. Ordinals are current-image navigation aids that may be renumbered after structural edits, not persisted annotation identities.
+_Avoid_: Group button, count badge, hidden overflow item
+
+**Annotation-instance button appearance**:
+The theme-background button with an outline matching that box's actual annotation color and a readable theme-colored number. Neither the row nor an unselected button uses category-color fill; selection preserves the outline and adds a modest 48/255 fill in the same annotation color plus a bold number, while a hidden button keeps its transparent interior, dims its outline and number to roughly 45%, and adds a fine slash.
+_Avoid_: Category-color fill, label-group-only color, solid hover border, state-overwrites-category-color
+
+**Annotation-instance strip**:
+The independently horizontally scrollable portion of a label-group row containing every annotation-instance button while the label identity, total count, and aggregate visibility control remain fixed. Ordinary wheel input continues to scroll the list vertically, deliberate horizontal input moves the strip, and canvas selection minimally reveals its matching button without hover-driven movement; canvas hover over an off-strip instance instead emphasizes the corresponding overflow direction until explicitly revealed. Strip positions survive view changes within the current image, reset on image change, and are never persisted as annotation or workspace data.
+_Avoid_: Wrapped button grid, clipped instance list, whole-row scrolling
+
+**Annotation-list keyboard navigation**:
+The focus model in which Tab reaches the label-group list without traversing every instance, arrows move between group rows and their visually ordered instance buttons, and Space performs the corresponding selection gesture. Escape returns from an instance to its group, F2 edits at the focused granularity, and keyboard focus movement reveals controls without creating hover state.
+_Avoid_: Button-by-button tab chain, mouse-only strip, focus-is-selection
+
+**Label-group rename**:
+An atomic label edit applied to every annotation box in one label group. Renaming to an existing label merges the groups, while an instance-only label edit moves its annotation-instance button between groups and removes an emptied source group.
+_Avoid_: Row-title-only edit, repeated independent rename, persistent empty group
+
+**Label-group filter**:
+A case-insensitive text filter that limits which label-group rows are shown without changing canvas visibility, annotation selection, or row state. Selection outside the result remains active and is reported explicitly; list-focused select-all replaces it with all currently filtered results. Clearing the filter restores every group and its prior horizontal position.
+_Avoid_: Visibility filter, label isolation, selection filter
+
+**Annotation-list empty state**:
+The non-interactive explanation shown after projection when the current image has no annotations, distinct from the no-match state produced by a label-group filter. A no-match state offers filter clearing and continues to report selected annotations outside the result without changing canvas state.
+_Avoid_: Blank list, disabled placeholder row, transient rebuild flash
+
+**Annotation-list summary**:
+The compact current-image count of label groups and annotation boxes near the label-group filter. During filtering it reports shown and total counts and any selected annotations outside the result, without including workspace candidate labels.
+_Avoid_: Workspace class count, dashboard card, hidden-selection silence
+
+**Label-group isolation**:
+An explicit group command that hides other label groups on the canvas, distinct from filtering rows. Its inverse restores visibility to every group.
+_Avoid_: Search, implicit combo-box visibility, list-only filter
+
+**Annotation-list command scope**:
+The explicit target of a context command: right-clicking an unselected instance makes it the selection target, right-clicking a selected instance preserves the selection set, and right-clicking a group body preserves selection while targeting the named group. Group-destructive commands state their affected annotation count.
+_Avoid_: Implicit group selection, ambiguous current item, unlabeled bulk scope
+
+**Label-group deletion**:
+An atomic, undoable removal of every annotation box in one label group, identified before execution by the group label and affected count. It does not require modal confirmation because one Undo restores the complete group state.
+_Avoid_: Repeated instance deletion, irreversible bulk delete, confirmation dialog
 
 **Synchronized hover**:
-A view-only preview of the same annotation box on the Canvas and its annotation-list row when the pointer hovers either representation. It never changes selection, current item, scrolling, dirty state, or annotation history; a hidden annotation remains absent from the Canvas when its row is hovered, and leaving both representations clears the preview.
-_Avoid_: Hover selection, current row, one-way hover
+A view-only projection between canvas boxes and label-group rows at the granularity of its source. Hovering one canvas box previews only that box and its group row; hovering a group row previews every visible box in the group. It never changes selection, visibility, scrolling, dirty state, or annotation history, and hidden boxes remain absent from the canvas.
+_Avoid_: Hover selection, current row, one-way hover, reveal hidden boxes
+
+**Label-group hover preview**:
+The simultaneous ordinary hover outline shown on every visible annotation box belonging to a hovered label-group row. It represents the row's group-wide scope without creating a multi-selection or replacing the canvas pointer target.
+_Avoid_: Group selection, hidden-box preview, single representative box
 
 **Selected label-list appearance**:
-The equal-emphasis visual state of every selection-set member in the label list: its label background is preserved, its text is bold, and a slim inset theme-accent marker appears at the left without surrounding the row.
-_Avoid_: Full blue border, primary row, active-row emphasis
+The aggregate selection state of a label-group row with its label background preserved. No selected members show no marker and normal text; some selected members show a small theme-accent dot and normal text; all selected members show the existing slim inset theme-accent marker and bold text.
+_Avoid_: Full blue border, primary row, active-row emphasis, binary group selection
 
 **Annotation-list hover appearance**:
 The view-only outline of the complete annotation-list row in synchronized hover, including its visibility-control area: an approximately one-pixel neutral-gray rounded border inset from the row bounds, with its label background and text colors unchanged. A selected hovered row retains its existing left marker and bold text beneath the same gray outline, while the eye icon retains its own hover enhancement.
@@ -269,8 +325,8 @@ The empty selection set established whenever an image becomes current, regardles
 _Avoid_: Last-label selection, carried selection
 
 **Visibility toggle**:
-The right-aligned label-list eye control that changes whether an annotation box is rendered on the canvas without changing the selection set. An open eye means visible; a subdued eye-off means hidden. Hidden boxes cannot be hit on the canvas but remain selectable in the list and eligible for bulk selection actions.
-_Avoid_: Selection checkbox, disabled row
+The right-aligned label-group eye control that changes whether the group's annotation boxes are rendered on the canvas without changing the selection set. Open-eye and subdued eye-off states mean all visible and all hidden; a distinct mixed state means only some are visible. Activating an all-visible group hides it, while activating an all-hidden or mixed group shows it completely; instance-button commands control individual or selected-box visibility without adding miniature eyes. Hidden boxes cannot be hit on the canvas but remain in their strips and eligible for selection actions.
+_Avoid_: Selection checkbox, disabled row, miniature instance eye
 
 **Label**:
 The object-class name assigned to an annotation box.

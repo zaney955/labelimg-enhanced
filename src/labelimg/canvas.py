@@ -56,7 +56,7 @@ class Canvas(QWidget):
         self.current = None
         self._selection = SelectionSet()
         self._interaction = CanvasInteraction()
-        self._external_hover_shape = None
+        self._external_hover_shapes = tuple()
         self._last_pointer_pos = None
         self.selected_shape_copy = None
         self.drawing_line_color = QColor(0, 0, 255)
@@ -286,35 +286,38 @@ class Canvas(QWidget):
             self.hoverShapeChanged.emit(shape)
 
     def set_external_hover_shape(self, shape):
-        if (
-            shape is not None
-            and (
-                not self.editing()
-                or shape not in self.shapes
-                or not self.isVisible(shape)
+        self.set_external_hover_shapes(() if shape is None else (shape,))
+
+    def set_external_hover_shapes(self, shapes):
+        if not self.editing():
+            shapes = ()
+        else:
+            shapes = tuple(
+                shape for shape in shapes
+                if shape in self.shapes and self.isVisible(shape)
             )
-        ):
-            shape = None
-        if self._external_hover_shape is shape:
+        if self._external_hover_shapes == shapes:
             return
-        self._external_hover_shape = shape
+        self._external_hover_shapes = shapes
         self.update()
 
     @property
-    def hover_shape_for_paint(self):
+    def hover_shapes_for_paint(self):
         if self.selection_dragging:
-            return None
-        shape = (
-            self.h_shape
-            if self.h_shape is not None
-            else self._external_hover_shape
+            return tuple()
+        if self.h_shape is not None:
+            shapes = (self.h_shape,)
+        else:
+            shapes = self._external_hover_shapes
+        return tuple(
+            shape for shape in shapes
+            if shape in self.shapes and self.isVisible(shape)
         )
-        if (
-            shape not in self.shapes
-            or not self.isVisible(shape)
-        ):
-            return None
-        return shape
+
+    @property
+    def hover_shape_for_paint(self):
+        shapes = self.hover_shapes_for_paint
+        return shapes[0] if len(shapes) == 1 else None
 
     def set_selected_shapes(self, shapes, active_shape=None, emit=True):
         before = self._selection.snapshot
@@ -1033,32 +1036,47 @@ class Canvas(QWidget):
         self.clear_selection()
 
     def delete_selected(self):
-        selected = [
+        return self.delete_shapes(self.selected_shapes)
+
+    def delete_shapes(self, shapes):
+        target_set = set(shapes)
+        removed = [
             shape for shape in self.shapes
-            if shape in self.selected_shapes
+            if shape in target_set
         ]
-        if not selected:
+        if not removed:
             return []
 
-        if self.h_shape in selected:
+        if self.h_shape in target_set:
             self.un_highlight()
-        if self._external_hover_shape in selected:
-            self.set_external_hover_shape(None)
+        if any(shape in target_set for shape in self._external_hover_shapes):
+            self.set_external_hover_shapes(
+                shape for shape in self._external_hover_shapes
+                if shape not in target_set
+            )
 
-        selected_set = set(selected)
-        for shape in selected:
+        for shape in removed:
             shape.selected = False
         self.shapes = [
             shape for shape in self.shapes
-            if shape not in selected_set
+            if shape not in target_set
         ]
         before = self._selection.snapshot
+        remaining_selected = tuple(
+            shape for shape in before.selected
+            if shape not in target_set
+        )
         after = self._selection.set_scene(
             tuple(self.shapes),
-            selected=(),
+            selected=remaining_selected,
+            active=(
+                before.active
+                if before.active in remaining_selected
+                else None
+            ),
         )
         self._project_selection(before, after)
-        return selected
+        return removed
 
     def copy_selected_shape(self):
         copies = self.copy_selected_shapes()
@@ -1108,22 +1126,22 @@ class Canvas(QWidget):
         p.drawPixmap(0, 0, self.pixmap)
         Shape.scale = self.scale
         Shape.label_font_size = self.label_font_size
-        hover_shape = (
-            self.hover_shape_for_paint
+        hover_shapes = set(
+            self.hover_shapes_for_paint
             if self.editing()
-            else None
+            else ()
         )
         for shape in self.shapes:
             if (
                 (
                     shape.selected
                     or not self._hide_background
-                    or shape is hover_shape
+                    or shape in hover_shapes
                 )
                 and self.isVisible(shape)
             ):
                 shape.fill = shape.selected
-                if shape is hover_shape:
+                if shape in hover_shapes:
                     shape.paint(
                         p,
                         outline_style=Qt.CustomDashLine,
@@ -1469,8 +1487,11 @@ class Canvas(QWidget):
         if not value:
             if self.h_shape is shape:
                 self.un_highlight()
-            if self._external_hover_shape is shape:
-                self.set_external_hover_shape(None)
+            if shape in self._external_hover_shapes:
+                self.set_external_hover_shapes(
+                    item for item in self._external_hover_shapes
+                    if item is not shape
+                )
         self.repaint()
 
     def current_cursor(self):
@@ -1514,7 +1535,7 @@ class Canvas(QWidget):
         self._annotation_gesture_source = None
         self._held_arrow_keys.clear()
         self._interaction.reset()
-        self._external_hover_shape = None
+        self._external_hover_shapes = tuple()
         self._last_pointer_pos = None
         if previous_hover_shape is not None:
             self.hoverShapeChanged.emit(None)
