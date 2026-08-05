@@ -39,7 +39,7 @@ except ImportError:
         QVBoxLayout,
     )
 
-from labelimg.utils import generate_color_by_text, label_validator, new_icon, trimmed
+from labelimg.utils import label_display_color, label_validator, new_icon, trimmed
 
 
 BB = QDialogButtonBox
@@ -101,7 +101,7 @@ class CandidateLabelDelegate(QStyledItemDelegate):
     def paint(self, painter, option, index):
         background = QColor(index.data(Qt.BackgroundRole))
         if not background.isValid():
-            background = generate_color_by_text(index.data(Qt.DisplayRole))
+            background = label_display_color(index.data(Qt.DisplayRole))
 
         selected = bool(option.state & QStyle.State_Selected)
         hovered = bool(option.state & QStyle.State_MouseOver)
@@ -264,7 +264,7 @@ class CandidateLabelDialog(QDialog):
         base_color = self.list_widget.palette().base().color()
         for label in labels:
             item = QListWidgetItem(label)
-            background = generate_color_by_text(label)
+            background = label_display_color(label)
             item.setData(Qt.BackgroundRole, background)
             item.setData(
                 Qt.ForegroundRole,

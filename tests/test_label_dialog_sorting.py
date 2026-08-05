@@ -3,15 +3,21 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QApplication, QDialog
+from PyQt5.QtCore import QRect, Qt
+from PyQt5.QtGui import QColor, QImage, QPainter
+from PyQt5.QtWidgets import (
+    QApplication,
+    QDialog,
+    QStyle,
+    QStyleOptionViewItem,
+)
 
 from labelimg.candidate_label_dialog import (
     CandidateLabelDialog,
     CandidateLabelList,
     contrast_text_color,
 )
-from labelimg.utils import generate_color_by_text
+from labelimg.utils import label_display_color
 
 
 class CandidateLabelDialogSortingTest(unittest.TestCase):
@@ -171,12 +177,29 @@ class CandidateLabelDialogSortingTest(unittest.TestCase):
         background = item.data(Qt.BackgroundRole)
         base = self.dialog.list_widget.palette().base().color()
 
-        self.assertEqual(background, generate_color_by_text(label))
+        self.assertEqual(background, label_display_color(label))
+        self.assertEqual(background.alpha(), 255)
         self.assertEqual(
             item.data(Qt.ForegroundRole),
             contrast_text_color(background, base),
         )
         self.assertEqual(item.toolTip(), label)
+
+        option = QStyleOptionViewItem()
+        option.rect = QRect(0, 0, 120, 30)
+        option.state = QStyle.State_Enabled
+        option.widget = self.dialog.list_widget
+        image = QImage(120, 30, QImage.Format_ARGB32)
+        image.fill(QColor("white"))
+        painter = QPainter(image)
+        self.dialog.list_widget.itemDelegate().paint(
+            painter,
+            option,
+            self.dialog.list_widget.model().index(0, 0),
+        )
+        painter.end()
+
+        self.assertEqual(image.pixelColor(12, 15), background)
 
 
 if __name__ == "__main__":

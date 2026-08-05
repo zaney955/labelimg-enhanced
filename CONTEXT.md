@@ -208,6 +208,10 @@ _Avoid_: Replace paste, overwrite labels
 The visual state of a selected annotation box: an opaque outline in its own label color and a translucent fill in the same color at 100/255 opacity. Hover feedback does not fill an unselected box, so it remains distinct from selection.
 _Avoid_: Default blue fill, white selection outline
 
+**Label display color**:
+The opaque color derived from a label's text and shared by annotation-box outlines, candidate-label capsule backgrounds, and right annotation-list row backgrounds. Selection fill, text colors, and hover borders are separate appearances.
+_Avoid_: Per-surface label color, translucent label background, selection color
+
 **Selected label text appearance**:
 The visual state of label text belonging to every selected annotation box: white text on a black background at about 60% opacity, with a small rounded rectangle and about two pixels of padding around the text. It remains at the annotation box's existing top-left position. Hovering without selection does not apply this appearance, and hidden label text remains hidden.
 _Avoid_: Label-list highlight, active-box-only label, hover label highlight

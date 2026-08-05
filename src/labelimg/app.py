@@ -2673,7 +2673,7 @@ class MainWindow(QMainWindow, WindowMixin):
         text = self.candidate_label_dialog.choose(item.text())
         if text is not None:
             item.setText(text)
-            item.setBackground(generate_color_by_text(text))
+            item.setBackground(label_display_color(text))
             self.update_combo_box()
 
     # Tzutalin 20160906 : Add file list and dock to move faster
@@ -2789,7 +2789,7 @@ class MainWindow(QMainWindow, WindowMixin):
         item = HashableQListWidgetItem(shape.label)
         item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
         item.setCheckState(Qt.Checked)
-        item.setBackground(generate_color_by_text(shape.label))
+        item.setBackground(label_display_color(shape.label))
         self.items_to_shapes[item] = shape
         self.shapes_to_items[shape] = item
         self.label_list.addItem(item)
@@ -3010,7 +3010,7 @@ class MainWindow(QMainWindow, WindowMixin):
                 old_label=old_label,
                 new_label=label,
             )
-            item.setBackground(generate_color_by_text(label))
+            item.setBackground(label_display_color(label))
             self.update_combo_box()
         else:  # User probably changed item visibility
             self.canvas.set_shape_visible(shape, item.checkState() == Qt.Checked)

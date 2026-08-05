@@ -88,6 +88,12 @@ def generate_color_by_text(text):
     return QColor(r, g, b, 100)
 
 
+def label_display_color(text):
+    color = generate_color_by_text(text)
+    color.setAlpha(255)
+    return color
+
+
 def have_qstring():
     """p3/qt5 get rid of QString wrapper as py3 has native unicode str type"""
     return not (sys.version_info.major >= 3 or QT_VERSION_STR.startswith('5.'))
