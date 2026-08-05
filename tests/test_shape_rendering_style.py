@@ -97,7 +97,7 @@ class ShapeRenderingStyleTest(unittest.TestCase):
             QColor(12, 34, 56, 255),
         )
         fill_color = image.pixelColor(40, 40)
-        self.assertEqual(fill_color.alpha(), 100)
+        self.assertEqual(fill_color.alpha(), 30)
         for actual, expected in zip(
             fill_color.getRgb()[:3],
             (12, 34, 56),

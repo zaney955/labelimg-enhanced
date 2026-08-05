@@ -42,6 +42,7 @@ class Shape(object):
     selected_label_text_color = QColor(Qt.white)
     selected_label_padding = 2.0
     selected_label_radius = 2.0
+    selected_fill_alpha = 30
     label_outline_gap = 2.0
     hover_dash_pattern = (4.0, 4.0)
 
@@ -138,7 +139,7 @@ class Shape(object):
                     self.line_color if self.selected else self.fill_color
                 )
                 if self.selected:
-                    fill_color.setAlpha(100)
+                    fill_color.setAlpha(self.selected_fill_alpha)
                 painter.fillPath(line_path, fill_color)
 
             if self.paint_label:
