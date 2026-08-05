@@ -131,6 +131,43 @@ class Shape(object):
             if self.paint_label:
                 self.paint_label_text(painter)
 
+    def paint_hover_outline(self, painter):
+        """Overlay the view-only full-box hover treatment."""
+        if not self.points:
+            return
+
+        path = QPainterPath(self.points[0])
+        for point in self.points[1:]:
+            path.lineTo(point)
+        if self.is_closed():
+            path.closeSubpath()
+
+        scale = max(float(self.scale), 0.01)
+        underlay = QColor(Qt.white)
+        underlay.setAlpha(180)
+        color = QColor(self.line_color)
+        color.setAlpha(255)
+
+        painter.save()
+        painter.setBrush(Qt.NoBrush)
+        painter.setPen(QPen(
+            underlay,
+            5.0 / scale,
+            Qt.SolidLine,
+            Qt.RoundCap,
+            Qt.RoundJoin,
+        ))
+        painter.drawPath(path)
+        painter.setPen(QPen(
+            color,
+            3.0 / scale,
+            Qt.SolidLine,
+            Qt.RoundCap,
+            Qt.RoundJoin,
+        ))
+        painter.drawPath(path)
+        painter.restore()
+
     def paint_label_text(self, painter):
         """Draw label text, highlighting it when this shape is selected."""
         min_x = min(point.x() for point in self.points)

@@ -37,16 +37,13 @@ class SelectionSetTest(unittest.TestCase):
         self.assertIs(snapshot.active, self.first)
         self.assertTrue(snapshot.capabilities.can_edit_single)
 
-    def test_overlap_cycle_selects_one_candidate_at_a_time(self):
-        candidates = (self.third, self.first, self.second)
+    def test_repeating_replace_has_no_hidden_overlap_state(self):
+        first = self.selection.replace((self.second,), active=self.second)
+        second = self.selection.replace((self.second,), active=self.second)
 
-        first = self.selection.cycle(candidates)
-        second = self.selection.cycle(candidates)
-        third = self.selection.cycle(candidates)
-
-        self.assertEqual(first.selected, (self.third,))
-        self.assertEqual(second.selected, (self.first,))
-        self.assertEqual(third.selected, (self.second,))
+        self.assertIs(second, first)
+        self.assertEqual(second.selected, (self.second,))
+        self.assertIs(second.active, self.second)
 
     def test_scene_change_preserves_only_surviving_selection(self):
         self.selection.replace(

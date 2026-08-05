@@ -104,6 +104,23 @@ class ShapeRenderingStyleTest(unittest.TestCase):
         ):
             self.assertLessEqual(abs(actual - expected), 1)
 
+    def test_hover_outline_uses_label_color_over_white_without_fill(self):
+        image = QImage(80, 80, QImage.Format_ARGB32)
+        image.fill(Qt.transparent)
+        shape = self.make_rectangle()
+        shape.line_color = QColor(12, 34, 56, 80)
+
+        painter = QPainter(image)
+        shape.paint_hover_outline(painter)
+        painter.end()
+
+        self.assertEqual(
+            image.pixelColor(40, 20),
+            QColor(12, 34, 56, 255),
+        )
+        self.assertGreater(image.pixelColor(40, 18).alpha(), 0)
+        self.assertEqual(image.pixelColor(40, 40), QColor(Qt.transparent))
+
     def test_selected_label_uses_translucent_black_background_and_white_text(self):
         shape = self.make_rectangle()
         shape.paint_label = True

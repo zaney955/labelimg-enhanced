@@ -75,6 +75,19 @@ class CanvasMultiSelectionTest(unittest.TestCase):
             modifiers=Qt.ControlModifier,
         ))
 
+    def click(self, position):
+        self.canvas.mousePressEvent(mouse_event(
+            QEvent.MouseButtonPress,
+            position,
+            button=Qt.LeftButton,
+            buttons=Qt.LeftButton,
+        ))
+        self.canvas.mouseReleaseEvent(mouse_event(
+            QEvent.MouseButtonRelease,
+            position,
+            button=Qt.LeftButton,
+        ))
+
     def test_ctrl_marquee_selects_only_fully_contained_visible_shapes(self):
         inside = rectangle("inside", 10, 10, 30, 30)
         partial = rectangle("partial", 40, 40, 70, 70)
@@ -108,6 +121,7 @@ class CanvasMultiSelectionTest(unittest.TestCase):
 
         self.assertEqual(self.canvas.selected_shapes, [inside])
         self.assertIsNone(self.canvas.selection_rect)
+        self.assertIs(self.canvas.h_shape, partial)
 
     def test_escape_cancels_marquee_and_restores_previous_selection(self):
         first = rectangle("first", 10, 10, 30, 30)
@@ -151,7 +165,7 @@ class CanvasMultiSelectionTest(unittest.TestCase):
         self.ctrl_click((20, 20))
         self.assertEqual(self.canvas.selected_shapes, [second])
 
-    def test_repeated_ctrl_click_cycles_overlaps_one_at_a_time(self):
+    def test_repeated_ctrl_click_toggles_the_innermost_overlap(self):
         lower = rectangle("lower", 10, 10, 90, 90)
         upper = rectangle("upper", 20, 20, 80, 80)
         self.canvas.load_shapes([lower, upper])
@@ -160,10 +174,100 @@ class CanvasMultiSelectionTest(unittest.TestCase):
         self.assertEqual(self.canvas.selected_shapes, [upper])
 
         self.ctrl_click((50, 50))
-        self.assertEqual(self.canvas.selected_shapes, [lower])
+        self.assertEqual(self.canvas.selected_shapes, [])
 
         self.ctrl_click((50, 50))
         self.assertEqual(self.canvas.selected_shapes, [upper])
+
+    def test_repeated_plain_click_stably_selects_the_same_overlap_target(self):
+        lower = rectangle("lower", 10, 10, 90, 90)
+        upper = rectangle("upper", 20, 20, 80, 80)
+        self.canvas.load_shapes([lower, upper])
+
+        self.click((50, 50))
+        self.assertEqual(self.canvas.selected_shapes, [upper])
+
+        self.click((50, 50))
+        self.assertEqual(self.canvas.selected_shapes, [upper])
+
+    def test_partial_overlap_click_uses_nearest_boundary_not_layer_order(self):
+        nearer = rectangle("nearer", 37, 20, 100, 80)
+        farther_top = rectangle("farther", 10, 10, 70, 70)
+        self.canvas.load_shapes([nearer, farther_top])
+
+        self.click((45, 50))
+
+        self.assertEqual(self.canvas.selected_shapes, [nearer])
+
+    def test_identical_overlaps_stably_choose_topmost(self):
+        lower = rectangle("lower", 10, 10, 90, 90)
+        upper = rectangle("upper", 10, 10, 90, 90)
+        self.canvas.load_shapes([lower, upper])
+
+        self.click((50, 50))
+        self.click((50, 50))
+
+        self.assertEqual(self.canvas.selected_shapes, [upper])
+
+    def test_hover_and_ctrl_click_resolve_the_same_innermost_target(self):
+        outer = rectangle("outer", 10, 10, 100, 100)
+        inner = rectangle("inner", 30, 30, 70, 70)
+        self.canvas.load_shapes([inner, outer])
+
+        self.canvas.mouseMoveEvent(mouse_event(QEvent.MouseMove, (50, 50)))
+        self.assertIs(self.canvas.h_shape, inner)
+
+        self.ctrl_click((50, 50))
+        self.assertEqual(self.canvas.selected_shapes, [inner])
+
+    def test_ctrl_hover_keeps_box_target_but_suppresses_corner_cue(self):
+        shape = rectangle("shape", 10, 10, 80, 80)
+        self.canvas.load_shapes([shape])
+
+        self.canvas.mouseMoveEvent(mouse_event(
+            QEvent.MouseMove,
+            (10, 10),
+            modifiers=Qt.ControlModifier,
+        ))
+
+        self.assertIs(self.canvas.h_shape, shape)
+        self.assertIsNone(shape._highlight_index)
+        self.assertEqual(self.canvas.current_cursor(), Qt.CrossCursor)
+
+    def test_ctrl_key_suppresses_and_release_restores_corner_feedback(self):
+        shape = rectangle("shape", 10, 10, 80, 80)
+        self.canvas.load_shapes([shape])
+        self.canvas.mouseMoveEvent(mouse_event(QEvent.MouseMove, (10, 10)))
+        self.assertEqual(shape._highlight_index, 0)
+
+        self.canvas.keyPressEvent(QKeyEvent(
+            QEvent.KeyPress,
+            Qt.Key_Control,
+            Qt.ControlModifier,
+        ))
+        self.assertIs(self.canvas.h_shape, shape)
+        self.assertIsNone(shape._highlight_index)
+        self.assertEqual(self.canvas.current_cursor(), Qt.CrossCursor)
+
+        self.canvas.keyReleaseEvent(QKeyEvent(
+            QEvent.KeyRelease,
+            Qt.Key_Control,
+            Qt.NoModifier,
+        ))
+        self.assertEqual(shape._highlight_index, 0)
+        self.assertIn(
+            self.canvas.current_cursor(),
+            (Qt.SizeFDiagCursor, Qt.SizeBDiagCursor),
+        )
+
+    def test_creation_mode_does_not_publish_canvas_hover_target(self):
+        shape = rectangle("shape", 10, 10, 80, 80)
+        self.canvas.load_shapes([shape])
+        self.canvas.set_editing(False)
+
+        self.canvas.mouseMoveEvent(mouse_event(QEvent.MouseMove, (50, 50)))
+
+        self.assertIsNone(self.canvas.h_shape)
 
     def test_right_click_preserves_selected_member_and_collapses_on_other(self):
         first = rectangle("first", 10, 10, 30, 30)
@@ -196,6 +300,24 @@ class CanvasMultiSelectionTest(unittest.TestCase):
             buttons=Qt.RightButton,
         ))
         self.assertEqual(self.canvas.selected_shapes, [first, second])
+
+    def test_right_click_uses_the_same_overlap_target_as_hover(self):
+        nearer = rectangle("nearer", 37, 20, 100, 80)
+        farther_top = rectangle("farther", 10, 10, 70, 70)
+        self.canvas.load_shapes([nearer, farther_top])
+
+        self.canvas.mouseMoveEvent(mouse_event(QEvent.MouseMove, (45, 50)))
+        self.assertIs(self.canvas.h_shape, nearer)
+
+        self.canvas.mousePressEvent(mouse_event(
+            QEvent.MouseButtonPress,
+            (45, 50),
+            button=Qt.RightButton,
+            buttons=Qt.RightButton,
+        ))
+
+        self.assertEqual(self.canvas.selected_shapes, [nearer])
+        self.assertIs(self.canvas.right_press_shape, nearer)
 
     def test_right_drag_from_multi_selection_collapses_to_one_shape(self):
         first = rectangle("first", 10, 10, 30, 30)
@@ -362,6 +484,65 @@ class MainWindowMultiSelectionTest(unittest.TestCase):
             (40, 40),
             button=Qt.LeftButton,
         ))
+
+    def test_canvas_hover_projects_to_row_without_changing_selection(self):
+        shape = rectangle("shape", 10, 10, 80, 80)
+        self.load_shapes([shape])
+        item = self.window.shapes_to_items[shape]
+        before_selection = self.window.canvas.selection_snapshot
+        before_current = self.window.label_list.currentItem()
+        before_dirty = self.window.dirty
+
+        self.window.canvas.mouseMoveEvent(
+            mouse_event(QEvent.MouseMove, (50, 50))
+        )
+
+        index = self.window.label_list.indexFromItem(item)
+        self.assertTrue(self.window.label_list.row_hovered(index))
+        self.assertIs(self.window.canvas.h_shape, shape)
+        self.assertIs(
+            self.window.canvas.selection_snapshot,
+            before_selection,
+        )
+        self.assertIs(self.window.label_list.currentItem(), before_current)
+        self.assertEqual(self.window.dirty, before_dirty)
+
+    def test_row_hover_projects_visible_shape_and_hidden_row_stays_row_only(self):
+        shape = rectangle("shape", 10, 10, 80, 80)
+        self.load_shapes([shape])
+        item = self.window.shapes_to_items[shape]
+        self.window.label_list.resize(300, 100)
+        self.window.label_list.show()
+        self.app.processEvents()
+        row_rect = self.window.label_list.visualItemRect(item)
+        before_selection = self.window.canvas.selection_snapshot
+        before_current = self.window.label_list.currentItem()
+        before_dirty = self.window.dirty
+
+        self.window.label_list.mouseMoveEvent(QMouseEvent(
+            QEvent.MouseMove,
+            QPointF(row_rect.center()),
+            Qt.NoButton,
+            Qt.NoButton,
+            Qt.NoModifier,
+        ))
+
+        index = self.window.label_list.indexFromItem(item)
+        self.assertTrue(self.window.label_list.row_hovered(index))
+        self.assertIs(self.window.canvas.hover_shape_for_paint, shape)
+        self.assertIs(
+            self.window.canvas.selection_snapshot,
+            before_selection,
+        )
+        self.assertIs(self.window.label_list.currentItem(), before_current)
+        self.assertEqual(self.window.dirty, before_dirty)
+
+        item.setCheckState(Qt.Unchecked)
+        self.app.processEvents()
+
+        self.assertTrue(self.window.label_list.row_hovered(index))
+        self.assertIsNone(self.window.canvas.hover_shape_for_paint)
+        self.assertFalse(self.window.canvas.isVisible(shape))
 
     def test_shift_click_selects_the_visible_sorted_range(self):
         shapes = [

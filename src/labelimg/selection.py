@@ -31,7 +31,7 @@ def _identity_tuple(items):
 
 
 class SelectionSet:
-    """Own the canonical Selection set and overlap-cycle state."""
+    """Own the canonical selection set."""
 
     def __init__(self):
         self._snapshot = SelectionSnapshot(
@@ -44,8 +44,6 @@ class SelectionSet:
             ),
             revision=0,
         )
-        self._overlap_candidates = ()
-        self._overlap_index = -1
 
     @property
     def snapshot(self):
@@ -75,13 +73,11 @@ class SelectionSet:
 
         selected = self._ordered_subset(boxes, requested)
         active = self._normalise_active(selected, requested_active)
-        self._reset_overlap_cycle()
         return self._commit(boxes, selected, active)
 
     def replace(self, candidates, active=None):
         """Replace the selection, normalised to the current scene order."""
         candidates = self._validated_candidates(candidates)
-        self._reset_overlap_cycle()
         selected = self._ordered_subset(
             self._snapshot.boxes,
             candidates,
@@ -92,7 +88,6 @@ class SelectionSet:
     def toggle(self, candidate, active=None):
         """Toggle one scene box without exposing transition details."""
         candidates = self._validated_candidates((candidate,))
-        self._reset_overlap_cycle()
         selected_ids = set(_identity_tuple(self._snapshot.selected))
         if id(candidate) in selected_ids:
             requested = tuple(
@@ -108,29 +103,6 @@ class SelectionSet:
             candidate if active is None else active,
         )
         return self._commit(self._snapshot.boxes, selected, active)
-
-    def cycle(self, candidates):
-        """Select one overlapping candidate, advancing on repeated calls."""
-        candidates = self._validated_candidates(candidates)
-        if not candidates:
-            self._reset_overlap_cycle()
-            return self._snapshot
-        if _identity_tuple(candidates) == _identity_tuple(
-            self._overlap_candidates
-        ):
-            self._overlap_index = (
-                self._overlap_index + 1
-            ) % len(candidates)
-        else:
-            self._overlap_candidates = candidates
-            self._overlap_index = 0
-        active = candidates[self._overlap_index]
-        return self._commit(self._snapshot.boxes, (active,), active)
-
-    def reset_cycle(self):
-        """Forget overlap-cycle position without changing selection."""
-        self._reset_overlap_cycle()
-        return self._snapshot
 
     def _validated_candidates(self, candidates):
         boxes = self._snapshot.boxes
@@ -162,10 +134,6 @@ class SelectionSet:
             revision=before.revision + 1,
         )
         return self._snapshot
-
-    def _reset_overlap_cycle(self):
-        self._overlap_candidates = ()
-        self._overlap_index = -1
 
     @staticmethod
     def _validate_unique(items, description):

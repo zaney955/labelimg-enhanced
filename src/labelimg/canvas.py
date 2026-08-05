@@ -10,7 +10,7 @@ except ImportError:
 # from PyQt4.QtOpenGL import *
 
 from labelimg.shape import Shape
-from labelimg.canvas_interaction import CanvasInteraction
+from labelimg.canvas_interaction import CanvasInteraction, HoverTarget
 from labelimg.selection import SelectionSet
 from labelimg.utils import distance
 
@@ -41,6 +41,7 @@ class Canvas(QWidget):
     annotationGestureStarted = pyqtSignal(str)
     annotationGestureFinished = pyqtSignal(str)
     annotationGestureCanceled = pyqtSignal(str)
+    hoverShapeChanged = pyqtSignal(object)
 
     CREATE, EDIT = list(range(2))
 
@@ -55,6 +56,8 @@ class Canvas(QWidget):
         self.current = None
         self._selection = SelectionSet()
         self._interaction = CanvasInteraction()
+        self._external_hover_shape = None
+        self._last_pointer_pos = None
         self.selected_shape_copy = None
         self.drawing_line_color = QColor(0, 0, 255)
         self.drawing_rect_color = QColor(0, 0, 255)
@@ -100,6 +103,12 @@ class Canvas(QWidget):
         )
 
     def leaveEvent(self, ev):
+        if (
+            self.selection_press_pos is None
+            and self.right_press_shape is None
+            and self._annotation_gesture_source != "mouse"
+        ):
+            self.un_highlight()
         self.restore_cursor()
 
     def focusOutEvent(self, ev):
@@ -131,6 +140,7 @@ class Canvas(QWidget):
         self.mode = self.EDIT if value else self.CREATE
         if not value:  # Create
             self.un_highlight()
+            self.set_external_hover_shape(None)
             self.de_select_shape()
         self.prev_point = QPointF()
         self.repaint()
@@ -138,7 +148,7 @@ class Canvas(QWidget):
     def un_highlight(self):
         if self.h_shape:
             self.h_shape.highlight_clear()
-        self._interaction.clear_hover()
+        self._set_hover()
 
     def selected_vertex(self):
         return self.h_vertex is not None
@@ -270,27 +280,51 @@ class Canvas(QWidget):
         self._interaction.right_dragging = bool(value)
 
     def _set_hover(self, shape=None, vertex=None, edge=None):
+        previous_shape = self._interaction.hover_shape
         self._interaction.set_hover(shape, vertex=vertex, edge=edge)
+        if previous_shape is not shape:
+            self.hoverShapeChanged.emit(shape)
 
-    def reset_overlap_cycle(self):
-        self._selection.reset_cycle()
+    def set_external_hover_shape(self, shape):
+        if (
+            shape is not None
+            and (
+                not self.editing()
+                or shape not in self.shapes
+                or not self.isVisible(shape)
+            )
+        ):
+            shape = None
+        if self._external_hover_shape is shape:
+            return
+        self._external_hover_shape = shape
+        self.update()
 
-    def set_selected_shapes(self, shapes, active_shape=None,
-                             emit=True, reset_cycle=True):
+    @property
+    def hover_shape_for_paint(self):
+        if self.selection_dragging:
+            return None
+        shape = (
+            self.h_shape
+            if self.h_shape is not None
+            else self._external_hover_shape
+        )
+        if (
+            shape not in self.shapes
+            or not self.isVisible(shape)
+        ):
+            return None
+        return shape
+
+    def set_selected_shapes(self, shapes, active_shape=None, emit=True):
         before = self._selection.snapshot
-        if reset_cycle:
-            after = self._selection.set_scene(
-                tuple(self.shapes),
-                selected=tuple(
-                    shape for shape in shapes if shape in self.shapes
-                ),
-                active=active_shape,
-            )
-        else:
-            after = self._selection.replace(
-                tuple(shape for shape in shapes if shape in self.shapes),
-                active=active_shape,
-            )
+        after = self._selection.set_scene(
+            tuple(self.shapes),
+            selected=tuple(
+                shape for shape in shapes if shape in self.shapes
+            ),
+            active=active_shape,
+        )
         self._project_selection(before, after, emit)
 
     def _project_selection(self, before, after, emit=True):
@@ -306,22 +340,38 @@ class Canvas(QWidget):
             self.selectionChanged.emit(bool(after.selected))
         self.update()
 
-    def clear_selection(self, emit=True, reset_cycle=True):
-        self.set_selected_shapes(
-            [],
-            emit=emit,
-            reset_cycle=reset_cycle,
-        )
+    def clear_selection(self, emit=True):
+        self.set_selected_shapes([], emit=emit)
 
     def set_multi_selection_mode(self, enabled):
         self.multi_selection_mode = bool(enabled)
         if self.current is not None:
             return
         if self.multi_selection_mode and self.current is None:
+            if self.h_shape is not None:
+                self.h_shape.highlight_clear()
             self.override_cursor(CURSOR_SELECT)
+            self.update()
         elif not self.selection_dragging:
             self._cursor = CURSOR_DEFAULT
             self.restore_cursor()
+            if self._last_pointer_pos is not None and self.editing():
+                target = self._refresh_hover(self._last_pointer_pos)
+                self._override_target_cursor(target)
+
+    def _override_target_cursor(self, target):
+        if target.vertex is not None:
+            self.override_cursor(self.vertex_cursor(target.vertex))
+        elif target.edge is not None:
+            self.override_cursor(
+                CURSOR_SIZE_VERTICAL
+                if target.edge % 2 == 0
+                else CURSOR_SIZE_HORIZONTAL
+            )
+        elif target.shape is not None:
+            self.override_cursor(CURSOR_GRAB)
+        else:
+            self.override_cursor(CURSOR_DEFAULT)
 
     def multi_selection_requested(self, ev):
         return (
@@ -329,14 +379,49 @@ class Canvas(QWidget):
             or bool(ev.modifiers() & Qt.ControlModifier)
         )
 
-    def visible_shapes_at(self, point):
-        return [
-            shape for shape in reversed(self.shapes)
-            if self.isVisible(shape) and shape.contains_point(point)
+    def resolve_pointer_target(self, point):
+        if not self.editing():
+            return HoverTarget()
+        visible_shapes = [
+            shape for shape in self.shapes if self.isVisible(shape)
         ]
+        return self._interaction.resolve_target(
+            visible_shapes,
+            point,
+            self.nearest_vertex_hit,
+            self.nearest_edge_hit,
+            0.5 / max(self.scale, 0.01),
+        )
+
+    def _apply_hover_target(self, target, suppress_handles=False):
+        previous = self._interaction.hover
+        if previous.shape is not None and previous.vertex is not None:
+            previous.shape.highlight_clear()
+        self._set_hover(target.shape, target.vertex, target.edge)
+        if (
+            target.shape is not None
+            and target.vertex is not None
+            and not suppress_handles
+        ):
+            target.shape.highlight_vertex(
+                target.vertex,
+                target.shape.MOVE_VERTEX,
+            )
+        self.update()
+
+    def _refresh_hover(self, point, suppress_handles=False):
+        target = self.resolve_pointer_target(point)
+        self._apply_hover_target(target, suppress_handles)
+        return target
 
     def begin_selection_gesture(self, pos):
-        self._interaction.begin_selection(pos, self.selected_shapes)
+        target = self.resolve_pointer_target(pos)
+        self._apply_hover_target(target, suppress_handles=True)
+        self._interaction.begin_selection(
+            pos,
+            self.selected_shapes,
+            target=target,
+        )
         self.override_cursor(CURSOR_SELECT)
 
     def update_selection_gesture(self, pos):
@@ -352,7 +437,7 @@ class Canvas(QWidget):
         if selection_rect is None:
             return True
         if not was_dragging:
-            self.reset_overlap_cycle()
+            self._apply_hover_target(HoverTarget())
 
         contained = [
             shape for shape in self.shapes
@@ -363,19 +448,21 @@ class Canvas(QWidget):
         self.set_selected_shapes(
             contained,
             active_shape=active_shape,
-            reset_cycle=False,
         )
         self.update()
         return True
 
-    def finish_selection_gesture(self, pos):
+    def finish_selection_gesture(self, pos, control_down=False):
         if self.selection_press_pos is None:
             return False
 
         if self.selection_dragging:
             self.update_selection_gesture(pos)
         else:
-            self.ctrl_click_shape(pos)
+            self.ctrl_click_shape(
+                pos,
+                target=self._interaction.selection_target,
+            )
 
         self._interaction.finish_selection()
         if self.multi_selection_mode:
@@ -383,6 +470,7 @@ class Canvas(QWidget):
         else:
             self._cursor = CURSOR_DEFAULT
             self.restore_cursor()
+        self._refresh_hover(pos, suppress_handles=control_down)
         self.update()
         return True
 
@@ -397,22 +485,21 @@ class Canvas(QWidget):
         else:
             self._cursor = CURSOR_DEFAULT
             self.restore_cursor()
+        if self._last_pointer_pos is not None:
+            self._refresh_hover(
+                self._last_pointer_pos,
+                suppress_handles=self.multi_selection_mode,
+            )
         self.update()
         return True
 
-    def ctrl_click_shape(self, point):
-        candidates = tuple(self.visible_shapes_at(point))
-        if not candidates:
-            self.reset_overlap_cycle()
+    def ctrl_click_shape(self, point, target=None):
+        target = target or self.resolve_pointer_target(point)
+        shape = target.shape
+        if shape is None:
             return None
 
         before = self._selection.snapshot
-        if len(candidates) > 1:
-            after = self._selection.cycle(candidates)
-            self._project_selection(before, after)
-            return after.active
-
-        shape = candidates[0]
         after = self._selection.toggle(shape, active=shape)
         self._project_selection(before, after)
         return shape
@@ -420,6 +507,7 @@ class Canvas(QWidget):
     def mouseMoveEvent(self, ev):
         """Update line with last point and current coordinates."""
         pos = self.transform_pos(ev.pos())
+        self._last_pointer_pos = QPointF(pos)
 
         if self.pixmap and not self.pixmap.isNull():
             self._emit_coordinates(pos)
@@ -436,9 +524,12 @@ class Canvas(QWidget):
             and self.multi_selection_requested(ev)
             and not ev.buttons()
         ):
-            self.un_highlight()
+            target = self._refresh_hover(pos, suppress_handles=True)
+            if target.shape is not None:
+                self.setToolTip(
+                    "Ctrl-click to toggle shape '%s'" % target.shape.label
+                )
             self.override_cursor(CURSOR_SELECT)
-            self.update()
             return
 
         # Polygon drawing.
@@ -545,27 +636,13 @@ class Canvas(QWidget):
                 self.update()
             return
 
-        # Resolve hover through the interaction state machine, preserving the
-        # vertices -> edges -> interiors priority.
+        # Resolve one geometry-only target shared by every pointer gesture.
         self.setToolTip("Image")
-        visible_shapes = [s for s in self.shapes if self.isVisible(s)]
-        previous, target = self._interaction.update_hover(
-            visible_shapes,
-            pos,
-            self.nearest_vertex,
-            self.nearest_edge,
-        )
-        if previous.vertex is not None and previous.shape is not None:
-            previous.shape.highlight_clear()
+        target = self._refresh_hover(pos)
         if target.vertex is not None:
-            target.shape.highlight_vertex(
-                target.vertex,
-                target.shape.MOVE_VERTEX,
-            )
             self.override_cursor(self.vertex_cursor(target.vertex))
             self.setToolTip("Click & drag to move point")
             self.setStatusTip(self.toolTip())
-            self.update()
         elif target.edge is not None:
             self.setToolTip(
                 "Click & drag to resize shape '%s'" % target.shape.label
@@ -576,23 +653,19 @@ class Canvas(QWidget):
                 if target.edge % 2 == 0
                 else CURSOR_SIZE_HORIZONTAL
             )
-            self.update()
         elif target.shape is not None:
             self.setToolTip(
                 "Click & drag to move shape '%s'" % target.shape.label
             )
             self.setStatusTip(self.toolTip())
             self.override_cursor(CURSOR_GRAB)
-            self.update()
             self._emit_coordinates(pos, target.shape)
         else:
-            if previous.shape is not None:
-                previous.shape.highlight_clear()
-                self.update()
             self.override_cursor(CURSOR_DEFAULT)
 
     def mousePressEvent(self, ev):
         pos = self.transform_pos(ev.pos())
+        self._last_pointer_pos = QPointF(pos)
 
         if ev.button() == Qt.LeftButton:
             if (
@@ -603,7 +676,9 @@ class Canvas(QWidget):
             elif self.drawing():
                 self.handle_drawing(pos)
             else:
-                selection = self.select_shape_point(pos)
+                target = self.resolve_pointer_target(pos)
+                self._apply_hover_target(target)
+                selection = self.select_shape_point(pos, target=target)
                 self.prev_point = pos
                 if selection is not None:
                     description = (
@@ -621,9 +696,9 @@ class Canvas(QWidget):
                     self.pan_initial_pos = ev.globalPos()
 
         elif ev.button() == Qt.RightButton and self.editing():
-            self.reset_overlap_cycle()
-            candidates = self.visible_shapes_at(pos)
-            shape = candidates[0] if candidates else None
+            target = self.resolve_pointer_target(pos)
+            self._apply_hover_target(target)
+            shape = target.shape
             if shape is not None:
                 if shape not in self.selected_shapes:
                     self.set_selected_shapes(
@@ -641,6 +716,7 @@ class Canvas(QWidget):
         self.update()
 
     def mouseReleaseEvent(self, ev):
+        self._last_pointer_pos = self.transform_pos(ev.pos())
         if ev.button() == Qt.RightButton:
             menu = self.menus[bool(self.selected_shape_copy)]
             self.restore_cursor()
@@ -650,12 +726,17 @@ class Canvas(QWidget):
                 self.selected_shape_copy = None
                 self.repaint()
             self._interaction.finish_right_press()
+            if self.editing():
+                self._refresh_hover(self.transform_pos(ev.pos()))
         elif (
             ev.button() == Qt.LeftButton
             and self.selection_press_pos is not None
         ):
             pos = self.transform_pos(ev.pos())
-            self.finish_selection_gesture(pos)
+            self.finish_selection_gesture(
+                pos,
+                control_down=self.multi_selection_requested(ev),
+            )
         elif ev.button() == Qt.LeftButton and self.selected_shape:
             if self.selected_vertex():
                 self.override_cursor(self.vertex_cursor())
@@ -675,6 +756,14 @@ class Canvas(QWidget):
                 QApplication.restoreOverrideCursor()
         if ev.button() == Qt.LeftButton:
             self._finish_annotation_gesture()
+            if (
+                self.editing()
+                and self.selection_press_pos is None
+            ):
+                self._refresh_hover(
+                    self.transform_pos(ev.pos()),
+                    suppress_handles=self.multi_selection_requested(ev),
+                )
 
     def end_move(self, copy=False):
         assert self.selected_shape and self.selected_shape_copy
@@ -732,24 +821,24 @@ class Canvas(QWidget):
     def select_shape(self, shape):
         self.set_selected_shapes([shape], active_shape=shape)
 
-    def select_shape_point(self, point):
-        """Select the first shape created which contains this point."""
-        if self.selected_vertex():  # A vertex is marked for selection.
-            index, shape = self.h_vertex, self.h_shape
+    def select_shape_point(self, point, target=None):
+        """Replace selection with the deterministic target at ``point``."""
+        target = target or self.resolve_pointer_target(point)
+        shape = target.shape
+        if shape is None:
+            self.clear_selection()
+            return None
+
+        if target.vertex is not None:
+            index = target.vertex
             shape.highlight_vertex(index, shape.MOVE_VERTEX)
             self.select_shape(shape)
-            return self.h_vertex
-        if self.selected_edge():  # An edge is marked for resizing.
-            shape = self.h_shape
+        elif target.edge is not None:
             self.select_shape(shape)
-            return self.h_edge
-        for shape in reversed(self.shapes):
-            if self.isVisible(shape) and shape.contains_point(point):
-                self.select_shape(shape)
-                self.calculate_offsets(shape, point)
-                return self.selected_shape
-        self.clear_selection()
-        return None
+        else:
+            self.select_shape(shape)
+        self.calculate_offsets(shape, point)
+        return shape
 
     def calculate_offsets(self, shape, point):
         rect = shape.bounding_rect()
@@ -784,11 +873,31 @@ class Canvas(QWidget):
         )
 
     def nearest_vertex(self, shape, point):
+        hit = self.nearest_vertex_hit(shape, point)
+        return hit[0] if hit is not None else None
+
+    def nearest_vertex_hit(self, shape, point):
         tolerance = self.resize_hit_tolerance(shape, self.epsilon)
-        return shape.nearest_vertex(point, tolerance)
+        nearest = None
+        for index, vertex in enumerate(shape.points):
+            point_distance = distance(vertex - point)
+            if (
+                point_distance <= tolerance
+                and (
+                    nearest is None
+                    or point_distance < nearest[1]
+                )
+            ):
+                nearest = (index, point_distance)
+        return nearest
 
     def nearest_edge(self, shape, point):
         """Return the nearest rectangle edge within its resize tolerance."""
+        hit = self.nearest_edge_hit(shape, point)
+        return hit[0] if hit is not None else None
+
+    def nearest_edge_hit(self, shape, point):
+        """Return the nearest eligible edge and its geometric distance."""
         if len(shape) != 4:
             return None
 
@@ -819,7 +928,7 @@ class Canvas(QWidget):
                 + (point.y() - nearest_y) ** 2
             ) ** 0.5
             if point_distance <= nearest_distance:
-                nearest = index
+                nearest = (index, point_distance)
                 nearest_distance = point_distance
         return nearest
 
@@ -931,6 +1040,11 @@ class Canvas(QWidget):
         if not selected:
             return []
 
+        if self.h_shape in selected:
+            self.un_highlight()
+        if self._external_hover_shape in selected:
+            self.set_external_hover_shape(None)
+
         selected_set = set(selected)
         for shape in selected:
             shape.selected = False
@@ -998,6 +1112,13 @@ class Canvas(QWidget):
             if (shape.selected or not self._hide_background) and self.isVisible(shape):
                 shape.fill = shape.selected
                 shape.paint(p)
+        hover_shape = self.hover_shape_for_paint
+        if (
+            self.editing()
+            and hover_shape is not None
+            and self.isVisible(hover_shape)
+        ):
+            hover_shape.paint_hover_outline(p)
         if self.current:
             self.current.paint(p)
             self.line.paint(p)
@@ -1333,7 +1454,11 @@ class Canvas(QWidget):
 
     def set_shape_visible(self, shape, value):
         self.visible[shape] = value
-        self.reset_overlap_cycle()
+        if not value:
+            if self.h_shape is shape:
+                self.un_highlight()
+            if self._external_hover_shape is shape:
+                self.set_external_hover_shape(None)
         self.repaint()
 
     def current_cursor(self):
@@ -1369,11 +1494,18 @@ class Canvas(QWidget):
         self.update()
 
     def _reset_transient_interaction(self):
+        previous_hover_shape = self.h_shape
+        if previous_hover_shape is not None:
+            previous_hover_shape.highlight_clear()
         self.selected_shape_copy = None
         self._annotation_gesture_description = None
         self._annotation_gesture_source = None
         self._held_arrow_keys.clear()
         self._interaction.reset()
+        self._external_hover_shape = None
+        self._last_pointer_pos = None
+        if previous_hover_shape is not None:
+            self.hoverShapeChanged.emit(None)
 
     def set_drawing_shape_to_square(self, status):
         self.draw_square = status

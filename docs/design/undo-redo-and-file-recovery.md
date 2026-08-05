@@ -30,7 +30,7 @@ Annotation history excludes:
 
 - Canvas and label-list selection;
 - box visibility;
-- zoom, pan, filters, overlap-cycle position, hover, and editing mode;
+- zoom, pan, filters, hover, and editing mode;
 - default drawing colors and other preferences;
 - copying without pasting;
 - image navigation and file-list selection;
@@ -327,7 +327,7 @@ Projection is a whole-scene operation:
    - no survivor: no active box;
    - non-box action: preserve selection and active box.
 6. Scroll the label list only enough to reveal the active item without taking focus.
-7. Clear hover and overlap-cycle caches.
+7. Clear Canvas and annotation-list hover state.
 8. Restore focus, zoom, pan, modes, and filters.
 9. Release signal guards and repaint once.
 
@@ -734,13 +734,13 @@ Validation evidence:
 
 ### Projection and view state
 
-- exact label-list, draw-layer, hit-test, and overlap-cycle order;
+- exact label-list and draw-layer order, including pointer-target tie-breaks;
 - surviving visibility preserved;
 - restored boxes visible by default;
 - result selection and active-box rules;
 - focus, zoom, pan, mode, and filters preserved;
 - list scroll without focus theft;
-- hover and overlap cache reset;
+- Canvas and annotation-list hover reset;
 - projection signals do not recursively record history.
 
 ### Shortcuts and UI
