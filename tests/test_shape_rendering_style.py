@@ -104,22 +104,51 @@ class ShapeRenderingStyleTest(unittest.TestCase):
         ):
             self.assertLessEqual(abs(actual - expected), 1)
 
-    def test_hover_outline_uses_label_color_over_white_without_fill(self):
+    def test_hover_outline_is_same_width_dashed_color_without_underlay(self):
         image = QImage(80, 80, QImage.Format_ARGB32)
         image.fill(Qt.transparent)
         shape = self.make_rectangle()
         shape.line_color = QColor(12, 34, 56, 80)
 
         painter = QPainter(image)
-        shape.paint_hover_outline(painter)
+        shape.paint(
+            painter,
+            outline_style=Qt.CustomDashLine,
+            outline_dash_pattern=(4.0, 4.0),
+        )
         painter.end()
 
+        border_pixels = [
+            image.pixelColor(x, 20)
+            for x in range(25, 56)
+        ]
+        self.assertTrue(any(color.alpha() == 0 for color in border_pixels))
+        self.assertTrue(any(color.alpha() > 0 for color in border_pixels))
+        self.assertTrue(all(
+            color.alpha() == 0
+            or color.getRgb()[:3] == (12, 34, 56)
+            for color in border_pixels
+        ))
+        self.assertTrue(all(
+            image.pixelColor(x, 18).alpha() == 0
+            for x in range(25, 56)
+        ))
         self.assertEqual(
-            image.pixelColor(40, 20),
-            QColor(12, 34, 56, 255),
+            image.pixelColor(40, 40),
+            QColor(Qt.transparent),
         )
-        self.assertGreater(image.pixelColor(40, 18).alpha(), 0)
-        self.assertEqual(image.pixelColor(40, 40), QColor(Qt.transparent))
+
+        recording_painter = Mock()
+        shape.paint(
+            recording_painter,
+            outline_style=Qt.CustomDashLine,
+            outline_dash_pattern=(4.0, 4.0),
+        )
+        outline_pen = recording_painter.setPen.call_args_list[0].args[0]
+        self.assertEqual(outline_pen.style(), Qt.CustomDashLine)
+        self.assertEqual(outline_pen.dashPattern(), [4.0, 4.0])
+        self.assertEqual(outline_pen.widthF(), 1.5)
+        self.assertEqual(outline_pen.color(), QColor(12, 34, 56, 255))
 
     def test_selected_label_uses_translucent_black_background_and_white_text(self):
         shape = self.make_rectangle()

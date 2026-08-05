@@ -373,6 +373,41 @@ class CanvasMultiSelectionTest(unittest.TestCase):
 
         self.assertFalse(shape.fill)
 
+    def test_canvas_renders_hover_target_as_dashed_instead_of_overlay(self):
+        shape = rectangle("shape", 10, 10, 80, 80)
+        pixmap = QPixmap(120, 120)
+        pixmap.fill(QColor("white"))
+        self.canvas.load_pixmap(pixmap)
+        self.canvas.load_shapes([shape])
+        self.canvas.h_shape = shape
+        outline_styles = []
+        original_paint = shape.paint
+
+        def record_paint(
+            painter,
+            outline_style=Qt.SolidLine,
+            outline_dash_pattern=None,
+        ):
+            outline_styles.append(
+                (outline_style, outline_dash_pattern)
+            )
+            return original_paint(
+                painter,
+                outline_style=outline_style,
+                outline_dash_pattern=outline_dash_pattern,
+            )
+
+        shape.paint = record_paint
+        image = QImage(120, 120, QImage.Format_ARGB32)
+        image.fill(Qt.transparent)
+
+        self.canvas.render(image)
+
+        self.assertEqual(
+            outline_styles,
+            [(Qt.CustomDashLine, (4.0, 4.0))],
+        )
+
     def test_ctrl_during_active_drawing_does_not_start_marquee(self):
         self.canvas.set_editing(False)
         self.canvas.mousePressEvent(mouse_event(

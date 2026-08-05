@@ -43,6 +43,7 @@ class Shape(object):
     selected_label_padding = 2.0
     selected_label_radius = 2.0
     label_outline_gap = 2.0
+    hover_dash_pattern = (4.0, 4.0)
 
     def __init__(self, label=None, line_color=None, difficult=False, paint_label=False):
         # Stable only inside one annotation workspace.  It is deliberately
@@ -93,12 +94,20 @@ class Shape(object):
     def set_open(self):
         self._closed = False
 
-    def paint(self, painter):
+    def paint(
+        self,
+        painter,
+        outline_style=Qt.SolidLine,
+        outline_dash_pattern=None,
+    ):
         if self.points:
             color = QColor(self.line_color)
             color.setAlpha(255)
             pen = QPen(color)
             pen.setWidthF(1.5 / self.scale)
+            pen.setStyle(outline_style)
+            if outline_dash_pattern is not None:
+                pen.setDashPattern(list(outline_dash_pattern))
             painter.setPen(pen)
 
             line_path = QPainterPath()
@@ -117,6 +126,10 @@ class Shape(object):
                 line_path.lineTo(self.points[0])
 
             painter.drawPath(line_path)
+            if pen.style() != Qt.SolidLine:
+                vertex_pen = QPen(pen)
+                vertex_pen.setStyle(Qt.SolidLine)
+                painter.setPen(vertex_pen)
             painter.drawPath(vertex_path)
             painter.fillPath(vertex_path, color)
 
@@ -130,43 +143,6 @@ class Shape(object):
 
             if self.paint_label:
                 self.paint_label_text(painter)
-
-    def paint_hover_outline(self, painter):
-        """Overlay the view-only full-box hover treatment."""
-        if not self.points:
-            return
-
-        path = QPainterPath(self.points[0])
-        for point in self.points[1:]:
-            path.lineTo(point)
-        if self.is_closed():
-            path.closeSubpath()
-
-        scale = max(float(self.scale), 0.01)
-        underlay = QColor(Qt.white)
-        underlay.setAlpha(180)
-        color = QColor(self.line_color)
-        color.setAlpha(255)
-
-        painter.save()
-        painter.setBrush(Qt.NoBrush)
-        painter.setPen(QPen(
-            underlay,
-            5.0 / scale,
-            Qt.SolidLine,
-            Qt.RoundCap,
-            Qt.RoundJoin,
-        ))
-        painter.drawPath(path)
-        painter.setPen(QPen(
-            color,
-            3.0 / scale,
-            Qt.SolidLine,
-            Qt.RoundCap,
-            Qt.RoundJoin,
-        ))
-        painter.drawPath(path)
-        painter.restore()
 
     def paint_label_text(self, painter):
         """Draw label text, highlighting it when this shape is selected."""
