@@ -22,6 +22,7 @@ from labelimg.app import (
     MainWindow,
 )
 from labelimg.shape import Shape
+from labelimg.utils import label_display_color
 
 
 class LabelListSortingTest(unittest.TestCase):
@@ -87,6 +88,18 @@ class LabelListSortingTest(unittest.TestCase):
             self.window.add_label(Shape(label=label))
 
         self.assertEqual(self.label_names(), ["apple", "middle", "zebra"])
+
+    def test_label_row_uses_the_opaque_label_display_color(self):
+        self.window.add_label(Shape(label="apple"))
+
+        background = self.window.label_list.item(0).background().color()
+
+        self.assertEqual(background, label_display_color("apple"))
+        self.assertEqual(background.alpha(), 255)
+        self.assertEqual(
+            self.render_first_item(selected=False).pixelColor(140, 15),
+            background,
+        )
 
     def test_labels_are_resorted_after_renaming(self):
         for label in ("apple", "middle", "zebra"):
