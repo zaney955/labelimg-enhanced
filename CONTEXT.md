@@ -33,7 +33,7 @@ An annotation edit or prepared history step that has started but has not committ
 _Avoid_: Dirty Canvas, background gesture, transferable edit token
 
 **History projection**:
-The guarded replacement of the Canvas shapes, label-list rows, review state, and result selection from one annotation history snapshot. Projection blocks widget mutation signals, preserves eligible view state by session identity, resets stale hover and overlap-cycle state, and never creates another history entry.
+The guarded replacement of the Canvas shapes, label-list rows, review state, and result selection from one annotation history snapshot. Projection blocks widget mutation signals, preserves eligible view state by session identity, clears stale hover state, and never creates another history entry.
 _Avoid_: User edit, recursive history record, incremental best-effort rebuild
 
 **Reversible annotation change**:
@@ -53,11 +53,11 @@ A stable identity assigned to an annotation box only for one workspace editing s
 _Avoid_: Persistent annotation ID, geometric matching, list-row identity
 
 **Annotation order**:
-The ordering of annotation boxes that determines label-list position, drawing layer, overlap hit priority, and overlap-cycle sequence. Undo and Redo restore this order exactly, including the relative positions of every box in a bulk edit.
+The ordering of annotation boxes that determines label-list position, drawing layer, and the topmost tie-break in pointer target resolution. Undo and Redo restore this order exactly, including the relative positions of every box in a bulk edit.
 _Avoid_: Unordered box set, append-on-restore, selection order
 
 **View state**:
-Transient interaction state such as selections, annotation visibility, zoom, pan, filters, editing modes, default drawing style, overlap-cycle position, and canvas hover targets that does not alter an annotation document. View-state changes are not part of the annotation edit history and do not make the current annotation document dirty. A successful Undo or Redo resets the overlap-cycle cursor and clears any hovered box, vertex, or edge because the scene or annotation order may have changed; hover is recomputed on later pointer movement without otherwise changing the result selection.
+Transient interaction state such as selections, annotation visibility, zoom, pan, filters, editing modes, default drawing style, and canvas or annotation-list hover targets that does not alter an annotation document. View-state changes are not part of the annotation edit history and do not make the current annotation document dirty. A successful Undo or Redo clears any hovered box, vertex, edge, or annotation-list row because the scene or annotation order may have changed; hover is recomputed on later pointer movement without otherwise changing the result selection.
 _Avoid_: Annotation content, reversible annotation change
 
 **Default drawing style**:
@@ -173,11 +173,11 @@ An opaque session-scoped handle returned by the platform trash adapter for one s
 _Avoid_: Original path, filename search, guessed recycle-bin path
 
 **Temporary multi-selection mode**:
-A transient canvas state entered while Ctrl is held, shown with a crosshair cursor, in which a click toggles one annotation box and a drag creates a selection region without moving an annotation box. Releasing Ctrl ends the mode but preserves the selection set.
+A transient canvas state entered while Ctrl is held, shown with a crosshair cursor, in which a click toggles one annotation box and a drag creates a selection region without moving an annotation box. It retains the complete-box hover target appearance but suppresses corner enlargement and resize cursors; releasing Ctrl restores ordinary editing feedback, ends the mode, and preserves the selection set.
 _Avoid_: Square-drawing mode, generic selection mode
 
 **Selection region**:
-A dashed, lightly translucent rectangle drawn during temporary multi-selection mode that selects only annotation boxes fully contained within its bounds.
+A dashed, lightly translucent rectangle drawn during temporary multi-selection mode that selects only annotation boxes fully contained within its bounds. Once its drag threshold is crossed it suppresses any single-box hover target, and release recomputes hover at the pointer position.
 _Avoid_: Intersection region, crop box, annotation box
 
 **Selection set**:
@@ -212,6 +212,10 @@ _Avoid_: Default blue fill, white selection outline
 The visual state of label text belonging to every selected annotation box: white text on a black background at about 60% opacity, with a small rounded rectangle and about two pixels of padding around the text. It remains at the annotation box's existing top-left position. Hovering without selection does not apply this appearance, and hidden label text remains hidden.
 _Avoid_: Label-list highlight, active-box-only label, hover label highlight
 
+**Hover target appearance**:
+The edit-mode preview of the one annotation box targeted by the pointer: an approximately three-pixel solid outline in its own label color over a subtle white underlay, without adding fill or changing its label text; creation mode never shows it. It outlines the complete box for corner, edge, and interior targets; existing corner enlargement and resize cursors continue to identify the specific operation, while a selected hover target retains its selected fill.
+_Avoid_: Hover fill, hover label highlight, selection appearance
+
 **Corner resize target**:
 The interactive area at an annotation-box corner that resizes the box along the corner's geometric diagonal. It contracts for very small boxes so that a distinct box-move target remains available.
 _Avoid_: Fixed-radius corner target, entire small-box interior
@@ -220,21 +224,41 @@ _Avoid_: Fixed-radius corner target, entire small-box interior
 The annotation-box interior that remains after corner and edge resize targets are resolved and moves the whole box when dragged.
 _Avoid_: Corner resize target, edge resize target
 
+**Pointer target resolution**:
+The deterministic choice of the nearest visible annotation target at the pointer: nearest eligible corner first, then nearest eligible edge, then the overlap target among containing box-move targets. It depends only on current geometry and pointer position, never current selection membership; distances inside a small equality tolerance resolve to the topmost drawing layer rather than using hover stickiness or approach direction.
+_Avoid_: Drawing-order scan, first hit, stateful selection-through
+
 **Label text placement**:
 The label text position separated from the annotation-box outline, normally above its top-left corner and moved inside the box when the canvas boundary leaves insufficient space above.
 _Avoid_: Text baseline on the outline, clipped label text
 
-**Overlap cycle**:
-A Ctrl-click sequence at a location shared by multiple visible annotation boxes that selects exactly one candidate at a time, from topmost to bottommost, clearing the rest of the selection set at each step.
-_Avoid_: Additive overlap toggle, select-through
+**Overlap candidates**:
+The visible annotation boxes whose box-move targets contain the pointer after corner and edge resize targets are resolved. Hidden boxes and boxes that do not contain the pointer never participate in overlap targeting.
+_Avoid_: Nearby boxes, hidden candidates, stateful selection-through
+
+**Overlap target**:
+The overlap candidate previewed by hover and targeted by an ensuing ordinary click, Ctrl-click, or right-button gesture; modifier keys never change this target. Strict containment chooses the innermost smallest-area candidate, partial overlap chooses the candidate whose boundary is nearest to the pointer, and unresolved geometric equality chooses the topmost drawing layer while lower identical boxes remain selectable from the annotation list.
+_Avoid_: Nearest center, drawing-order-only target, stateful selection-through
+
+**Pointer gesture target**:
+The annotation box recomputed at mouse press and retained for that click or drag until release or cancellation. Hover only previews this target; its complete-box highlight remains fixed during the open gesture, and crossing another box never retargets it.
+_Avoid_: Cached hover target, mid-drag retargeting
 
 **Synchronized selection**:
 A selection set whose members are identical on the canvas and in the label list. The label list follows file-explorer conventions: an ordinary click replaces the set, Ctrl-click toggles one member, and Shift-click selects a contiguous range in the currently displayed list order.
 _Avoid_: Current row, independent list selection
 
+**Synchronized hover**:
+A view-only preview of the same annotation box on the Canvas and its annotation-list row when the pointer hovers either representation. It never changes selection, current item, scrolling, dirty state, or annotation history; a hidden annotation remains absent from the Canvas when its row is hovered, and leaving both representations clears the preview.
+_Avoid_: Hover selection, current row, one-way hover
+
 **Selected label-list appearance**:
 The equal-emphasis visual state of every selection-set member in the label list: its label background is preserved, its text is bold, and a slim inset theme-accent marker appears at the left without surrounding the row.
 _Avoid_: Full blue border, primary row, active-row emphasis
+
+**Annotation-list hover appearance**:
+The view-only outline of the complete annotation-list row in synchronized hover, including its visibility-control area: an approximately one-pixel neutral-gray rounded border inset from the row bounds, with its label background and text colors unchanged. A selected hovered row retains its existing left marker and bold text beneath the same gray outline, while the eye icon retains its own hover enhancement.
+_Avoid_: Hover background, blue border, bold hover text
 
 **Initial image selection**:
 The empty selection set established whenever an image becomes current, regardless of whether it was opened directly, reached by navigation, chosen from the file list, or revealed after deletion.

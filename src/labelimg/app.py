@@ -164,6 +164,9 @@ class LabelListItemDelegate(QStyledItemDelegate):
     visible_icon_opacity = 0.8
     hidden_icon_opacity = 0.35
     hovered_icon_opacity = 1.0
+    hover_border_width = 1.0
+    hover_border_inset = 1.0
+    hover_border_radius = 3.0
 
     def initStyleOption(self, option, index):
         super(LabelListItemDelegate, self).initStyleOption(option, index)
@@ -173,10 +176,15 @@ class LabelListItemDelegate(QStyledItemDelegate):
         paint_option = QStyleOptionViewItem(option)
         row_rect = self.visible_row_rect(option)
         selected = bool(option.state & QStyle.State_Selected)
+        hovered = (
+            option.widget is not None
+            and hasattr(option.widget, 'row_hovered')
+            and option.widget.row_hovered(index)
+        )
+        paint_option.state &= ~QStyle.State_MouseOver
         if selected:
             paint_option.state &= ~QStyle.State_Selected
             paint_option.state &= ~QStyle.State_HasFocus
-            paint_option.state &= ~QStyle.State_MouseOver
             paint_option.font.setBold(True)
 
         background = index.data(Qt.BackgroundRole)
@@ -194,6 +202,9 @@ class LabelListItemDelegate(QStyledItemDelegate):
             paint_option,
             index,
         )
+
+        if hovered:
+            self.paint_hover_border(painter, option, row_rect)
 
         if selected:
             painter.save()
@@ -222,6 +233,35 @@ class LabelListItemDelegate(QStyledItemDelegate):
             painter.restore()
 
         self.paint_visibility_icon(painter, option, index, row_rect)
+
+    def paint_hover_border(self, painter, option, row_rect):
+        palette = (
+            option.widget.palette()
+            if option.widget is not None
+            else option.palette
+        )
+        border_rect = QRectF(row_rect).adjusted(
+            self.hover_border_inset,
+            self.hover_border_inset,
+            -self.hover_border_inset,
+            -self.hover_border_inset,
+        )
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setBrush(Qt.NoBrush)
+        painter.setPen(QPen(
+            palette.color(QPalette.Mid),
+            self.hover_border_width,
+            Qt.SolidLine,
+            Qt.RoundCap,
+            Qt.RoundJoin,
+        ))
+        painter.drawRoundedRect(
+            border_rect,
+            self.hover_border_radius,
+            self.hover_border_radius,
+        )
+        painter.restore()
 
     def visible_row_rect(self, option):
         row_rect = QRect(option.rect)
@@ -337,10 +377,14 @@ class LabelListItemDelegate(QStyledItemDelegate):
 class LabelListWidget(QListWidget):
     """Label list with Explorer-style selection and independent visibility checks."""
 
+    rowHoverChanged = pyqtSignal(object)
+
     def __init__(self, *args, **kwargs):
         super(LabelListWidget, self).__init__(*args, **kwargs)
         self._visibility_press_item = None
         self._visibility_hover_index = QPersistentModelIndex()
+        self._row_hover_index = QPersistentModelIndex()
+        self._projected_hover_index = QPersistentModelIndex()
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setTextElideMode(Qt.ElideRight)
         self.setMouseTracking(True)
@@ -367,6 +411,55 @@ class LabelListWidget(QListWidget):
             and self._visibility_hover_index == index
         )
 
+    def row_hovered(self, index):
+        return (
+            (
+                self._row_hover_index.isValid()
+                and self._row_hover_index == index
+            )
+            or (
+                self._projected_hover_index.isValid()
+                and self._projected_hover_index == index
+            )
+        )
+
+    def hovered_item(self):
+        if not self._row_hover_index.isValid():
+            return None
+        return self.itemFromIndex(QModelIndex(self._row_hover_index))
+
+    def set_row_hover_index(self, index):
+        changed = self._set_hover_index('_row_hover_index', index)
+        if changed:
+            self.rowHoverChanged.emit(self.hovered_item())
+
+    def set_projected_hover_item(self, item):
+        index = (
+            self.indexFromItem(item)
+            if item is not None
+            else QModelIndex()
+        )
+        self._set_hover_index('_projected_hover_index', index)
+
+    def _set_hover_index(self, attribute, index):
+        persistent_index = (
+            QPersistentModelIndex(index)
+            if index.isValid()
+            else QPersistentModelIndex()
+        )
+        previous = getattr(self, attribute)
+        if persistent_index == previous:
+            return False
+
+        setattr(self, attribute, persistent_index)
+        if previous.isValid():
+            self.viewport().update(self.visualRect(QModelIndex(previous)))
+        if persistent_index.isValid():
+            self.viewport().update(
+                self.visualRect(QModelIndex(persistent_index))
+            )
+        return True
+
     def set_visibility_hover_index(self, index):
         persistent_index = (
             QPersistentModelIndex(index)
@@ -389,6 +482,7 @@ class LabelListWidget(QListWidget):
 
     def mouseMoveEvent(self, event):
         index = self.indexAt(event.pos())
+        self.set_row_hover_index(index)
         if (
             index.isValid()
             and self.visibility_rect(index).contains(event.pos())
@@ -400,6 +494,7 @@ class LabelListWidget(QListWidget):
 
     def leaveEvent(self, event):
         self.set_visibility_hover_index(QModelIndex())
+        self.set_row_hover_index(QModelIndex())
         super(LabelListWidget, self).leaveEvent(event)
 
     def mousePressEvent(self, event):
@@ -672,6 +767,12 @@ class MainWindow(QMainWindow, WindowMixin):
         self.canvas.newShape.connect(self.new_shape)
         self.canvas.shapeMoved.connect(self._legacy_shape_moved)
         self.canvas.selectionChanged.connect(self.shape_selection_changed)
+        self.canvas.hoverShapeChanged.connect(
+            self.canvas_hover_shape_changed
+        )
+        self.label_list.rowHoverChanged.connect(
+            self.label_hover_changed
+        )
         self.canvas.drawingPolygon.connect(self.toggle_drawing_sensitive)
         self.canvas.drawingPolygon.connect(
             self._annotation_drawing_state_changed
@@ -2630,6 +2731,25 @@ class MainWindow(QMainWindow, WindowMixin):
         del blocker
         self.update_selection_actions(selection)
 
+    def canvas_hover_shape_changed(self, shape):
+        """Project Canvas pointer hover onto the matching list row."""
+        self.label_list.set_projected_hover_item(
+            self.shapes_to_items.get(shape)
+        )
+
+    def label_hover_changed(self, item):
+        """Project local row hover onto a visible edit-mode Canvas box."""
+        shape = self.items_to_shapes.get(item)
+        if item is not None:
+            self.canvas.un_highlight()
+        if (
+            shape is None
+            or item.checkState() != Qt.Checked
+            or not self.canvas.editing()
+        ):
+            shape = None
+        self.canvas.set_external_hover_shape(shape)
+
     def selected_label_shapes(self):
         return [
             self.items_to_shapes[item]
@@ -2894,6 +3014,8 @@ class MainWindow(QMainWindow, WindowMixin):
             self.update_combo_box()
         else:  # User probably changed item visibility
             self.canvas.set_shape_visible(shape, item.checkState() == Qt.Checked)
+            if item is self.label_list.hovered_item():
+                self.label_hover_changed(item)
 
     # Callback functions:
     def new_shape(self):

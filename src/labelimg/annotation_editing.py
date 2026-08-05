@@ -611,7 +611,7 @@ class CanvasAnnotationScene:
                 emit=False,
             )
             self.canvas.un_highlight()
-            self.canvas.reset_overlap_cycle()
+            self.canvas.set_external_hover_shape(None)
             if self._on_project is not None:
                 self._on_project(snapshot, tuple(shapes), result_active)
             self.canvas.update()
