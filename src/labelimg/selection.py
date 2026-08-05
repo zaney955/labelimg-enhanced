@@ -157,6 +157,8 @@ class SelectionSet:
 
     @staticmethod
     def _normalise_active(selected, active):
+        if len(selected) == 1:
+            return selected[0]
         if active is not None and any(box is active for box in selected):
             return active
-        return selected[-1] if selected else None
+        return None

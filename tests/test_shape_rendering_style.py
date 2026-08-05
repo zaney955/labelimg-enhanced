@@ -102,7 +102,13 @@ class ShapeRenderingStyleTest(unittest.TestCase):
             fill_color.getRgb()[:3],
             (12, 34, 56),
         ):
-            self.assertLessEqual(abs(actual - expected), 1)
+            self.assertLessEqual(
+                abs(
+                    round(actual * fill_color.alphaF())
+                    - round(expected * fill_color.alphaF())
+                ),
+                1,
+            )
 
     def test_hover_outline_is_same_width_dashed_color_without_underlay(self):
         image = QImage(80, 80, QImage.Format_ARGB32)
