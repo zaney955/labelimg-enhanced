@@ -213,8 +213,8 @@ The visual state of label text belonging to every selected annotation box: white
 _Avoid_: Label-list highlight, active-box-only label, hover label highlight
 
 **Hover target appearance**:
-The edit-mode preview of the one annotation box targeted by the pointer: an approximately three-pixel solid outline in its own label color over a subtle white underlay, without adding fill or changing its label text; creation mode never shows it. It outlines the complete box for corner, edge, and interior targets; existing corner enlargement and resize cursors continue to identify the specific operation, while a selected hover target retains its selected fill.
-_Avoid_: Hover fill, hover label highlight, selection appearance
+The edit-mode preview of the one annotation box targeted by the pointer: its ordinary solid outline is replaced by a short-dashed outline with clearly separated, roughly equal dash and gap lengths, the same approximately 1.5-pixel width, and its own label color, without an underlay, added fill, or label-text change; creation mode never shows it. It outlines the complete box for corner, edge, and interior targets and remains on a locked gesture target, while existing corner enlargement, resize cursors, and selected-box appearance remain intact.
+_Avoid_: Hover fill, hover label highlight, thick hover outline, white hover underlay
 
 **Corner resize target**:
 The interactive area at an annotation-box corner that resizes the box along the corner's geometric diagonal. It contracts for very small boxes so that a distinct box-move target remains available.

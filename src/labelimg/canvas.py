@@ -1108,17 +1108,29 @@ class Canvas(QWidget):
         p.drawPixmap(0, 0, self.pixmap)
         Shape.scale = self.scale
         Shape.label_font_size = self.label_font_size
+        hover_shape = (
+            self.hover_shape_for_paint
+            if self.editing()
+            else None
+        )
         for shape in self.shapes:
-            if (shape.selected or not self._hide_background) and self.isVisible(shape):
+            if (
+                (
+                    shape.selected
+                    or not self._hide_background
+                    or shape is hover_shape
+                )
+                and self.isVisible(shape)
+            ):
                 shape.fill = shape.selected
-                shape.paint(p)
-        hover_shape = self.hover_shape_for_paint
-        if (
-            self.editing()
-            and hover_shape is not None
-            and self.isVisible(hover_shape)
-        ):
-            hover_shape.paint_hover_outline(p)
+                if shape is hover_shape:
+                    shape.paint(
+                        p,
+                        outline_style=Qt.CustomDashLine,
+                        outline_dash_pattern=Shape.hover_dash_pattern,
+                    )
+                else:
+                    shape.paint(p)
         if self.current:
             self.current.paint(p)
             self.line.paint(p)
