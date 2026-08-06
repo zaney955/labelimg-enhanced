@@ -48,6 +48,10 @@ _Avoid_: Every red pixel, every yellow region, colored object
 The detected colored frame overlay plus only the bounded compression halo needed to remove its residual color. Pixels outside this region retain their color unless the user explicitly requests whole-image near-grayscale normalization.
 _Avoid_: Whole image, every near-gray pixel, implicit grayscale conversion
 
+**Image candidate badge**:
+The fixed-screen-size numbered ring that identifies one detected image-tool candidate in Original and Result previews without becoming part of the previewed or committed pixels. Its number matches the candidate list; a theme-accent ring means included and a neutral ring means excluded.
+_Avoid_: Colored frame, image annotation, committed overlay, detection rectangle
+
 **Image processing session**:
 The temporary editing context in which one or more image-tool operations are composed and previewed before they replace image files. It owns its own image-processing Undo and Redo sequence, may coexist with unsaved annotations, and preserves annotation and Canvas view state; it cannot begin while an annotation gesture is pending.
 _Avoid_: Annotation session, saved image, mixed history

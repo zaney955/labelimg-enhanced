@@ -7,7 +7,7 @@ import os
 
 import cv2
 import numpy as np
-from PyQt5.QtCore import QObject, QRunnable, Qt, QThreadPool, pyqtSignal
+from PyQt5.QtCore import QObject, QRect, QRunnable, Qt, QThreadPool, pyqtSignal
 from PyQt5.QtGui import QColor, QImage, QKeySequence, QPainter, QPen, QPixmap
 from PyQt5.QtWidgets import (
     QAction,
@@ -64,6 +64,16 @@ class _TargetState:
     result: object = None
     error: str = ""
     token: int = 0
+
+
+@dataclass(frozen=True)
+class _PreviewBadgeSpec:
+    candidate_id: str
+    number: int
+    x: int
+    y: int
+    included: bool
+    tooltip: str
 
 
 class _WorkerSignals(QObject):
@@ -123,22 +133,47 @@ class _SelectionWorker(QRunnable):
 
 
 class _PreviewLabel(QLabel):
-    imageClicked = pyqtSignal(int, int)
+    candidateClicked = pyqtSignal(str)
+
+    BADGE_DIAMETER = 22
+    BADGE_INSET = 4
+    BADGE_GAP = 4
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAlignment(Qt.AlignCenter)
+        self.setMouseTracking(True)
+        self._source_pixmap = QPixmap()
         self._image_size = (0, 0)
-        self._display_rect = (0, 0, 0, 0)
+        self._display_rect = QRect()
+        self._badge_specs = ()
+        self._badge_rects = {}
 
-    def set_preview_pixmap(self, pixmap, image_size):
+    @property
+    def badge_rects(self):
+        return {
+            candidate_id: QRect(rect)
+            for candidate_id, rect in self._badge_rects.items()
+        }
+
+    @property
+    def display_rect(self):
+        return QRect(self._display_rect)
+
+    def set_preview_pixmap(self, pixmap, image_size, badges=()):
+        self._source_pixmap = QPixmap(pixmap)
         self._image_size = image_size
+        self._badge_specs = tuple(badges)
         if pixmap.isNull():
             self.clear()
-            self._display_rect = (0, 0, 0, 0)
+            return
+        self._project_preview()
+
+    def _project_preview(self):
+        if self._source_pixmap.isNull():
             return
         available = self.size()
-        scaled = pixmap.scaled(
+        scaled = self._source_pixmap.scaled(
             max(1, available.width()),
             max(1, available.height()),
             Qt.KeepAspectRatio,
@@ -146,23 +181,90 @@ class _PreviewLabel(QLabel):
         )
         left = (available.width() - scaled.width()) // 2
         top = (available.height() - scaled.height()) // 2
-        self._display_rect = (left, top, scaled.width(), scaled.height())
+        self._display_rect = QRect(left, top, scaled.width(), scaled.height())
+        self._badge_rects = _layout_preview_badges(
+            self._badge_specs,
+            self._image_size,
+            self._display_rect,
+            diameter=self.BADGE_DIAMETER,
+            inset=self.BADGE_INSET,
+            gap=self.BADGE_GAP,
+        )
         self.setPixmap(scaled)
+        self.update()
+
+    def clear(self):
+        self._source_pixmap = QPixmap()
+        self._image_size = (0, 0)
+        self._display_rect = QRect()
+        self._badge_specs = ()
+        self._badge_rects = {}
+        self.unsetCursor()
+        self.setToolTip("")
+        super().clear()
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if not self._badge_rects:
+            return
+        palette = self.palette()
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        for spec in self._badge_specs:
+            rect = self._badge_rects.get(spec.candidate_id)
+            if rect is None:
+                continue
+            if spec.included:
+                badge_color = palette.highlight().color()
+                hue = badge_color.hsvHue()
+                if hue < 75 or hue >= 330:
+                    badge_color = QColor("#2f8fd3")
+            else:
+                badge_color = palette.mid().color()
+            painter.setPen(QPen(badge_color, 2))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawEllipse(rect)
+            font = painter.font()
+            font.setBold(True)
+            font.setPixelSize(11 if spec.number < 100 else 9)
+            painter.setFont(font)
+            painter.setPen(badge_color)
+            painter.drawText(rect, Qt.AlignCenter, str(spec.number))
+        painter.end()
 
     def mousePressEvent(self, event):
-        left, top, width, height = self._display_rect
-        image_width, image_height = self._image_size
-        if (
-            event.button() == Qt.LeftButton
-            and width > 0
-            and height > 0
-            and left <= event.x() < left + width
-            and top <= event.y() < top + height
-        ):
-            x = int((event.x() - left) * image_width / width)
-            y = int((event.y() - top) * image_height / height)
-            self.imageClicked.emit(x, y)
+        spec = self._badge_at(event.pos())
+        if event.button() == Qt.LeftButton and spec is not None:
+            self.candidateClicked.emit(spec.candidate_id)
+            event.accept()
+            return
         super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        spec = self._badge_at(event.pos())
+        if spec is None:
+            self.unsetCursor()
+            self.setToolTip("")
+        else:
+            self.setCursor(Qt.PointingHandCursor)
+            self.setToolTip(spec.tooltip)
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event):
+        self.unsetCursor()
+        self.setToolTip("")
+        super().leaveEvent(event)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._project_preview()
+
+    def _badge_at(self, point):
+        for spec in self._badge_specs:
+            rect = self._badge_rects.get(spec.candidate_id)
+            if rect is not None and rect.contains(point):
+                return spec
+        return None
 
 
 class ImageToolsDialog(QDialog):
@@ -370,7 +472,9 @@ class ImageToolsDialog(QDialog):
         self.target_list.currentItemChanged.connect(self._target_changed)
         self.target_list.itemChanged.connect(self._target_inclusion_changed)
         self.preview_mode.currentIndexChanged.connect(self._refresh_preview)
-        self.preview_label.imageClicked.connect(self._preview_clicked)
+        self.preview_label.candidateClicked.connect(
+            self._preview_candidate_clicked
+        )
         self.candidate_list.itemChanged.connect(self._candidate_changed)
         self.red_checkbox.toggled.connect(self._options_changed)
         self.yellow_checkbox.toggled.connect(self._options_changed)
@@ -723,22 +827,10 @@ class ImageToolsDialog(QDialog):
         self.undo_action.setEnabled(can_undo)
         self.redo_action.setEnabled(can_redo)
 
-    def _preview_clicked(self, x, y):
-        state = self._states.get(self._active_path)
-        if state is None or state.result is None:
-            return
-        hits = [
-            candidate
-            for candidate in state.result.candidates
-            if candidate.x <= x < candidate.right
-            and candidate.y <= y < candidate.bottom
-        ]
-        if not hits:
-            return
-        candidate = min(hits, key=lambda item: item.width * item.height)
+    def _preview_candidate_clicked(self, candidate_id):
         for index in range(self.candidate_list.topLevelItemCount()):
             item = self.candidate_list.topLevelItem(index)
-            if item.data(0, Qt.UserRole) == candidate.candidate_id:
+            if item.data(0, Qt.UserRole) == candidate_id:
                 item.setCheckState(
                     0,
                     Qt.Unchecked
@@ -760,19 +852,47 @@ class ImageToolsDialog(QDialog):
         else:
             array = result.result_pixels
         pixmap = _array_pixmap(array)
-        if mode != "mask":
-            pixmap = _draw_candidates(pixmap, result)
-        self._preview_source = (pixmap, result.original_pixels.shape[:2])
+        badges = () if mode == "mask" else self._preview_badges(result)
+        self._preview_source = (
+            pixmap,
+            result.original_pixels.shape[:2],
+            badges,
+        )
         self._project_preview_pixmap()
+
+    @staticmethod
+    def _preview_badges(result):
+        selected = set(result.selected_candidate_ids)
+        badges = []
+        for number, candidate in enumerate(result.candidates, 1):
+            included = candidate.candidate_id in selected
+            badges.append(_PreviewBadgeSpec(
+                candidate_id=candidate.candidate_id,
+                number=number,
+                x=candidate.x,
+                y=candidate.y,
+                included=included,
+                tooltip=tr(
+                    "imageTools.badge.includedTooltip"
+                    if included
+                    else "imageTools.badge.excludedTooltip",
+                    number=number,
+                    color=tr(
+                        "imageTools.color.%s" % candidate.color.value
+                    ),
+                ),
+            ))
+        return tuple(badges)
 
     def _project_preview_pixmap(self):
         if self._preview_source is None:
             return
-        pixmap, shape = self._preview_source
+        pixmap, shape, badges = self._preview_source
         height, width = shape
         self.preview_label.set_preview_pixmap(
             pixmap,
             (width, height),
+            badges,
         )
 
     def resizeEvent(self, event):
@@ -863,25 +983,75 @@ def _array_pixmap(array):
     return QPixmap.fromImage(image)
 
 
-def _draw_candidates(pixmap, result):
-    pixmap = QPixmap(pixmap)
-    painter = QPainter(pixmap)
-    selected = set(result.selected_candidate_ids)
-    for candidate in result.candidates:
-        color = (
-            QColor("#ff3b30")
-            if candidate.color is FrameColor.RED
-            else QColor("#ffd60a")
+def _layout_preview_badges(
+    specs,
+    image_size,
+    display_rect,
+    *,
+    diameter=22,
+    inset=4,
+    gap=4,
+):
+    """Map badge anchors into widget space without changing image pixels."""
+    image_width, image_height = image_size
+    if (
+        image_width <= 0
+        or image_height <= 0
+        or display_rect.isEmpty()
+    ):
+        return {}
+
+    minimum_x = display_rect.left()
+    minimum_y = display_rect.top()
+    maximum_x = max(minimum_x, display_rect.right() - diameter + 1)
+    maximum_y = max(minimum_y, display_rect.bottom() - diameter + 1)
+    step = diameter + gap
+    occupied = []
+    result = {}
+
+    def clamped_rect(left, top):
+        left = min(max(round(left), minimum_x), maximum_x)
+        top = min(max(round(top), minimum_y), maximum_y)
+        return QRect(left, top, diameter, diameter)
+
+    def offsets(limit):
+        yield 0, 0
+        for ring in range(1, limit + 1):
+            distance = ring * step
+            yield 0, distance
+            yield distance, 0
+            yield 0, -distance
+            yield -distance, 0
+            yield distance, distance
+            yield distance, -distance
+            yield -distance, distance
+            yield -distance, -distance
+
+    for spec in specs:
+        anchor_x = (
+            display_rect.left()
+            + spec.x * display_rect.width() / image_width
+            + inset
         )
-        pen = QPen(color, 2)
-        if candidate.candidate_id not in selected:
-            pen.setStyle(Qt.DashLine)
-        painter.setPen(pen)
-        painter.drawRect(
-            candidate.x,
-            candidate.y,
-            max(1, candidate.width - 1),
-            max(1, candidate.height - 1),
+        anchor_y = (
+            display_rect.top()
+            + spec.y * display_rect.height() / image_height
+            + inset
         )
-    painter.end()
-    return pixmap
+        chosen = None
+        fallback = clamped_rect(anchor_x, anchor_y)
+        for offset_x, offset_y in offsets(len(specs) + 2):
+            candidate = clamped_rect(
+                anchor_x + offset_x,
+                anchor_y + offset_y,
+            )
+            if not any(
+                candidate.intersects(rect.adjusted(-gap, -gap, gap, gap))
+                for rect in occupied
+            ):
+                chosen = candidate
+                break
+        chosen = chosen or fallback
+        occupied.append(chosen)
+        result[spec.candidate_id] = chosen
+    return result
