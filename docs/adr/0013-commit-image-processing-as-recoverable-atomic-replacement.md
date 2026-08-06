@@ -1,0 +1,3 @@
+# Commit image processing as a recoverable atomic replacement
+
+Image tools replace each targeted image at its existing path so annotation documents remain associated with the same file identity. Because color-based repair can remove legitimate pixels, every original must be recoverable and a multi-image target set commits only after all outputs and recovery paths pass preflight; any failure leaves the complete batch unchanged rather than exposing a partially processed dataset. Recovery may explicitly select only part of a committed batch, but that chosen subset restores atomically and every unselected image retains its processed result and recovery eligibility.

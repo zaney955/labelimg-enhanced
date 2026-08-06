@@ -16,6 +16,58 @@ _Avoid_: Annotation language, label language, system-locale lock
 Application-authored text visible during operation, including commands, panels, status and guidance, validation, confirmations, recovery, conflicts, and application-owned buttons. It excludes user-authored labels, file names and paths, annotation-format names, and verbatim operating-system diagnostics.
 _Avoid_: User data, translated path, rewritten system error
 
+**Image directory**:
+The directory whose supported images form the current image-by-image annotation workspace. Opening another image directory replaces that workspace after unresolved changes are handled.
+_Avoid_: Annotation directory, generic folder, implicit batch target
+
+**Standalone file opening**:
+Opening one image or annotation document directly without treating its containing directory as the current image directory. It is a secondary entry into the annotation workbench rather than the primary workspace-opening action.
+_Avoid_: Open image directory, import directory, batch open
+
+**Annotation directory**:
+The directory that supplies and stores the active annotation documents for the current image directory. When no separate annotation directory is selected, the image directory serves this role. Switching it changes the annotation side of the workspace, reloads the current image's corresponding annotation document, and begins a new workspace editing session; it is not merely a passive save destination.
+_Avoid_: Image directory, export directory, save-location-only setting
+
+**Current annotation document replacement**:
+The explicit replacement of the current image's annotation content and active storage target with a user-selected annotation document. It rebases annotation history and therefore requires unresolved edits to be handled before replacement; it is not an ordinary file-opening action.
+_Avoid_: Open file, merge annotations, import additional boxes
+
+**Image tool target set**:
+The images explicitly chosen for one image-tool operation: either the image currently displayed on the Canvas or the images selected in the file list. A directory is never an implicit target set.
+_Avoid_: Current directory, every image, inferred batch
+
+**Image tool**:
+A built-in LabelImg operation that transforms image pixels through an image processing session while leaving annotation documents unchanged. Every image tool uses an explicit image tool target set and the shared committed-image recovery model.
+_Avoid_: Annotation tool, external script, optional plugin
+
+**Colored frame overlay**:
+A red or yellow rectangular outline added over image content and selected for removal by an image tool. Solid colored regions and ordinary red or yellow image content are not colored frame overlays.
+_Avoid_: Every red pixel, every yellow region, colored object
+
+**Colored frame repair region**:
+The detected colored frame overlay plus only the bounded compression halo needed to remove its residual color. Pixels outside this region retain their color unless the user explicitly requests whole-image near-grayscale normalization.
+_Avoid_: Whole image, every near-gray pixel, implicit grayscale conversion
+
+**Image processing session**:
+The temporary editing context in which one or more image-tool operations are composed and previewed before they replace image files. It owns its own image-processing Undo and Redo sequence, may coexist with unsaved annotations, and preserves annotation and Canvas view state; it cannot begin while an annotation gesture is pending.
+_Avoid_: Annotation session, saved image, mixed history
+
+**Image processing Undo**:
+A request made while an image processing session is active to reverse its most recent uncommitted image-tool operation. Outside that context, Undo continues to target annotation edit history.
+_Avoid_: Annotation Undo, committed-file recovery, global mixed Undo
+
+**Committed image processing**:
+An image-tool result that has replaced one or more source image files while retaining a recoverable original-file record. It is restored through image-processing recovery rather than annotation Undo or image processing Undo; one-click recovery lasts for the current workspace session, after which the original remains available only through the system trash.
+_Avoid_: Preview, annotation edit, Ctrl+Z after commit
+
+**Image processing batch commit**:
+The all-or-nothing replacement of every image in one image tool target set after every result and original-file recovery path has passed preflight. A failure leaves every source image and annotation document unchanged.
+_Avoid_: Partial batch, best-effort replacement, annotation rewrite
+
+**Image processing recovery selection**:
+The explicit subset of one committed image-processing batch chosen for restoration. The selected images restore atomically, while unselected processed images keep both their current result and their remaining recovery eligibility.
+_Avoid_: Implicit file-list selection, mandatory whole-batch restore, partial selected restore
+
 **Undo**:
 A request to reverse the most recent reversible change in the applicable editing history.
 _Avoid_: Recall, withdraw, rollback

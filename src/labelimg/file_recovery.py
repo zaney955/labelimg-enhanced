@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
+import os
 import uuid
 
 from labelimg.annotation_storage import (
@@ -24,6 +25,7 @@ class RecoveryOperation(str, Enum):
     CLEAR = "clear"
     RENAME = "rename"
     REVIEW = "review"
+    IMAGE_PROCESSING = "imageProcessing"
 
     def __str__(self):
         return self.value
@@ -91,6 +93,9 @@ class FileRecoveryCenter:
     def entries(self):
         return tuple(self._entries)
 
+    def entry(self, entry_id):
+        return self._entry(entry_id)
+
     def clear(self):
         self._entries.clear()
 
@@ -145,6 +150,14 @@ class FileRecoveryCenter:
         self._prepend(entry)
         return entry
 
+    def record_image_processing(self, resources):
+        resources = tuple(resources)
+        return self.record_trash_operation(
+            RecoveryOperation.IMAGE_PROCESSING,
+            resources,
+            target_count=len(resources),
+        )
+
     def recover(self, entry_id, executor):
         """Run one recovery implementation and own its status transition."""
         entry = self._entry(entry_id)
@@ -163,6 +176,62 @@ class FileRecoveryCenter:
             entry.detail = "Recovered successfully"
         return result
 
+    def recover_subset(self, entry_id, resources, executor):
+        """Recover an explicit atomic subset and retain the remainder."""
+        entry = self._entry(entry_id)
+        if entry.operation is not RecoveryOperation.IMAGE_PROCESSING:
+            raise FileRecoveryError(
+                "subset recovery is available only for image processing"
+            )
+        if not entry.recoverable:
+            raise FileRecoveryError(
+                "file operation is not currently recoverable"
+            )
+        resources = tuple(resources)
+        if not resources:
+            raise FileRecoveryError(
+                "at least one processed image must be selected"
+            )
+        payload_by_path = {
+            _resource_key(resource.original_path): resource
+            for resource in entry.payload
+        }
+        selected_keys = tuple(
+            dict.fromkeys(
+                _resource_key(resource.original_path)
+                for resource in resources
+            )
+        )
+        if any(key not in payload_by_path for key in selected_keys):
+            raise FileRecoveryError(
+                "the recovery selection is not part of this operation"
+            )
+        selected = tuple(payload_by_path[key] for key in selected_keys)
+        try:
+            result = executor(entry, selected)
+        except FileRecoveryError as error:
+            entry.status = RecoveryStatus.CONFLICT
+            entry.detail = str(error)
+            raise
+        selected_key_set = set(selected_keys)
+        remaining = tuple(
+            resource
+            for resource in entry.payload
+            if _resource_key(resource.original_path) not in selected_key_set
+        )
+        entry.payload = remaining
+        entry.target_count = len(remaining)
+        if remaining:
+            entry.status = RecoveryStatus.RECOVERABLE
+            entry.detail = (
+                "Recovered %d image(s); %d image(s) remain recoverable."
+                % (len(selected), len(remaining))
+            )
+        else:
+            entry.status = RecoveryStatus.RESTORED
+            entry.detail = "Recovered successfully"
+        return result
+
     def _entry(self, entry_id):
         for entry in self._entries:
             if entry.entry_id == entry_id:
@@ -172,3 +241,7 @@ class FileRecoveryCenter:
     def _prepend(self, entry):
         self._entries.insert(0, entry)
         del self._entries[self.capacity :]
+
+
+def _resource_key(path):
+    return os.path.normcase(os.path.abspath(os.fspath(path)))

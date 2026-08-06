@@ -23,6 +23,10 @@ class ToolBar(QToolBar):
             return super(ToolBar, self).addAction(action)
         btn = ToolButton()
         btn.setDefaultAction(action)
+        toolbar_menu = getattr(action, '_toolbar_menu', None)
+        if toolbar_menu is not None:
+            btn.setMenu(toolbar_menu)
+            btn.setPopupMode(QToolButton.MenuButtonPopup)
         btn.setToolButtonStyle(self.toolButtonStyle())
         self.addWidget(btn)
 
