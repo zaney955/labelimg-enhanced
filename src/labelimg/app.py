@@ -67,6 +67,7 @@ from labelimg.file_list import (
     CURRENT_IMAGE_ROLE,
     FILE_ANNOTATION_STATE_ROLE,
     FILE_PERSISTENCE_FLAGS_ROLE,
+    FILE_REVIEW_STATE_ROLE,
     FileListItemDelegate,
     FileListWidget,
     validate_base_name,
@@ -84,9 +85,6 @@ from labelimg.file_operation_transaction import (
 from labelimg.label_group_list import LabelGroupListWidget
 
 __appname__ = 'labelImg'
-FILE_LIST_ANNOTATED_MARK = '\u25cb'
-FILE_LIST_VERIFIED_MARK = '\u2713'
-FILE_LIST_QUESTIONED_MARK = '?'
 
 
 def document_format_name(annotation_format):
@@ -2235,16 +2233,24 @@ class MainWindow(QMainWindow, WindowMixin):
         )
         invert = select_menu.addAction('反选')
         invert.triggered.connect(self.invert_file_selection)
-        state_menu = select_menu.addMenu('按状态选择')
+        state_menu = select_menu.addMenu('按标注状态选择')
         for title, state in (
             ('未标注', 'unannotated'),
             ('已标注', 'annotated'),
-            ('已验证', 'verified'),
-            ('待复核', 'questioned'),
         ):
             action = state_menu.addAction(title)
             action.triggered.connect(
-                partial(self.select_files_by_state, state)
+                partial(self.select_files_by_annotation_state, state)
+            )
+        review_state_menu = select_menu.addMenu('按复核状态选择')
+        for title, state in (
+            ('未复核', 'unreviewed'),
+            ('待复核', 'questioned'),
+            ('已验证', 'verified'),
+        ):
+            action = review_state_menu.addAction(title)
+            action.triggered.connect(
+                partial(self.select_files_by_review_state, state)
             )
         clear_selection = select_menu.addAction('清除选择')
         clear_selection.triggered.connect(
@@ -2301,16 +2307,24 @@ class MainWindow(QMainWindow, WindowMixin):
                 | QItemSelectionModel.Rows,
             )
 
-    def select_files_by_state(self, state, _checked=False):
+    def _select_files_by_role(self, role, state):
         blocker = QSignalBlocker(self.file_list_widget)
         self.file_list_widget.clearSelection()
         for index in range(self.file_list_widget.count()):
             item = self.file_list_widget.item(index)
-            if item.data(FILE_ANNOTATION_STATE_ROLE) == state:
+            if item.data(role) == state:
                 item.setSelected(True)
         del blocker
         self.update_file_selection_count()
         self.file_list_widget.viewport().update()
+
+    def select_files_by_annotation_state(
+        self, state, _checked=False
+    ):
+        self._select_files_by_role(FILE_ANNOTATION_STATE_ROLE, state)
+
+    def select_files_by_review_state(self, state, _checked=False):
+        self._select_files_by_role(FILE_REVIEW_STATE_ROLE, state)
 
     def copy_selected_file_paths(self, representation, _checked=False):
         values = []
@@ -2348,13 +2362,15 @@ class MainWindow(QMainWindow, WindowMixin):
 
     def file_annotation_state(self, image_path):
         status = self.annotation_workspace.entry(image_path).status
+        return 'annotated' if status.has_annotations else 'unannotated'
+
+    def file_review_state(self, image_path):
+        status = self.annotation_workspace.entry(image_path).status
         if status.questioned:
             return 'questioned'
         if status.verified:
             return 'verified'
-        if status.has_annotations:
-            return 'annotated'
-        return 'unannotated'
+        return 'unreviewed'
 
     def set_selected_review_state(self, state, _checked=False):
         paths = self.selected_file_paths()
@@ -3809,28 +3825,7 @@ class MainWindow(QMainWindow, WindowMixin):
         return relative_path
 
     def file_list_item_text(self, image_path):
-        display_path = self.file_list_display_path(image_path)
-        status = self.annotation_workspace.entry(image_path).status
-        suffixes = []
-        if status.questioned:
-            suffixes.append(FILE_LIST_QUESTIONED_MARK)
-        elif status.verified:
-            suffixes.append(FILE_LIST_VERIFIED_MARK)
-        elif status.has_annotations:
-            suffixes.append(FILE_LIST_ANNOTATED_MARK)
-        flags = self.file_persistence_flags(image_path)
-        if 'dirty' in flags:
-            suffixes.append('*')
-        if 'conflict' in flags:
-            suffixes.append('!')
-        if 'ambiguous' in flags:
-            suffixes.append('\u224b')
-        if 'degraded' in flags:
-            suffixes.append('\u26a0')
-        return (
-            display_path
-            + (('  ' + ' '.join(suffixes)) if suffixes else '')
-        )
+        return self.file_list_display_path(image_path)
 
     def file_persistence_flags(self, image_path):
         flags = []
@@ -3868,6 +3863,10 @@ class MainWindow(QMainWindow, WindowMixin):
         item.setData(
             FILE_ANNOTATION_STATE_ROLE,
             self.file_annotation_state(image_path),
+        )
+        item.setData(
+            FILE_REVIEW_STATE_ROLE,
+            self.file_review_state(image_path),
         )
         flags = self.file_persistence_flags(image_path)
         item.setData(FILE_PERSISTENCE_FLAGS_ROLE, flags)
@@ -4067,6 +4066,10 @@ class MainWindow(QMainWindow, WindowMixin):
             item.setData(
                 FILE_ANNOTATION_STATE_ROLE,
                 self.file_annotation_state(image_path),
+            )
+            item.setData(
+                FILE_REVIEW_STATE_ROLE,
+                self.file_review_state(image_path),
             )
             item.setData(
                 FILE_PERSISTENCE_FLAGS_ROLE,

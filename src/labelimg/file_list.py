@@ -8,12 +8,14 @@ import re
 from PyQt5.QtCore import (
     QEvent,
     QItemSelectionModel,
+    QPointF,
     QRect,
+    QRectF,
     QTimer,
     Qt,
     pyqtSignal,
 )
-from PyQt5.QtGui import QColor, QPainter, QPalette, QPen
+from PyQt5.QtGui import QColor, QPainter, QPainterPath, QPalette, QPen
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -31,6 +33,7 @@ from PyQt5.QtWidgets import (
     QStyleOptionViewItem,
     QTableWidget,
     QTableWidgetItem,
+    QToolTip,
     QVBoxLayout,
 )
 
@@ -41,6 +44,7 @@ CURRENT_IMAGE_ROLE = Qt.UserRole + 1
 FILE_ANNOTATION_STATE_ROLE = Qt.UserRole + 2
 PRESERVED_SELECTION_APPEARANCE_ROLE = Qt.UserRole + 3
 FILE_PERSISTENCE_FLAGS_ROLE = Qt.UserRole + 4
+FILE_REVIEW_STATE_ROLE = Qt.UserRole + 5
 
 INVALID_FILENAME_CHARACTERS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 WINDOWS_RESERVED_NAMES = {
@@ -129,6 +133,52 @@ class FileListWidget(QListWidget):
                 event.accept()
                 return True
         return super().event(event)
+
+    def tooltip_at(self, point):
+        item = self.itemAt(point)
+        if item is None:
+            return ""
+        delegate = self.itemDelegate()
+        if not isinstance(delegate, FileListItemDelegate):
+            return item.toolTip()
+        layout = delegate.row_layout(self.visualItemRect(item))
+        if layout["annotation"].contains(point):
+            return (
+                "已标注"
+                if item.data(FILE_ANNOTATION_STATE_ROLE) == "annotated"
+                else "未标注"
+            )
+        if layout["review"].contains(point):
+            return {
+                "questioned": "待复核",
+                "verified": "已验证",
+                "unreviewed": "未复核",
+            }.get(item.data(FILE_REVIEW_STATE_ROLE), "未复核")
+        if layout["alert"].contains(point):
+            labels = {
+                "dirty": "未保存修改",
+                "conflict": "外部标注冲突",
+                "ambiguous": "选择活动标注文档",
+                "degraded": "只读降级状态",
+            }
+            return "\n".join(
+                labels[flag]
+                for flag in item.data(FILE_PERSISTENCE_FLAGS_ROLE) or ()
+                if flag in labels
+            )
+        if layout["name"].contains(point):
+            return str(item.data(Qt.UserRole) or item.text())
+        return ""
+
+    def viewportEvent(self, event):
+        if event.type() == QEvent.ToolTip:
+            tooltip = self.tooltip_at(event.pos())
+            if tooltip:
+                QToolTip.showText(event.globalPos(), tooltip, self.viewport())
+            else:
+                QToolTip.hideText()
+            return True
+        return super().viewportEvent(event)
 
     def mousePressEvent(self, event):
         item = self.itemAt(event.pos())
@@ -297,6 +347,15 @@ class FileListWidget(QListWidget):
 class FileListItemDelegate(QStyledItemDelegate):
     selection_background_alpha = 28
     hover_background_alpha = 45
+    separator_alpha = 45
+    status_column_width = 20
+    alert_column_width = 20
+    status_name_gap = 6
+    name_alert_gap = 4
+    icon_size = 14
+    questioned_color = QColor(217, 145, 0)
+    verified_color = QColor(46, 160, 67)
+    error_color = QColor(200, 55, 55)
 
     def paint(self, painter, option, index):
         paint_option = QStyleOptionViewItem(option)
@@ -334,8 +393,28 @@ class FileListItemDelegate(QStyledItemDelegate):
         if current_image:
             paint_option.font.setBold(True)
 
-        paint_option.rect = row_rect
+        layout = self.row_layout(row_rect)
+        paint_option.rect = layout["name"]
         super().paint(painter, paint_option, index)
+
+        self._paint_separator(painter, option, layout)
+        self._paint_annotation_indicator(
+            painter,
+            option,
+            layout["annotation"],
+            index.data(FILE_ANNOTATION_STATE_ROLE),
+        )
+        self._paint_review_indicator(
+            painter,
+            layout["review"],
+            index.data(FILE_REVIEW_STATE_ROLE),
+        )
+        self._paint_alert_indicator(
+            painter,
+            option,
+            layout["alert"],
+            index.data(FILE_PERSISTENCE_FLAGS_ROLE) or (),
+        )
 
         if focused:
             painter.save()
@@ -361,6 +440,222 @@ class FileListItemDelegate(QStyledItemDelegate):
                 )
             )
         return row_rect
+
+    @classmethod
+    def row_layout(cls, row_rect):
+        row_rect = QRect(row_rect)
+        annotation = QRect(
+            row_rect.left(),
+            row_rect.top(),
+            cls.status_column_width,
+            row_rect.height(),
+        )
+        review = QRect(
+            annotation.right() + 1,
+            row_rect.top(),
+            cls.status_column_width,
+            row_rect.height(),
+        )
+        separator_x = review.right() + 1
+        alert = QRect(
+            row_rect.right() - cls.alert_column_width + 1,
+            row_rect.top(),
+            cls.alert_column_width,
+            row_rect.height(),
+        )
+        name_left = separator_x + 1 + cls.status_name_gap
+        name_right = alert.left() - cls.name_alert_gap - 1
+        name = QRect(
+            name_left,
+            row_rect.top(),
+            max(0, name_right - name_left + 1),
+            row_rect.height(),
+        )
+        return {
+            "row": row_rect,
+            "annotation": annotation,
+            "review": review,
+            "separator_x": separator_x,
+            "name": name,
+            "alert": alert,
+        }
+
+    @classmethod
+    def highest_alert(cls, flags):
+        flags = set(flags)
+        for flag in ("degraded", "conflict", "ambiguous", "dirty"):
+            if flag in flags:
+                return flag
+        return None
+
+    @classmethod
+    def _icon_rect(cls, column):
+        return QRectF(
+            column.center().x() - cls.icon_size / 2.0,
+            column.center().y() - cls.icon_size / 2.0,
+            cls.icon_size,
+            cls.icon_size,
+        )
+
+    @classmethod
+    def _paint_separator(cls, painter, option, layout):
+        palette = (
+            option.widget.palette()
+            if option.widget is not None
+            else option.palette
+        )
+        color = QColor(palette.color(QPalette.Mid))
+        color.setAlpha(cls.separator_alpha)
+        row = layout["row"]
+        painter.fillRect(
+            QRect(
+                layout["separator_x"],
+                row.top() + 4,
+                1,
+                max(0, row.height() - 8),
+            ),
+            color,
+        )
+
+    @classmethod
+    def _paint_annotation_indicator(
+        cls,
+        painter,
+        option,
+        column,
+        state,
+    ):
+        if state != "annotated":
+            return
+        palette = (
+            option.widget.palette()
+            if option.widget is not None
+            else option.palette
+        )
+        rect = cls._icon_rect(column).adjusted(1.5, 2.0, -1.5, -2.0)
+        length = 3.5
+        painter.save()
+        painter.setPen(QPen(
+            palette.color(QPalette.Highlight),
+            1.5,
+            Qt.SolidLine,
+            Qt.RoundCap,
+            Qt.RoundJoin,
+        ))
+        for start, corner, end in (
+            (
+                QPointF(rect.left() + length, rect.top()),
+                rect.topLeft(),
+                QPointF(rect.left(), rect.top() + length),
+            ),
+            (
+                QPointF(rect.right() - length, rect.top()),
+                rect.topRight(),
+                QPointF(rect.right(), rect.top() + length),
+            ),
+            (
+                QPointF(rect.left(), rect.bottom() - length),
+                rect.bottomLeft(),
+                QPointF(rect.left() + length, rect.bottom()),
+            ),
+            (
+                QPointF(rect.right(), rect.bottom() - length),
+                rect.bottomRight(),
+                QPointF(rect.right() - length, rect.bottom()),
+            ),
+        ):
+            painter.drawLine(start, corner)
+            painter.drawLine(corner, end)
+        painter.restore()
+
+    @classmethod
+    def _paint_review_indicator(cls, painter, column, state):
+        if state not in ("questioned", "verified"):
+            return
+        color = (
+            cls.questioned_color
+            if state == "questioned"
+            else cls.verified_color
+        )
+        rect = cls._icon_rect(column).adjusted(1.0, 1.0, -1.0, -1.0)
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setBrush(Qt.NoBrush)
+        painter.setPen(QPen(color, 1.5))
+        painter.drawEllipse(rect)
+        if state == "questioned":
+            font = painter.font()
+            font.setBold(True)
+            font.setPixelSize(10)
+            painter.setFont(font)
+            painter.drawText(rect, Qt.AlignCenter, "?")
+        else:
+            path = QPainterPath()
+            path.moveTo(rect.left() + 3.0, rect.center().y())
+            path.lineTo(rect.center().x() - 0.5, rect.bottom() - 3.0)
+            path.lineTo(rect.right() - 2.5, rect.top() + 3.0)
+            painter.drawPath(path)
+        painter.restore()
+
+    @classmethod
+    def _paint_alert_indicator(
+        cls,
+        painter,
+        option,
+        column,
+        flags,
+    ):
+        alert = cls.highest_alert(flags)
+        if alert is None:
+            return
+        palette = (
+            option.widget.palette()
+            if option.widget is not None
+            else option.palette
+        )
+        rect = cls._icon_rect(column).adjusted(1.0, 1.0, -1.0, -1.0)
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setBrush(Qt.NoBrush)
+        if alert == "dirty":
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(palette.color(QPalette.Highlight))
+            painter.drawEllipse(rect.center(), 3.0, 3.0)
+        elif alert == "ambiguous":
+            painter.setPen(QPen(cls.questioned_color, 1.5, Qt.SolidLine, Qt.RoundCap))
+            left = rect.left() + 1.5
+            middle = rect.center().x()
+            right = rect.right() - 1.5
+            painter.drawLine(QPointF(left, rect.top() + 3), QPointF(middle, rect.top() + 3))
+            painter.drawLine(QPointF(left, rect.bottom() - 3), QPointF(middle, rect.bottom() - 3))
+            painter.drawLine(QPointF(middle, rect.top() + 3), QPointF(right, rect.center().y()))
+            painter.drawLine(QPointF(middle, rect.bottom() - 3), QPointF(right, rect.center().y()))
+        elif alert == "conflict":
+            painter.setPen(QPen(cls.error_color, 1.5))
+            painter.drawEllipse(rect)
+            cls._paint_exclamation(painter, rect, cls.error_color)
+        else:
+            painter.setPen(QPen(cls.error_color, 1.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            triangle = QPainterPath()
+            triangle.moveTo(rect.center().x(), rect.top())
+            triangle.lineTo(rect.right(), rect.bottom())
+            triangle.lineTo(rect.left(), rect.bottom())
+            triangle.closeSubpath()
+            painter.drawPath(triangle)
+            cls._paint_exclamation(painter, rect, cls.error_color)
+        painter.restore()
+
+    @staticmethod
+    def _paint_exclamation(painter, rect, color):
+        painter.save()
+        painter.setPen(QPen(color, 1.5, Qt.SolidLine, Qt.RoundCap))
+        center = rect.center().x()
+        painter.drawLine(
+            QPointF(center, rect.top() + 3.0),
+            QPointF(center, rect.center().y() + 1.0),
+        )
+        painter.drawPoint(QPointF(center, rect.bottom() - 2.5))
+        painter.restore()
 
 
 class BatchRenameDialog(QDialog):
