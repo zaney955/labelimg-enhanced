@@ -19,6 +19,7 @@ from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication, QPushButton
 
 from labelimg.label_group_list import LabelGroupListWidget
+from labelimg.i18n import SIMPLIFIED_CHINESE, set_language
 from labelimg.shape import Shape
 
 
@@ -43,6 +44,7 @@ class LabelGroupListWidgetTest(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
     def setUp(self):
+        set_language(SIMPLIFIED_CHINESE)
         self.widget = LabelGroupListWidget()
         self.widget.resize(360, 180)
         self.widget.show()

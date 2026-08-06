@@ -6,6 +6,8 @@ except ImportError:
     from PyQt4.QtGui import *
     from PyQt4.QtCore import *
 
+from labelimg.i18n import language_changed, tr
+
 
 class ZoomWidget(QSpinBox):
 
@@ -15,9 +17,13 @@ class ZoomWidget(QSpinBox):
         self.setRange(1, 500)
         self.setSuffix(' %')
         self.setValue(value)
-        self.setToolTip(u'Zoom Level')
-        self.setStatusTip(self.toolTip())
+        language_changed.connect(self.retranslate_ui)
+        self.retranslate_ui()
         self.setAlignment(Qt.AlignCenter)
+
+    def retranslate_ui(self, _language=None):
+        self.setToolTip(tr("zoom.level"))
+        self.setStatusTip(self.toolTip())
 
     def minimumSizeHint(self):
         height = super(ZoomWidget, self).minimumSizeHint().height()

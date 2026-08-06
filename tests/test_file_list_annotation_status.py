@@ -8,12 +8,13 @@ from xml.etree import ElementTree
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt5.QtCore import QPointF, Qt
+from PyQt5.QtCore import QEvent, QPointF, Qt
 from PyQt5.QtGui import QColor, QImage, QKeySequence
 from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication, QMessageBox
 
 from labelimg.app import MainWindow
+from labelimg.i18n import SIMPLIFIED_CHINESE, set_language
 from labelimg.annotation_document import AnnotationDocument
 from labelimg.constants import FORMAT_YOLO
 from labelimg.shape import Shape
@@ -79,6 +80,7 @@ class FileListAnnotationStatusTest(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
     def setUp(self):
+        set_language(SIMPLIFIED_CHINESE)
         self.temp_dir = tempfile.TemporaryDirectory()
         self.image_dir = os.path.join(self.temp_dir.name, "images")
         self.annotation_dir = os.path.join(
@@ -128,6 +130,7 @@ class FileListAnnotationStatusTest(unittest.TestCase):
             default_prefdef_class_file=classes_path,
             default_save_dir=self.annotation_dir,
         )
+        set_language(SIMPLIFIED_CHINESE)
         trash_dir = os.path.join(self.temp_dir.name, "trash")
         os.makedirs(trash_dir)
         self.window.system_trash = FakeTrashAdapter(trash_dir)
@@ -136,6 +139,7 @@ class FileListAnnotationStatusTest(unittest.TestCase):
 
     def tearDown(self):
         self.window.deleteLater()
+        QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
         self.app.processEvents()
         self.temp_dir.cleanup()
 
@@ -358,7 +362,7 @@ class FileListAnnotationStatusTest(unittest.TestCase):
         self.item(1).setSelected(True)
 
         with patch(
-            "labelimg.app.QMessageBox.question",
+            "labelimg.app.localized_question",
             return_value=QMessageBox.Yes,
         ):
             self.window.set_selected_review_state("verified")
@@ -408,7 +412,7 @@ class FileListAnnotationStatusTest(unittest.TestCase):
         )
 
         with patch(
-            "labelimg.app.QMessageBox.question",
+            "labelimg.app.localized_question",
             return_value=QMessageBox.No,
         ):
             self.window.set_selected_review_state("verified")

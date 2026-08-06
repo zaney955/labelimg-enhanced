@@ -1,18 +1,28 @@
 # LabelImg Enhanced
 
-LabelImg Enhanced 是基于 LabelImg `v1.8.6` 独立维护的目标框标注工具。项目保留原版 `LabelImg` 界面名称和 `labelImg` 启动命令，同时规范 Python 包结构并持续维护定制标注流程。
+[简体中文](README.md) | [English](README.en.md)
 
-> This is an independently maintained derivative and is not an official HumanSignal project.
+LabelImg Enhanced 是基于 LabelImg `v1.8.6` 独立维护的目标框标注工具。项目保留原版 `LabelImg` 界面名称和 `labelImg` 启动命令，同时规范 Python 包结构并持续维护面向专业标注工作流的增强功能。
+
+> 这是独立维护的衍生项目，并非 HumanSignal 官方项目。
 
 ## 主要增强
 
-- 标签框选中后使用标签自身颜色的实线边框和半透明填充。
-- 按住 Ctrl 可在画布中框选多个完整包含的标注框。
-- Ctrl+单击可多选；在重叠区域连续 Ctrl+单击时，每次只巡回选中一个重叠框。
-- 标签列表支持类似 Windows 文件资源管理器的普通单击、Ctrl 多选和 Shift 连续选择。
-- 删除、复制和跨图粘贴只作用于当前选中的标注框。
-- 候选标签使用自适应五列彩色胶囊布局。
-- 包含文件状态、自然排序、实时保存和图像删除导航等工作流改进。
+- 完整的简体中文和英文界面，可在“视图 → 语言”中即时切换并记住选择。
+- 首次启动时，`zh-*` 系统区域使用简体中文，其他系统区域使用英文。
+- 标签框使用标签自身颜色呈现选中和悬停反馈。
+- 普通单击、Ctrl 切换多选、右键和拖动共用同一个确定性重叠目标解析器，不会轮换目标。
+- 标签列表和文件列表提供类似 Windows 文件资源管理器的多选交互。
+- 独立的 `未复核 / 待复核 / 已验证` 图像复核状态。
+- 按标注、复核和持久化状态筛选/排序文件，并保留隐藏选择。
+- 支持逐图撤销/重做、实时自动保存、外部冲突处理和可恢复文件操作。
+- 候选标签仅从当前标注目录中已保存的 Pascal VOC、YOLO 或 CreateML 文档派生。
+
+## 语言
+
+“视图 → 语言”提供“简体中文”和“English”。切换后当前窗口立即更新，无需重启；选择会持久化到 LabelImg 设置中。
+
+翻译覆盖所有应用自有界面文案，包括菜单、工具栏、面板、状态栏、提示、校验错误、确认框、恢复和冲突流程。用户标签、文件名与路径、Pascal VOC/YOLO/CreateML 格式名以及操作系统原始诊断保持原样。
 
 ## 环境
 
@@ -45,6 +55,8 @@ python tools/run_tests.py
 python -m pip wheel . --no-deps --no-build-isolation
 python tools/run_tests.py --installed
 ```
+
+双语目录使用稳定消息 ID；测试会校验中英文键和格式参数完全一致，并阻止界面代码重新引入硬编码应用文案。设计说明见 [双语界面设计](docs/design/bilingual-interface.md)。
 
 ## 来源与许可证
 

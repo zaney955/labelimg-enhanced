@@ -18,6 +18,7 @@ from PyQt5.QtWidgets import (
 )
 
 from labelimg.app import MainWindow
+from labelimg.i18n import SIMPLIFIED_CHINESE, set_language
 from labelimg.file_recovery import TrashIdentity
 from labelimg.file_list import (
     BatchRenameDialog,
@@ -55,6 +56,7 @@ class FileListSelectionTest(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
     def setUp(self):
+        set_language(SIMPLIFIED_CHINESE)
         self.temporary = tempfile.TemporaryDirectory()
         self.image_dir = os.path.join(self.temporary.name, "images")
         os.makedirs(self.image_dir)
@@ -71,6 +73,7 @@ class FileListSelectionTest(unittest.TestCase):
         self.window = MainWindow(
             default_prefdef_class_file=classes,
         )
+        self.window.change_language(SIMPLIFIED_CHINESE)
         trash_dir = os.path.join(self.temporary.name, "trash")
         os.makedirs(trash_dir)
         self.window.system_trash = FakeTrashAdapter(trash_dir)

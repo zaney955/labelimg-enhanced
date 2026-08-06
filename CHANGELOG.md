@@ -2,6 +2,9 @@
 
 ## 1.9.0
 
+- Added complete Simplified Chinese and English application interfaces with an immediate, persisted View → Language switch and system-locale first-launch mapping.
+- Added strict bilingual catalog, format-field, runtime-switch, and hard-coded UI text regression coverage.
+
 - Added synchronized canvas and label-list multi-selection.
 - Added Ctrl drag-region selection and overlap cycling.
 - Applied label-colored selected outlines and translucent fills.

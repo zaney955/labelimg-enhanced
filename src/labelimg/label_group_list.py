@@ -8,6 +8,8 @@ except ImportError:
     from PyQt4.QtCore import *
     from PyQt4.QtGui import *
 
+from labelimg.i18n import language_changed, tr
+
 def _natural_label_key(text):
     parts = []
     for part in re.split(r"(\d+)", str(text).casefold()):
@@ -88,6 +90,11 @@ class LabelGroupListWidget(QAbstractScrollArea):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.verticalScrollBar().valueChanged.connect(self.viewport().update)
+        language_changed.connect(self._language_changed)
+
+    def _language_changed(self, _language):
+        self._emit_summary()
+        self.viewport().update()
 
     # Scene projection -------------------------------------------------
     def set_scene(self, shapes, visible_shapes=None, reset_scroll=False):
@@ -249,22 +256,27 @@ class LabelGroupListWidget(QAbstractScrollArea):
         }
         shown_annotation_count = len(shown_shapes)
         if self._filter_text:
-            text = "显示 %d/%d 个标签组 · %d/%d 个标注" % (
-                shown_group_count,
-                len(self._groups),
-                shown_annotation_count,
-                len(self._scene_shapes),
+            text = tr(
+                "labelSummary.filtered",
+                shown_groups=shown_group_count,
+                all_groups=len(self._groups),
+                shown_annotations=shown_annotation_count,
+                all_annotations=len(self._scene_shapes),
             )
         else:
-            text = "%d 个标签组 · %d 个标注" % (
-                len(self._groups),
-                len(self._scene_shapes),
+            text = tr(
+                "labelSummary.all",
+                groups=len(self._groups),
+                annotations=len(self._scene_shapes),
             )
         hidden_selected = sum(
             1 for shape in self._selected if shape not in shown_shapes
         )
         if hidden_selected:
-            text += " · 另有 %d 个已选标注未显示" % hidden_selected
+            text += tr(
+                "labelSummary.hiddenSelected",
+                count=hidden_selected,
+            )
         return text
 
     def group_visibility(self, label):
@@ -378,11 +390,12 @@ class LabelGroupListWidget(QAbstractScrollArea):
         selected = sum(
             shape in self._selected for shape in group.shapes
         )
-        return "%s｜%d 个标注｜可见 %d｜已选 %d" % (
-            group.label,
-            len(group.shapes),
-            visible,
-            selected,
+        return tr(
+            "labelTooltip.group",
+            label=group.label,
+            annotations=len(group.shapes),
+            visible=visible,
+            selected=selected,
         )
 
     # Painting ---------------------------------------------------------
@@ -619,11 +632,11 @@ class LabelGroupListWidget(QAbstractScrollArea):
         painter.save()
         painter.setPen(self.palette().color(QPalette.Mid))
         if self._filter_text and self._groups:
-            title = "没有匹配的标签组"
-            detail = "清除筛选以显示全部标签组"
+            title = tr("labelList.noMatch")
+            detail = tr("labelList.clearFilter")
         else:
-            title = "当前图片暂无标注"
-            detail = "按 W 创建标注框"
+            title = tr("labelList.empty")
+            detail = tr("labelList.create")
         center = self.viewport().rect().center()
         painter.drawText(
             QRect(8, center.y() - 24, self.viewport().width() - 16, 24),
