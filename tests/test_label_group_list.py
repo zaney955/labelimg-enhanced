@@ -1,5 +1,6 @@
 import os
 import unittest
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -7,6 +8,8 @@ from PyQt5.QtCore import QEvent, QPointF, Qt
 from PyQt5.QtGui import (
     QColor,
     QContextMenuEvent,
+    QFont,
+    QFontMetrics,
     QImage,
     QKeyEvent,
     QPalette,
@@ -401,10 +404,13 @@ class LabelGroupListWidgetTest(unittest.TestCase):
         second_label = self.widget.group_body_rect("PD_LSQS")
         first_button = self.widget.instance_rect(first)
         second_button = self.widget.instance_rect(second)
+        measurement_font = QFont(self.widget.font())
+        measurement_font.setBold(True)
+        measurement_metrics = QFontMetrics(measurement_font)
         measure = getattr(
-            self.widget.fontMetrics(),
+            measurement_metrics,
             "horizontalAdvance",
-            self.widget.fontMetrics().width,
+            measurement_metrics.width,
         )
         desired = max(
             self.widget.label_min_width,
@@ -426,6 +432,76 @@ class LabelGroupListWidgetTest(unittest.TestCase):
         self.assertEqual(first_label.width(), expected)
         self.assertEqual(second_label.width(), expected)
         self.assertEqual(first_button.left(), second_button.left())
+
+    def test_label_column_reserves_bold_selected_text_without_relayout(self):
+        shape = rectangle("P_LS_JM", 10)
+        self.widget.resize(700, 180)
+        self.set_scene([shape])
+        self.widget._invalidate_label_width()
+        with patch(
+            "labelimg.label_group_list.QFontMetrics",
+            wraps=QFontMetrics,
+        ) as metrics_factory:
+            before_label = self.widget.group_body_rect(shape.label)
+        self.assertTrue(metrics_factory.called)
+        measurement_font = metrics_factory.call_args.args[0]
+        self.assertTrue(measurement_font.bold())
+        before_button = self.widget.instance_rect(shape)
+
+        selected_font = QFont(self.widget.font())
+        selected_font.setBold(True)
+        selected_metrics = QFontMetrics(selected_font)
+        measure = getattr(
+            selected_metrics,
+            "horizontalAdvance",
+            selected_metrics.width,
+        )
+        text_capacity = (
+            before_label.width() - self.widget.label_button_gap
+        )
+
+        self.assertLessEqual(measure(shape.label), text_capacity)
+
+        self.widget.project_selection((shape,), shape)
+        self.app.processEvents()
+
+        self.assertEqual(
+            self.widget.group_body_rect(shape.label),
+            before_label,
+        )
+        self.assertEqual(self.widget.instance_rect(shape), before_button)
+
+    def test_capped_label_uses_one_bold_elision_in_every_selection_state(self):
+        shape = rectangle("extraordinarily_long_class_name", 10)
+        self.widget.resize(360, 180)
+        self.set_scene([shape])
+        capacity = (
+            self.widget.group_body_rect(shape.label).width()
+            - self.widget.label_button_gap
+        )
+
+        unselected_text = self.widget._elided_label_text(
+            shape.label,
+            capacity,
+        )
+        self.widget.project_selection((shape,), shape)
+        selected_text = self.widget._elided_label_text(
+            shape.label,
+            capacity,
+        )
+
+        selected_font = QFont(self.widget.font())
+        selected_font.setBold(True)
+        selected_metrics = QFontMetrics(selected_font)
+        self.assertEqual(
+            unselected_text,
+            selected_metrics.elidedText(
+                shape.label,
+                Qt.ElideRight,
+                capacity,
+            ),
+        )
+        self.assertEqual(selected_text, unselected_text)
 
     def test_long_label_can_use_45_percent_up_to_240_pixels(self):
         shape = rectangle("x" * 200, 10)

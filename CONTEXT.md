@@ -257,7 +257,7 @@ The annotation boxes in the current image that share exactly the same label, inc
 _Avoid_: Dataset class, case-insensitive class, persistent group
 
 **Label-group row**:
-The single compact, theme-background right annotation-list row representing one label group, ordered by case-insensitive natural label order with exact text as the stable tie-breaker. Visible rows share a generous but bounded, content-fitted class-name column so long names may claim nearly half the row while instance buttons stay aligned and at least one remains complete; any remaining elision preserves full hover identification.
+The single compact, theme-background right annotation-list row representing one label group, ordered by case-insensitive natural label order with exact text as the stable tie-breaker. Visible rows share a generous but bounded, content-fitted class-name column sized for its bold selected appearance, so selection never newly elides a name or shifts instance buttons; long names may claim nearly half the row while at least one button remains complete, and any necessary elision is identical across selection states with full hover identification.
 _Avoid_: Annotation row, instance row, category row
 
 **Annotation-instance button**:
