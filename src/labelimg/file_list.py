@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+from functools import cmp_to_key
 
 from PyQt5.QtCore import (
     QEvent,
@@ -11,6 +12,7 @@ from PyQt5.QtCore import (
     QPointF,
     QRect,
     QRectF,
+    QSignalBlocker,
     QTimer,
     Qt,
     pyqtSignal,
@@ -21,20 +23,27 @@ from PyQt5.QtWidgets import (
     QApplication,
     QDialog,
     QDialogButtonBox,
+    QComboBox,
     QFormLayout,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
     QListWidget,
+    QMenu,
+    QPushButton,
     QSpinBox,
     QStyle,
     QStyledItemDelegate,
     QStyleOptionViewItem,
     QTableWidget,
     QTableWidgetItem,
+    QToolButton,
     QToolTip,
     QVBoxLayout,
+    QWidget,
+    QActionGroup,
 )
 
 from labelimg.file_operations import exact_annotation_paths
@@ -57,11 +66,607 @@ WINDOWS_RESERVED_NAMES = {
 }
 
 
+def portable_logical_compare(left_name, right_name):
+    """Compare text using case-insensitive natural numeric chunks."""
+    left_parts = re.split(r"(\d+)", str(left_name).casefold())
+    right_parts = re.split(r"(\d+)", str(right_name).casefold())
+    for left_part, right_part in zip(left_parts, right_parts):
+        left_is_number = left_part.isdigit()
+        right_is_number = right_part.isdigit()
+        if left_is_number and right_is_number:
+            left_number = int(left_part)
+            right_number = int(right_part)
+            if left_number != right_number:
+                return (left_number > right_number) - (
+                    left_number < right_number
+                )
+            if len(left_part) != len(right_part):
+                return (len(right_part) > len(left_part)) - (
+                    len(right_part) < len(left_part)
+                )
+        elif left_is_number != right_is_number:
+            return -1 if left_is_number else 1
+        elif left_part != right_part:
+            return (left_part > right_part) - (
+                left_part < right_part
+            )
+    return (len(left_parts) > len(right_parts)) - (
+        len(left_parts) < len(right_parts)
+    )
+
+
+def _relative_path_parts(path, root):
+    absolute = os.path.abspath(path)
+    if root:
+        try:
+            relative = os.path.relpath(absolute, os.path.abspath(root))
+        except ValueError:
+            relative = os.path.basename(absolute)
+    else:
+        relative = os.path.basename(absolute)
+    normalized = relative.replace("\\", "/")
+    return tuple(part for part in normalized.split("/") if part)
+
+
+def compare_relative_image_paths(left_path, right_path, root=None):
+    """Keep relative directories grouped, then naturally order names."""
+    left_parts = _relative_path_parts(left_path, root)
+    right_parts = _relative_path_parts(right_path, root)
+    left_dirs, left_name = left_parts[:-1], left_parts[-1:]
+    right_dirs, right_name = right_parts[:-1], right_parts[-1:]
+    for left_part, right_part in zip(left_dirs, right_dirs):
+        comparison = portable_logical_compare(left_part, right_part)
+        if comparison:
+            return comparison
+    if len(left_dirs) != len(right_dirs):
+        return (len(left_dirs) > len(right_dirs)) - (
+            len(left_dirs) < len(right_dirs)
+        )
+    comparison = portable_logical_compare(
+        left_name[0] if left_name else "",
+        right_name[0] if right_name else "",
+    )
+    if comparison:
+        return comparison
+    left_key = os.path.abspath(left_path).casefold()
+    right_key = os.path.abspath(right_path).casefold()
+    return (left_key > right_key) - (left_key < right_key)
+
+
+class FileListViewState(object):
+    SORT_KEYS = ("name", "modified", "annotation", "review")
+    ANNOTATION_ORDER = {"unannotated": 0, "annotated": 1}
+    REVIEW_ORDER = {"unreviewed": 0, "questioned": 1, "verified": 2}
+
+    def __init__(self, sort_key="name", descending=False):
+        self.sort_key = (
+            sort_key if sort_key in self.SORT_KEYS else "name"
+        )
+        self.descending = bool(descending)
+        self.reset_filter()
+
+    @property
+    def filter_active(self):
+        return bool(
+            self.text_filter
+            or self.annotation_filter != "all"
+            or self.review_filter != "all"
+            or self.alert_filter != "all"
+        )
+
+    def set_filter(
+        self,
+        text="",
+        annotation="all",
+        review="all",
+        alert="all",
+    ):
+        self.text_filter = str(text).strip()
+        self.annotation_filter = annotation
+        self.review_filter = review
+        self.alert_filter = alert
+
+    def reset_filter(self):
+        self.text_filter = ""
+        self.annotation_filter = "all"
+        self.review_filter = "all"
+        self.alert_filter = "all"
+
+    def ordered_paths(
+        self,
+        paths,
+        root,
+        annotation_state_for,
+        review_state_for,
+        modified_time_for=os.path.getmtime,
+    ):
+        def path_compare(left, right):
+            return compare_relative_image_paths(left, right, root)
+
+        def primary(path):
+            if self.sort_key == "annotation":
+                return self.ANNOTATION_ORDER.get(
+                    annotation_state_for(path), -1
+                )
+            if self.sort_key == "review":
+                return self.REVIEW_ORDER.get(review_state_for(path), -1)
+            if self.sort_key == "modified":
+                try:
+                    return float(modified_time_for(path))
+                except (OSError, TypeError, ValueError):
+                    return float("-inf")
+            return 0
+
+        def compare(left, right):
+            if self.sort_key == "name":
+                comparison = path_compare(left, right)
+                return -comparison if self.descending else comparison
+            left_primary = primary(left)
+            right_primary = primary(right)
+            comparison = (left_primary > right_primary) - (
+                left_primary < right_primary
+            )
+            if comparison:
+                return -comparison if self.descending else comparison
+            return path_compare(left, right)
+
+        return sorted(list(paths), key=cmp_to_key(compare))
+
+    def matches(
+        self,
+        path,
+        root,
+        annotation_state_for,
+        review_state_for,
+        persistence_flags_for,
+    ):
+        if self.text_filter:
+            parts = _relative_path_parts(path, root)
+            display_path = "/".join(parts).casefold()
+            query = self.text_filter.replace("\\", "/").casefold()
+            if query not in display_path:
+                return False
+        if (
+            self.annotation_filter != "all"
+            and annotation_state_for(path) != self.annotation_filter
+        ):
+            return False
+        if (
+            self.review_filter != "all"
+            and review_state_for(path) != self.review_filter
+        ):
+            return False
+        flags = tuple(persistence_flags_for(path) or ())
+        if self.alert_filter == "any" and not flags:
+            return False
+        if self.alert_filter == "none" and flags:
+            return False
+        return True
+
+    def visible_paths(
+        self,
+        paths,
+        root,
+        annotation_state_for,
+        review_state_for,
+        persistence_flags_for,
+    ):
+        return [
+            path
+            for path in paths
+            if self.matches(
+                path,
+                root,
+                annotation_state_for,
+                review_state_for,
+                persistence_flags_for,
+            )
+        ]
+
+
+class FileListControlButton(QToolButton):
+    def __init__(self, kind, parent=None):
+        super().__init__(parent)
+        self.kind = kind
+        self.active = False
+        self.descending = False
+        self._hovered = False
+        self.setFixedSize(28, 28)
+        self.setAutoRaise(True)
+        self.setFocusPolicy(Qt.StrongFocus)
+
+    def set_active(self, active):
+        active = bool(active)
+        if self.active != active:
+            self.active = active
+            self.update()
+
+    def set_descending(self, descending):
+        self.descending = bool(descending)
+        self.update()
+
+    def enterEvent(self, event):
+        self._hovered = True
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._hovered = False
+        self.update()
+        super().leaveEvent(event)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        palette = self.palette()
+        accent = palette.color(QPalette.Highlight)
+        if self._hovered or self.isDown():
+            background = QColor(
+                palette.color(
+                    QPalette.Highlight
+                    if self.isDown()
+                    else QPalette.Mid
+                )
+            )
+            background.setAlpha(55 if self.isDown() else 45)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(background)
+            painter.drawRoundedRect(QRectF(self.rect()).adjusted(1, 1, -1, -1), 4, 4)
+        if self.active:
+            painter.setBrush(Qt.NoBrush)
+            painter.setPen(QPen(accent, 1.2))
+            painter.drawRoundedRect(QRectF(self.rect()).adjusted(1, 1, -1, -1), 4, 4)
+        color = (
+            palette.color(QPalette.Disabled, QPalette.ButtonText)
+            if not self.isEnabled()
+            else (
+                accent
+                if self.active
+                else palette.color(QPalette.ButtonText)
+            )
+        )
+        painter.setPen(QPen(color, 1.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        painter.setBrush(Qt.NoBrush)
+        if self.kind == "filter":
+            path = QPainterPath()
+            path.moveTo(7, 8)
+            path.lineTo(21, 8)
+            path.lineTo(16, 14)
+            path.lineTo(16, 20)
+            path.lineTo(12, 18)
+            path.lineTo(12, 14)
+            path.closeSubpath()
+            painter.drawPath(path)
+        else:
+            painter.drawLine(7, 9, 15, 9)
+            painter.drawLine(7, 14, 13, 14)
+            painter.drawLine(7, 19, 11, 19)
+            top, bottom = (19, 8) if self.descending else (8, 19)
+            painter.drawLine(20, top, 20, bottom)
+            arrow_y = bottom
+            arrow_step = -3 if self.descending else 3
+            painter.drawLine(20, arrow_y, 17, arrow_y - arrow_step)
+            painter.drawLine(20, arrow_y, 23, arrow_y - arrow_step)
+        if self.active:
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(accent)
+            painter.drawEllipse(QPointF(23, 5), 2, 2)
+        if self.hasFocus():
+            focus = QPen(palette.color(QPalette.Text), 1, Qt.DotLine)
+            painter.setPen(focus)
+            painter.setBrush(Qt.NoBrush)
+            painter.drawRoundedRect(QRectF(self.rect()).adjusted(3, 3, -3, -3), 3, 3)
+        painter.end()
+
+
+class FileListFilterPanel(QFrame):
+    filterChanged = pyqtSignal(str, str, str, str)
+    clearRequested = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent, Qt.Popup)
+        self.setObjectName("fileListFilterPanel")
+        self.setFrameShape(QFrame.StyledPanel)
+        self.setMinimumWidth(280)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
+        title = QLabel("筛选文件")
+        title_font = title.font()
+        title_font.setBold(True)
+        title.setFont(title_font)
+        layout.addWidget(title)
+        self.text_edit = QLineEdit()
+        self.text_edit.setPlaceholderText("筛选文件名或相对路径…")
+        self.text_edit.setClearButtonEnabled(True)
+        layout.addWidget(self.text_edit)
+        form = QFormLayout()
+        form.setContentsMargins(0, 0, 0, 0)
+        self.annotation_combo = QComboBox()
+        self._add_options(self.annotation_combo, (
+            ("全部", "all"),
+            ("未标注", "unannotated"),
+            ("已标注", "annotated"),
+        ))
+        self.review_combo = QComboBox()
+        self._add_options(self.review_combo, (
+            ("全部", "all"),
+            ("未复核", "unreviewed"),
+            ("待复核", "questioned"),
+            ("已验证", "verified"),
+        ))
+        self.alert_combo = QComboBox()
+        self._add_options(self.alert_combo, (
+            ("全部", "all"),
+            ("无告警", "none"),
+            ("有告警", "any"),
+        ))
+        form.addRow("标注状态", self.annotation_combo)
+        form.addRow("复核状态", self.review_combo)
+        form.addRow("持久化状态", self.alert_combo)
+        layout.addLayout(form)
+        self.clear_button = QPushButton("清除全部筛选")
+        layout.addWidget(self.clear_button)
+        self.text_edit.textChanged.connect(self._emit_filter)
+        self.annotation_combo.currentIndexChanged.connect(self._emit_filter)
+        self.review_combo.currentIndexChanged.connect(self._emit_filter)
+        self.alert_combo.currentIndexChanged.connect(self._emit_filter)
+        self.clear_button.clicked.connect(self.clearRequested)
+
+    @staticmethod
+    def _add_options(combo, options):
+        for label, value in options:
+            combo.addItem(label, value)
+
+    def _emit_filter(self, _value=None):
+        self.filterChanged.emit(
+            self.text_edit.text(),
+            self.annotation_combo.currentData(),
+            self.review_combo.currentData(),
+            self.alert_combo.currentData(),
+        )
+
+    def set_filter(self, text, annotation, review, alert):
+        blockers = [
+            QSignalBlocker(self.text_edit),
+            QSignalBlocker(self.annotation_combo),
+            QSignalBlocker(self.review_combo),
+            QSignalBlocker(self.alert_combo),
+        ]
+        self.text_edit.setText(text)
+        for combo, value in (
+            (self.annotation_combo, annotation),
+            (self.review_combo, review),
+            (self.alert_combo, alert),
+        ):
+            index = combo.findData(value)
+            combo.setCurrentIndex(max(0, index))
+        del blockers
+
+    def show_for(self, button):
+        self.adjustSize()
+        position = button.mapToGlobal(button.rect().bottomRight())
+        x = position.x() - self.width()
+        y = position.y() + 2
+        screen = QApplication.screenAt(position)
+        if screen is not None:
+            available = screen.availableGeometry()
+            x = max(
+                available.left(),
+                min(x, available.right() - self.width() + 1),
+            )
+            y = max(
+                available.top(),
+                min(y, available.bottom() - self.height() + 1),
+            )
+        self.move(x, y)
+        self.show()
+        self.raise_()
+        self.text_edit.setFocus(Qt.PopupFocusReason)
+        self.text_edit.selectAll()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Escape:
+            self.hide()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+
+class FileListControlBar(QWidget):
+    viewChanged = pyqtSignal()
+
+    SORT_LABELS = {
+        "name": "文件名",
+        "modified": "修改时间",
+        "annotation": "标注状态",
+        "review": "复核状态",
+    }
+
+    def __init__(self, sort_key="name", descending=False, parent=None):
+        super().__init__(parent)
+        self.state = FileListViewState(sort_key, descending)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(4, 2, 4, 2)
+        layout.setSpacing(2)
+        layout.addStretch(1)
+        self.sort_button = FileListControlButton("sort", self)
+        self.sort_button.setAccessibleName("排序")
+        self.filter_button = FileListControlButton("filter", self)
+        self.filter_button.setAccessibleName("筛选")
+        self.filter_button.setToolTip("筛选：未启用")
+        self.sort_button.installEventFilter(self)
+        self.filter_button.installEventFilter(self)
+        layout.addWidget(self.sort_button)
+        layout.addWidget(self.filter_button)
+        self.sort_menu = QMenu(self.sort_button)
+        self.sort_group = QActionGroup(self.sort_menu)
+        self.sort_group.setExclusive(True)
+        self.sort_actions = {}
+        for key in FileListViewState.SORT_KEYS:
+            action = self.sort_menu.addAction(self.SORT_LABELS[key])
+            action.setCheckable(True)
+            action.setData(key)
+            self.sort_group.addAction(action)
+            action.triggered.connect(
+                lambda checked=False, value=key: self._set_sort_key(value)
+            )
+            self.sort_actions[key] = action
+        self.sort_menu.addSeparator()
+        self.direction_group = QActionGroup(self.sort_menu)
+        self.direction_group.setExclusive(True)
+        self.ascending_action = self.sort_menu.addAction("升序")
+        self.ascending_action.setCheckable(True)
+        self.descending_action = self.sort_menu.addAction("降序")
+        self.descending_action.setCheckable(True)
+        self.direction_group.addAction(self.ascending_action)
+        self.direction_group.addAction(self.descending_action)
+        self.ascending_action.triggered.connect(
+            lambda checked=False: self._set_descending(False)
+        )
+        self.descending_action.triggered.connect(
+            lambda checked=False: self._set_descending(True)
+        )
+        self.sort_menu.addSeparator()
+        reset_sort = self.sort_menu.addAction("恢复默认排序")
+        reset_sort.triggered.connect(self.reset_sort)
+        self.sort_button.setMenu(self.sort_menu)
+        self.sort_button.setPopupMode(QToolButton.InstantPopup)
+        self.filter_panel = FileListFilterPanel(self)
+        self.filter_panel.filterChanged.connect(self._set_filter)
+        self.filter_panel.clearRequested.connect(self.clear_filters)
+        self.filter_button.clicked.connect(self.show_filter_panel)
+        self.set_workspace_available(False)
+        self._update_sort_presentation()
+        self._update_filter_presentation()
+
+    def set_workspace_available(self, available):
+        self.filter_button.setEnabled(bool(available))
+        if not available:
+            self.filter_panel.hide()
+
+    def eventFilter(self, watched, event):
+        if watched in (self.sort_button, self.filter_button):
+            if (
+                event.type() in (
+                    QEvent.ShortcutOverride,
+                    QEvent.KeyPress,
+                )
+                and event.key() == Qt.Key_F
+                and event.modifiers() == Qt.ControlModifier
+            ):
+                event.accept()
+                if event.type() == QEvent.KeyPress:
+                    self.show_filter_panel()
+                return True
+        return super().eventFilter(watched, event)
+
+    def _set_sort_key(self, key):
+        if key == self.state.sort_key:
+            self._update_sort_presentation()
+            self.viewChanged.emit()
+            return
+        self.state.sort_key = key
+        self._update_sort_presentation()
+        self.viewChanged.emit()
+
+    def _set_descending(self, descending):
+        descending = bool(descending)
+        if descending == self.state.descending:
+            self._update_sort_presentation()
+            return
+        self.state.descending = descending
+        self._update_sort_presentation()
+        self.viewChanged.emit()
+
+    def reset_sort(self, _checked=False):
+        changed = self.state.sort_key != "name" or self.state.descending
+        self.state.sort_key = "name"
+        self.state.descending = False
+        self._update_sort_presentation()
+        if changed:
+            self.viewChanged.emit()
+
+    def _update_sort_presentation(self):
+        self.sort_actions[self.state.sort_key].setChecked(True)
+        self.ascending_action.setChecked(not self.state.descending)
+        self.descending_action.setChecked(self.state.descending)
+        self.sort_button.set_descending(self.state.descending)
+        direction = "降序" if self.state.descending else "升序"
+        self.sort_button.setToolTip(
+            "排序：%s · %s" % (
+                self.SORT_LABELS[self.state.sort_key],
+                direction,
+            )
+        )
+
+    def _set_filter(self, text, annotation, review, alert):
+        before = (
+            self.state.text_filter,
+            self.state.annotation_filter,
+            self.state.review_filter,
+            self.state.alert_filter,
+        )
+        self.state.set_filter(text, annotation, review, alert)
+        after = (
+            self.state.text_filter,
+            self.state.annotation_filter,
+            self.state.review_filter,
+            self.state.alert_filter,
+        )
+        self._update_filter_presentation()
+        if before != after:
+            self.viewChanged.emit()
+
+    def clear_filters(self, _checked=False, emit=True):
+        changed = self.state.filter_active
+        self.state.reset_filter()
+        self.filter_panel.set_filter("", "all", "all", "all")
+        self._update_filter_presentation()
+        if changed and emit:
+            self.viewChanged.emit()
+
+    def _update_filter_presentation(self):
+        self.filter_button.set_active(self.state.filter_active)
+        if not self.state.filter_active:
+            self.filter_button.setToolTip("筛选：未启用")
+            return
+        labels = []
+        if self.state.text_filter:
+            labels.append("路径包含 %s" % self.state.text_filter)
+        labels.append({
+            "all": "标注：全部",
+            "unannotated": "标注：未标注",
+            "annotated": "标注：已标注",
+        }[self.state.annotation_filter])
+        labels.append({
+            "all": "复核：全部",
+            "unreviewed": "复核：未复核",
+            "questioned": "复核：待复核",
+            "verified": "复核：已验证",
+        }[self.state.review_filter])
+        labels.append({
+            "all": "告警：全部",
+            "none": "告警：无",
+            "any": "告警：有",
+        }[self.state.alert_filter])
+        self.filter_button.setToolTip("筛选：" + " · ".join(labels))
+
+    def show_filter_panel(self, _checked=False):
+        if not self.filter_button.isEnabled():
+            return
+        if self.filter_panel.isVisible():
+            self.filter_panel.hide()
+            return
+        self.filter_panel.show_for(self.filter_button)
+
+
 class FileListWidget(QListWidget):
     openRequested = pyqtSignal()
     itemOpenRequested = pyqtSignal(object)
     renameRequested = pyqtSignal()
     deleteRequested = pyqtSignal()
+    filterRequested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -103,12 +708,36 @@ class FileListWidget(QListWidget):
     def _clear_left_release_suppression(self):
         self._suppress_next_left_release = False
 
+    def visible_items(self):
+        return [
+            self.item(row)
+            for row in range(self.count())
+            if not self.item(row).isHidden()
+        ]
+
+    def select_all_visible(self):
+        self.clearSelection()
+        for item in self.visible_items():
+            item.setSelected(True)
+        self.viewport().update()
+
+    def invert_visible_selection(self):
+        selected_visible = [
+            item for item in self.visible_items() if item.isSelected()
+        ]
+        self.clearSelection()
+        for item in self.visible_items():
+            if item not in selected_visible:
+                item.setSelected(True)
+        self.viewport().update()
+
     def event(self, event):
         if event.type() == QEvent.ShortcutOverride:
             key = event.key()
             modifiers = event.modifiers()
             handled = (
                 (key == Qt.Key_A and modifiers == Qt.ControlModifier)
+                or (key == Qt.Key_F and modifiers == Qt.ControlModifier)
                 or (
                     key == Qt.Key_Space
                     and modifiers in (
@@ -250,7 +879,9 @@ class FileListWidget(QListWidget):
                     min(anchor, row),
                     max(anchor, row) + 1,
                 ):
-                    self.item(selected_row).setSelected(True)
+                    selected_item = self.item(selected_row)
+                    if not selected_item.isHidden():
+                        selected_item.setSelected(True)
                 self.selectionModel().setCurrentIndex(
                     self.indexFromItem(item),
                     QItemSelectionModel.NoUpdate,
@@ -294,9 +925,13 @@ class FileListWidget(QListWidget):
         key = event.key()
         modifiers = event.modifiers()
         if key == Qt.Key_A and modifiers == Qt.ControlModifier:
-            self.selectAll()
+            self.select_all_visible()
             if self.currentRow() >= 0:
                 self._range_anchor_row = self.currentRow()
+            event.accept()
+            return
+        if key == Qt.Key_F and modifiers == Qt.ControlModifier:
+            self.filterRequested.emit()
             event.accept()
             return
         if key == Qt.Key_Space:

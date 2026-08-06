@@ -360,8 +360,20 @@ _Avoid_: Image folder, save directory, dataset
 The image path shown in the file list relative to the opened annotation-workspace root. The root itself is omitted while nested folders remain visible; the full absolute path remains the image identity and is available on hover.
 _Avoid_: Absolute-path label, basename-only flattening
 
+**File-list view order**:
+The complete workspace-image sequence produced by the chosen file-name, image-modification-time, annotation-state, or review-state ordering and direction. Relative directories remain natural-order batches, filenames are naturally ordered within each batch, and this stable sequence governs rows, visible-image navigation, and ordered batch commands.
+_Avoid_: Base-name-first order, visual-only sort, unstable status order
+
+**File-list filter**:
+A conjunctive view of workspace images by display-path text, annotation state, review state, and persistence-alert presence. It changes row visibility without changing the current image or retained file selection, explicitly reports hidden current and selected images, and scopes later selection-building commands to visible results.
+_Avoid_: File selection, image navigation, destructive scope
+
+**Filtered file navigation**:
+The non-wrapping previous/next sequence of visible images in file-list view order. A current image excluded by the filter remains open until navigation moves to the nearest visible image in the requested direction.
+_Avoid_: Full-workspace navigation, wraparound navigation, automatic current-image replacement
+
 **File selection set**:
-The zero or more image files intentionally selected in the file list, independently of the current image. An ordinary click replaces the set immediately, Ctrl-click toggles one member, Shift-click selects a contiguous range, Ctrl+A selects every file while the file list has focus, and clicking empty list space clears the set. During the system double-click interval, the prior set may retain only its blue appearance so the first half of a double-click never flashes it as unselected; file commands and the selection count already target the newly clicked file.
+The zero or more image files intentionally selected in the file list, independently of the current image and retained when filters hide members. An ordinary click replaces the set immediately, Ctrl-click toggles one member, Shift-click selects a contiguous visible range, Ctrl+A replaces the set with every visible file while the file list has focus, and clicking empty list space clears the set; other explicit selection-building commands likewise replace it from visible results. During the system double-click interval, the prior set may retain only its blue appearance so the first half of a double-click never flashes it as unselected; file commands and the selection count already target the newly clicked file.
 _Avoid_: Current image, opened file, annotation-box selection set
 
 **Selected file appearance**:

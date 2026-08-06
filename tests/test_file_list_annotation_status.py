@@ -205,6 +205,54 @@ class FileListAnnotationStatusTest(unittest.TestCase):
             [self.image_paths[2]],
         )
 
+    def test_persistence_filter_updates_live_with_dirty_and_saved_state(self):
+        controls = self.window.file_list_controls
+        controls.filter_panel.alert_combo.setCurrentIndex(1)
+        self.assertEqual(
+            self.window.visible_file_paths(),
+            self.image_paths,
+        )
+
+        self.add_rectangle()
+        self.assertNotIn(
+            self.window.file_path,
+            self.window.visible_file_paths(),
+        )
+        self.assertIn(
+            "当前图像已被筛选隐藏",
+            self.window.file_selection_count_label.text(),
+        )
+
+        controls.filter_panel.alert_combo.setCurrentIndex(2)
+        self.assertEqual(
+            self.window.visible_file_paths(),
+            [self.window.file_path],
+        )
+
+        self.window.save_file()
+        self.assertEqual(self.window.visible_file_paths(), [])
+        self.assertIs(
+            self.window.file_list_stack.currentWidget(),
+            self.window.file_list_empty_state,
+        )
+
+    def test_annotation_filter_reapplies_after_saving_first_box(self):
+        controls = self.window.file_list_controls
+        controls.filter_panel.annotation_combo.setCurrentIndex(1)
+        self.assertEqual(
+            self.window.visible_file_paths(),
+            [self.image_paths[0]],
+        )
+
+        self.add_rectangle()
+        self.window.save_file()
+
+        self.assertEqual(self.window.visible_file_paths(), [])
+        self.assertEqual(
+            self.window.file_list_controls.state.annotation_filter,
+            "unannotated",
+        )
+
     def test_nested_file_shows_relative_path_and_opens_absolute_path(self):
         nested_dir = os.path.join(self.image_dir, "nested")
         os.makedirs(nested_dir)

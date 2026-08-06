@@ -611,6 +611,169 @@ class FileListSelectionTest(unittest.TestCase):
             ["未复核", "待复核", "已验证"],
         )
 
+    def test_filter_preserves_hidden_current_and_selection_with_summary(self):
+        self.click_row(0)
+        self.click_row(2, Qt.ControlModifier)
+        current_before = self.window.file_path
+
+        self.window.file_list_controls.filter_panel.text_edit.setText("03")
+        self.app.processEvents()
+
+        self.assertEqual(self.window.visible_file_paths(), [self.paths[2]])
+        self.assertEqual(
+            self.window.selected_file_paths(),
+            [self.paths[0], self.paths[2]],
+        )
+        self.assertEqual(self.window.file_path, current_before)
+        self.assertEqual(
+            self.window.file_selection_count_label.text(),
+            "显示 1/4 · 已选 2（隐藏 1） · 当前图像已被筛选隐藏",
+        )
+
+        self.window.file_list_widget.select_all_visible()
+        self.window.update_file_selection_count()
+        self.assertEqual(self.window.selected_file_paths(), [self.paths[2]])
+
+    def test_zero_filter_result_shows_clearable_empty_state(self):
+        current_before = self.window.file_path
+        self.window.file_list_controls.filter_panel.text_edit.setText(
+            "does-not-exist"
+        )
+        self.app.processEvents()
+
+        self.assertIs(
+            self.window.file_list_stack.currentWidget(),
+            self.window.file_list_empty_state,
+        )
+        self.assertEqual(self.window.file_path, current_before)
+        self.assertEqual(
+            self.window.file_selection_count_label.text(),
+            "显示 0/4 · 当前图像已被筛选隐藏",
+        )
+
+        QTest.mouseClick(
+            self.window.file_list_clear_filter_button,
+            Qt.LeftButton,
+        )
+        self.app.processEvents()
+        self.assertIs(
+            self.window.file_list_stack.currentWidget(),
+            self.window.file_list_widget,
+        )
+        self.assertEqual(self.window.visible_file_paths(), self.paths)
+
+    def test_sort_changes_full_order_and_navigation_uses_visible_order(self):
+        self.window.file_list_controls._set_descending(True)
+        self.app.processEvents()
+        self.assertEqual(self.window.m_img_list, list(reversed(self.paths)))
+        self.assertEqual(self.window.file_path, self.paths[0])
+
+        for row in range(self.window.file_list_widget.count()):
+            item = self.window.file_list_widget.item(row)
+            item.setHidden(item.data(Qt.UserRole) == self.paths[2])
+        self.window.update_file_navigation_actions()
+
+        self.assertEqual(
+            self.window._adjacent_visible_file(-1),
+            self.paths[1],
+        )
+        self.assertIsNone(self.window._adjacent_visible_file(1))
+
+    def test_next_and_previous_commands_follow_filtered_rows_without_wrap(self):
+        for row in range(self.window.file_list_widget.count()):
+            item = self.window.file_list_widget.item(row)
+            item.setData(
+                FILE_REVIEW_STATE_ROLE,
+                (
+                    "questioned"
+                    if item.data(Qt.UserRole) in (self.paths[1], self.paths[3])
+                    else "unreviewed"
+                ),
+            )
+        self.window.file_list_controls._set_filter(
+            "",
+            "all",
+            "questioned",
+            "all",
+        )
+        self.assertEqual(
+            self.window.visible_file_paths(),
+            [self.paths[1], self.paths[3]],
+        )
+
+        with patch.object(self.window, "load_file") as load_file:
+            self.window.open_next_image()
+            load_file.assert_called_once_with(self.paths[1])
+
+        self.window.file_path = self.paths[1]
+        self.window.cur_img_idx = self.window.m_img_list.index(self.paths[1])
+        with patch.object(self.window, "load_file") as load_file:
+            self.window.open_next_image()
+            load_file.assert_called_once_with(self.paths[3])
+
+        self.window.file_path = self.paths[3]
+        self.window.cur_img_idx = self.window.m_img_list.index(self.paths[3])
+        with patch.object(self.window, "load_file") as load_file:
+            self.window.open_next_image()
+            load_file.assert_not_called()
+            self.window.open_prev_image()
+            load_file.assert_called_once_with(self.paths[1])
+
+    def test_filter_resets_only_when_workspace_changes(self):
+        self.window.file_list_controls.filter_panel.text_edit.setText("03")
+        self.window.import_dir_images(self.image_dir)
+        self.assertEqual(
+            self.window.file_list_controls.state.text_filter,
+            "03",
+        )
+
+        other = os.path.join(self.temporary.name, "other")
+        os.makedirs(other)
+        image = QImage(40, 40, QImage.Format_RGB32)
+        image.fill(QColor("white"))
+        self.assertTrue(image.save(os.path.join(other, "other.png")))
+        self.window.import_dir_images(other)
+        self.assertFalse(self.window.file_list_controls.state.filter_active)
+
+    def test_ctrl_f_opens_filter_and_escape_keeps_active_conditions(self):
+        self.window.file_list_controls.filter_panel.text_edit.setText("03")
+        self.window.file_list_controls.filter_panel.hide()
+        self.window.file_list_widget.setFocus()
+
+        QTest.keyClick(
+            self.window.file_list_widget,
+            Qt.Key_F,
+            Qt.ControlModifier,
+        )
+        self.app.processEvents()
+        self.assertTrue(
+            self.window.file_list_controls.filter_panel.isVisible()
+        )
+
+        QTest.keyClick(
+            self.window.file_list_controls.filter_panel,
+            Qt.Key_Escape,
+        )
+        self.app.processEvents()
+        self.assertFalse(
+            self.window.file_list_controls.filter_panel.isVisible()
+        )
+        self.assertEqual(
+            self.window.file_list_controls.state.text_filter,
+            "03",
+        )
+
+        self.window.file_list_controls.sort_button.setFocus()
+        QTest.keyClick(
+            self.window.file_list_controls.sort_button,
+            Qt.Key_F,
+            Qt.ControlModifier,
+        )
+        self.app.processEvents()
+        self.assertTrue(
+            self.window.file_list_controls.filter_panel.isVisible()
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

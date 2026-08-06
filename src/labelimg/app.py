@@ -68,8 +68,10 @@ from labelimg.file_list import (
     FILE_ANNOTATION_STATE_ROLE,
     FILE_PERSISTENCE_FLAGS_ROLE,
     FILE_REVIEW_STATE_ROLE,
+    FileListControlBar,
     FileListItemDelegate,
     FileListWidget,
+    compare_relative_image_paths,
     validate_base_name,
     validate_rename_mapping,
 )
@@ -708,13 +710,49 @@ class MainWindow(QMainWindow, WindowMixin):
         self.file_list_widget.deleteRequested.connect(
             self.delete_selected_files
         )
+        self.file_list_widget.filterRequested.connect(
+            self.show_file_list_filter
+        )
         self.file_list_widget.setContextMenuPolicy(Qt.CustomContextMenu)
         self.file_list_widget.customContextMenuRequested.connect(
             self.pop_file_list_menu
         )
         file_list_layout = QVBoxLayout()
         file_list_layout.setContentsMargins(0, 0, 0, 0)
-        file_list_layout.addWidget(self.file_list_widget)
+        self.file_list_controls = FileListControlBar(
+            settings.get(SETTING_FILE_LIST_SORT_KEY, 'name'),
+            settings.get(SETTING_FILE_LIST_SORT_DESCENDING, False),
+        )
+        self.file_list_controls.viewChanged.connect(
+            self.apply_file_list_view
+        )
+        file_list_layout.addWidget(self.file_list_controls)
+        self.file_list_stack = QStackedWidget()
+        self.file_list_stack.addWidget(self.file_list_widget)
+        self.file_list_empty_state = QWidget()
+        empty_layout = QVBoxLayout(self.file_list_empty_state)
+        empty_layout.addStretch(1)
+        empty_label = QLabel('没有符合筛选条件的文件')
+        empty_label.setAlignment(Qt.AlignCenter)
+        empty_label.setStyleSheet('color: palette(mid);')
+        empty_layout.addWidget(empty_label)
+        self.file_list_clear_filter_button = QPushButton('清除筛选')
+        self.file_list_clear_filter_button.setSizePolicy(
+            QSizePolicy.Fixed,
+            QSizePolicy.Fixed,
+        )
+        self.file_list_clear_filter_button.clicked.connect(
+            self.file_list_controls.clear_filters
+        )
+        empty_layout.addWidget(
+            self.file_list_clear_filter_button,
+            0,
+            Qt.AlignHCenter,
+        )
+        empty_layout.addStretch(1)
+        self.file_list_stack.addWidget(self.file_list_empty_state)
+        self.file_list_stack.setCurrentWidget(self.file_list_widget)
+        file_list_layout.addWidget(self.file_list_stack)
         self.file_selection_count_label = QLabel()
         self.file_selection_count_label.setContentsMargins(6, 2, 6, 2)
         self.file_selection_count_label.setStyleSheet(
@@ -832,10 +870,12 @@ class MainWindow(QMainWindow, WindowMixin):
                                     None, 'copy', get_str('copyPrevBounding'))
 
         open_next_image = action(get_str('nextImg'), self.open_next_image,
-                                 'd', 'next', get_str('nextImgDetail'))
+                                 'd', 'next', get_str('nextImgDetail'),
+                                 enabled=False)
 
         open_prev_image = action(get_str('prevImg'), self.open_prev_image,
-                                 'a', 'prev', get_str('prevImgDetail'))
+                                 'a', 'prev', get_str('prevImgDetail'),
+                                 enabled=False)
 
         verify = action(get_str('verifyImg'), self.verify_image,
                         'space', 'verify', get_str('verifyImgDetail'))
@@ -984,6 +1024,7 @@ class MainWindow(QMainWindow, WindowMixin):
         # Store actions for further handling.
         self.actions = Struct(save=save, save_format=save_format, saveAs=save_as, open=open, close=close, resetAll=reset_all, deleteImg=delete_image,
                               verify=verify, question=question,
+                              openNext=open_next_image, openPrev=open_prev_image,
                               undoAnnotation=undo_annotation,
                               redoAnnotation=redo_annotation,
                               recentFileOperations=recent_file_operations,
@@ -2132,19 +2173,199 @@ class MainWindow(QMainWindow, WindowMixin):
             if image_path in selected
         ]
 
+    def visible_file_paths(self):
+        visible = {
+            item.data(Qt.UserRole)
+            for item in self.file_list_widget.visible_items()
+        }
+        return [
+            image_path
+            for image_path in self.m_img_list
+            if image_path in visible
+        ]
+
+    def show_file_list_filter(self):
+        self.file_list_controls.show_filter_panel()
+
+    def apply_file_list_view(self, scroll_current=True):
+        if not hasattr(self, 'file_list_controls'):
+            return
+        state = self.file_list_controls.state
+        items = {
+            self.file_list_widget.item(row).data(Qt.UserRole):
+            self.file_list_widget.item(row)
+            for row in range(self.file_list_widget.count())
+        }
+        paths = [path for path in items if path]
+        annotation_states = {
+            path: item.data(FILE_ANNOTATION_STATE_ROLE)
+            for path, item in items.items()
+        }
+        review_states = {
+            path: item.data(FILE_REVIEW_STATE_ROLE)
+            for path, item in items.items()
+        }
+        persistence_flags = {
+            path: tuple(
+                item.data(FILE_PERSISTENCE_FLAGS_ROLE) or ()
+            )
+            for path, item in items.items()
+        }
+        ordered = state.ordered_paths(
+            paths,
+            self.dir_name,
+            annotation_state_for=annotation_states.get,
+            review_state_for=review_states.get,
+        )
+        selected_paths = {
+            item.data(Qt.UserRole)
+            for item in self.file_list_widget.selectedItems()
+        }
+        focused_item = self.file_list_widget.currentItem()
+        focused_path = (
+            focused_item.data(Qt.UserRole)
+            if focused_item is not None
+            else None
+        )
+        blocker = QSignalBlocker(self.file_list_widget)
+        if ordered != self.m_img_list:
+            while self.file_list_widget.count():
+                self.file_list_widget.takeItem(0)
+            for path in ordered:
+                self.file_list_widget.addItem(items[path])
+        self.m_img_list = list(ordered)
+        self.img_count = len(self.m_img_list)
+        visible_count = 0
+        current_item = None
+        focused_item = None
+        for row, path in enumerate(self.m_img_list):
+            item = self.file_list_widget.item(row)
+            matches = state.matches(
+                path,
+                self.dir_name,
+                annotation_state_for=annotation_states.get,
+                review_state_for=review_states.get,
+                persistence_flags_for=persistence_flags.get,
+            )
+            item.setHidden(not matches)
+            if matches:
+                visible_count += 1
+            item.setSelected(path in selected_paths)
+            if path == self.file_path:
+                current_item = item
+            if path == focused_path and matches:
+                focused_item = item
+        if focused_item is not None:
+            self.file_list_widget.selectionModel().setCurrentIndex(
+                self.file_list_widget.indexFromItem(focused_item),
+                QItemSelectionModel.NoUpdate,
+            )
+        else:
+            self.file_list_widget.selectionModel().setCurrentIndex(
+                QModelIndex(),
+                QItemSelectionModel.NoUpdate,
+            )
+        self.file_list_widget._range_anchor_row = None
+        del blocker
+        if self.file_path in self.m_img_list:
+            self.cur_img_idx = self.m_img_list.index(self.file_path)
+        self.file_list_controls.set_workspace_available(
+            bool(self.dir_name and self.img_count)
+        )
+        show_empty = bool(
+            state.filter_active
+            and self.img_count
+            and visible_count == 0
+        )
+        self.file_list_stack.setCurrentWidget(
+            self.file_list_empty_state
+            if show_empty
+            else self.file_list_widget
+        )
+        self.update_current_file_marker()
+        if (
+            scroll_current
+            and current_item is not None
+            and not current_item.isHidden()
+        ):
+            self.file_list_widget.scrollToItem(
+                current_item,
+                QAbstractItemView.EnsureVisible,
+            )
+
+    def update_file_navigation_actions(self):
+        if not hasattr(self, 'actions'):
+            return
+        self.actions.openPrev.setEnabled(
+            self._adjacent_visible_file(-1) is not None
+        )
+        self.actions.openNext.setEnabled(
+            self._adjacent_visible_file(1) is not None
+        )
+
+    def _adjacent_visible_file(self, direction):
+        visible = set(self.visible_file_paths())
+        if not visible:
+            return None
+        if self.file_path not in self.m_img_list:
+            if direction > 0:
+                return next(
+                    (path for path in self.m_img_list if path in visible),
+                    None,
+                )
+            return None
+        start = self.m_img_list.index(self.file_path)
+        indexes = (
+            range(start + 1, len(self.m_img_list))
+            if direction > 0
+            else range(start - 1, -1, -1)
+        )
+        return next(
+            (
+                self.m_img_list[index]
+                for index in indexes
+                if self.m_img_list[index] in visible
+            ),
+            None,
+        )
+
     def update_file_selection_count(self):
         if not hasattr(self, 'file_selection_count_label'):
             return
         selected_count = len(self.file_list_widget.selectedItems())
         total_count = self.file_list_widget.count()
-        if selected_count:
-            text = '已选 %d / 共 %d' % (
-                selected_count,
-                total_count,
+        visible_count = len(self.file_list_widget.visible_items())
+        hidden_selected = sum(
+            item.isHidden()
+            for item in self.file_list_widget.selectedItems()
+        )
+        filter_active = bool(
+            hasattr(self, 'file_list_controls')
+            and self.file_list_controls.state.filter_active
+        )
+        if not filter_active:
+            self.file_selection_count_label.setText(
+                (
+                    '已选 %d / 共 %d' % (selected_count, total_count)
+                    if selected_count
+                    else '共 %d 个文件' % total_count
+                )
             )
-        else:
-            text = '共 %d 个文件' % total_count
-        self.file_selection_count_label.setText(text)
+            return
+        parts = ['显示 %d/%d' % (visible_count, total_count)]
+        if selected_count:
+            selection = '已选 %d' % selected_count
+            if hidden_selected:
+                selection += '（隐藏 %d）' % hidden_selected
+            parts.append(selection)
+        if (
+            filter_active
+            and self.file_path
+            and self.file_path in self.m_img_list
+            and self.file_path not in self.visible_file_paths()
+        ):
+            parts.append('当前图像已被筛选隐藏')
+        self.file_selection_count_label.setText(' · '.join(parts))
 
     def update_current_file_marker(self):
         current_path = (
@@ -2164,6 +2385,8 @@ class MainWindow(QMainWindow, WindowMixin):
                 ),
             )
         self.file_list_widget.viewport().update()
+        self.update_file_selection_count()
+        self.update_file_navigation_actions()
 
     def open_selected_file(self):
         paths = self.selected_file_paths()
@@ -2184,7 +2407,7 @@ class MainWindow(QMainWindow, WindowMixin):
         if item is None:
             select_all = menu.addAction('全选')
             select_all.triggered.connect(
-                self.file_list_widget.selectAll
+                self.file_list_widget.select_all_visible
             )
             select_all.setEnabled(self.file_list_widget.count() > 0)
             menu.exec_(
@@ -2229,7 +2452,7 @@ class MainWindow(QMainWindow, WindowMixin):
         select_menu = menu.addMenu('选择')
         select_all = select_menu.addAction('全选')
         select_all.triggered.connect(
-            self.file_list_widget.selectAll
+            self.file_list_widget.select_all_visible
         )
         invert = select_menu.addAction('反选')
         invert.triggered.connect(self.invert_file_selection)
@@ -2298,21 +2521,18 @@ class MainWindow(QMainWindow, WindowMixin):
         )
 
     def invert_file_selection(self):
-        selection_model = self.file_list_widget.selectionModel()
-        for index in range(self.file_list_widget.count()):
-            model_index = self.file_list_widget.model().index(index, 0)
-            selection_model.select(
-                model_index,
-                QItemSelectionModel.Toggle
-                | QItemSelectionModel.Rows,
-            )
+        blocker = QSignalBlocker(self.file_list_widget)
+        self.file_list_widget.invert_visible_selection()
+        del blocker
+        self.update_file_selection_count()
+        self.file_list_widget.viewport().update()
 
     def _select_files_by_role(self, role, state):
         blocker = QSignalBlocker(self.file_list_widget)
         self.file_list_widget.clearSelection()
         for index in range(self.file_list_widget.count()):
             item = self.file_list_widget.item(index)
-            if item.data(role) == state:
+            if not item.isHidden() and item.data(role) == state:
                 item.setSelected(True)
         del blocker
         self.update_file_selection_count()
@@ -3519,6 +3739,12 @@ class MainWindow(QMainWindow, WindowMixin):
         settings[SETTING_PAINT_LABEL] = self.display_label_option.isChecked()
         settings[SETTING_DRAW_SQUARE] = self.draw_squares_option.isChecked()
         settings[SETTING_LABEL_FILE_FORMAT] = self.annotation_format
+        settings[SETTING_FILE_LIST_SORT_KEY] = (
+            self.file_list_controls.state.sort_key
+        )
+        settings[SETTING_FILE_LIST_SORT_DESCENDING] = (
+            self.file_list_controls.state.descending
+        )
         settings.save()
 
     def _resolve_conflicts_for_close(self):
@@ -3795,7 +4021,11 @@ class MainWindow(QMainWindow, WindowMixin):
                     relative_path = os.path.join(root, file)
                     path = ustr(os.path.abspath(relative_path))
                     images.append(path)
-        images.sort(key=cmp_to_key(compare_image_paths))
+        images.sort(
+            key=cmp_to_key(
+                partial(compare_relative_image_paths, root=folder_path)
+            )
+        )
         return images
 
     def annotation_path_for_image(self, image_path):
@@ -3852,7 +4082,7 @@ class MainWindow(QMainWindow, WindowMixin):
             flags.append('degraded')
         return tuple(flags)
 
-    def update_file_list_item_status(self, image_path):
+    def update_file_list_item_status(self, image_path, refresh_view=True):
         if not image_path or image_path not in self.m_img_list:
             return
         index = self.m_img_list.index(image_path)
@@ -3881,10 +4111,16 @@ class MainWindow(QMainWindow, WindowMixin):
         if 'degraded' in flags:
             details.append('Read-only degraded annotation state')
         item.setToolTip('\n'.join(details))
+        if refresh_view:
+            self.apply_file_list_view()
 
     def refresh_file_list_statuses(self):
         for image_path in self.m_img_list:
-            self.update_file_list_item_status(image_path)
+            self.update_file_list_item_status(
+                image_path,
+                refresh_view=False,
+            )
+        self.apply_file_list_view()
 
     def refresh_candidate_labels(self):
         candidate_labels = list(
@@ -4026,17 +4262,19 @@ class MainWindow(QMainWindow, WindowMixin):
         if not self.may_continue() or not dir_path:
             return
 
-        if (
+        changing_workspace = (
             self.dir_name is None
             or os.path.abspath(self.dir_name)
             != os.path.abspath(dir_path)
-        ):
+        )
+        if changing_workspace:
             self.annotation_persistence.clear_conflicts(
                 tuple(self.annotation_persistence.conflicts)
             )
             self.annotation_editing.clear_workspace()
             self.annotation_scene.clear_workspace()
             self.file_operations.clear_recovery()
+            self.file_list_controls.clear_filters(emit=False)
         self.last_open_dir = dir_path
         self.dir_name = dir_path
         self.file_path = None
@@ -4079,8 +4317,7 @@ class MainWindow(QMainWindow, WindowMixin):
             item.setToolTip(image_path)
             self.file_list_widget.addItem(item)
         del blocker
-        self.update_file_selection_count()
-        self.update_current_file_marker()
+        self.apply_file_list_view(scroll_current=False)
 
     def verify_image(self, _value=False):
         self.toggle_image_status('toggle_verified')
@@ -4148,11 +4385,10 @@ class MainWindow(QMainWindow, WindowMixin):
         if self.file_path is None:
             return
 
-        if self.cur_img_idx - 1 >= 0:
-            self.cur_img_idx -= 1
-            filename = self.m_img_list[self.cur_img_idx]
-            if filename:
-                self.load_file(filename)
+        filename = self._adjacent_visible_file(-1)
+        if filename:
+            self.cur_img_idx = self.m_img_list.index(filename)
+            self.load_file(filename)
 
     def open_next_image(self, _value=False):
         self._cancel_annotation_edit_for_navigation()
@@ -4168,16 +4404,10 @@ class MainWindow(QMainWindow, WindowMixin):
         if self.img_count <= 0:
             return
 
-        filename = None
-        if self.file_path is None:
-            filename = self.m_img_list[0]
-            self.cur_img_idx = 0
-        else:
-            if self.cur_img_idx + 1 < self.img_count:
-                self.cur_img_idx += 1
-                filename = self.m_img_list[self.cur_img_idx]
+        filename = self._adjacent_visible_file(1)
 
         if filename:
+            self.cur_img_idx = self.m_img_list.index(filename)
             self.load_file(filename)
 
     def open_file(self, _value=False):

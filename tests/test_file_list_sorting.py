@@ -7,7 +7,7 @@ from labelimg.app import MainWindow, portable_logical_compare
 
 
 class FileListSortingTest(unittest.TestCase):
-    def test_images_match_windows_explorer_name_order(self):
+    def test_images_keep_relative_directories_as_natural_batches(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             nested_dir = os.path.join(temp_dir, "zzz")
             os.makedirs(nested_dir)
@@ -25,15 +25,14 @@ class FileListSortingTest(unittest.TestCase):
                 with open(path, "wb"):
                     pass
 
-            actual_names = [
-                os.path.basename(path)
+            actual_paths = [
+                os.path.relpath(path, temp_dir)
                 for path in MainWindow.scan_all_images(None, temp_dir)
             ]
 
             self.assertEqual(
-                actual_names,
+                actual_paths,
                 [
-                    "00nested.jpg",
                     "0dc52y1wpm.jpg",
                     "01z2revfcj.jpg",
                     "07oa6axaiz.jpg",
@@ -41,6 +40,7 @@ class FileListSortingTest(unittest.TestCase):
                     "042jl90w74.jpg",
                     "a9n2wdrngy.jpg",
                     "a70zu3nrb8.jpg",
+                    os.path.join("zzz", "00nested.jpg"),
                 ],
             )
 
