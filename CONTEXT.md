@@ -389,8 +389,24 @@ The format-specific persistence of image review state in the selected active ann
 _Avoid_: Pascal-only review file, format conversion, collection-wide CreateML flag
 
 **File annotation state**:
-The one mutually exclusive progress category shown for an image in the file list: unannotated when it has neither annotation boxes nor a review state; annotated when it has boxes but no review state; verified when its review state is verified; or questioned when its review state is questioned. File selection by state uses these same visible categories.
-_Avoid_: File-system status, overlapping status filter
+The binary presence of annotation boxes for an image, independent of image review state. An annotated image shows a hollow bounding-box indicator in the first file-list status column, while an unannotated image leaves it empty; file selection by annotation state uses this same distinction.
+_Avoid_: Combined progress category, review state, file-system status
+
+**File-list status columns**:
+The two compact, fixed leading columns before every file name: annotation presence first and image review state second. Their indicators are read-only row metadata: default states leave a centered slot empty without collapsing it, while clicks retain ordinary file selection and opening behavior and state changes remain explicit commands elsewhere.
+_Avoid_: File-name suffix, variable leading badges, combined status column
+
+**File-list state selection**:
+A file-selection command scoped to exactly one independent status dimension: annotation selection distinguishes annotated from unannotated regardless of review, while review selection distinguishes unreviewed, questioned, and verified regardless of annotation presence. Each command replaces the current file selection set with all matching files.
+_Avoid_: Combined progress-state selection, cross-dimension implicit filter, additive status selection
+
+**File-list review indicator**:
+The outline indicator in the second file-list status column: empty for unreviewed, an amber circled question mark for questioned, and a green circled check for verified. Shape and color both carry the non-default state, with the full review name available on hover.
+_Avoid_: Binary verification dot, review suffix, color-only indicator
+
+**File-list persistence alert**:
+The fixed trailing file-list indicator reserved for unsaved, conflicting, ambiguous, or degraded annotation persistence state, prioritized in that severity order from degraded through dirty. Its distinct warning shape shows only the highest-priority active alert while hover identification lists every active condition, leaving the file-name text as the unmodified display path.
+_Avoid_: File-name suffix, multiple trailing symbols, annotation progress state
 
 **Recoverable image deletion**:
 Removal of one current image or every image in a file selection context by moving each image and all matching Pascal VOC, YOLO, and CreateML annotation documents from both workspace annotation locations to the system recycle bin. Each image and its matching documents are one logical target: failure to recycle any member restores members already moved for that image before later targets continue. If that rollback is only partly successful, the recovery payload retains only identities that remain available in trash; already-consumed identities are never carried forward to block the residual recovery. Deletion does not preserve or separately prompt for unsaved changes to a targeted current image.

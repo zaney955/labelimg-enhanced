@@ -22,6 +22,10 @@ from labelimg.file_recovery import TrashIdentity
 from labelimg.file_list import (
     BatchRenameDialog,
     CURRENT_IMAGE_ROLE,
+    FILE_ANNOTATION_STATE_ROLE,
+    FILE_PERSISTENCE_FLAGS_ROLE,
+    FILE_REVIEW_STATE_ROLE,
+    FileListItemDelegate,
     PRESERVED_SELECTION_APPEARANCE_ROLE,
 )
 
@@ -344,6 +348,77 @@ class FileListSelectionTest(unittest.TestCase):
             selected.pixelColor(210, 2),
         )
 
+    def test_file_list_uses_fixed_status_name_and_alert_columns(self):
+        layout = FileListItemDelegate.row_layout(QRect(0, 0, 220, 30))
+
+        self.assertEqual(layout["annotation"].width(), 20)
+        self.assertEqual(layout["review"].width(), 20)
+        self.assertEqual(layout["alert"].width(), 20)
+        self.assertLess(layout["annotation"].right(), layout["review"].left())
+        self.assertLess(layout["review"].right(), layout["name"].left())
+        self.assertLess(layout["name"].right(), layout["alert"].left())
+
+    def test_delegate_paints_independent_annotation_and_review_icons(self):
+        item = self.window.file_list_widget.item(1)
+        item.setData(FILE_ANNOTATION_STATE_ROLE, "annotated")
+        item.setData(FILE_REVIEW_STATE_ROLE, "questioned")
+        item.setData(FILE_PERSISTENCE_FLAGS_ROLE, ())
+        image = self.render_file_item(QStyle.State_None)
+        layout = FileListItemDelegate.row_layout(QRect(0, 0, 220, 30))
+        base = image.pixelColor(210, 2)
+
+        for key in ("annotation", "review"):
+            rect = layout[key]
+            self.assertTrue(any(
+                image.pixelColor(x, y) != base
+                for y in range(rect.top(), rect.bottom() + 1)
+                for x in range(rect.left(), rect.right() + 1)
+            ))
+
+    def test_status_region_tooltips_are_independent(self):
+        item = self.window.file_list_widget.item(1)
+        item.setData(FILE_ANNOTATION_STATE_ROLE, "annotated")
+        item.setData(FILE_REVIEW_STATE_ROLE, "verified")
+        item.setData(
+            FILE_PERSISTENCE_FLAGS_ROLE,
+            ("dirty", "conflict", "ambiguous", "degraded"),
+        )
+        row = self.window.file_list_widget.visualItemRect(item)
+        layout = FileListItemDelegate.row_layout(row)
+
+        self.assertEqual(
+            self.window.file_list_widget.tooltip_at(
+                layout["annotation"].center()
+            ),
+            "已标注",
+        )
+        self.assertEqual(
+            self.window.file_list_widget.tooltip_at(
+                layout["review"].center()
+            ),
+            "已验证",
+        )
+        self.assertEqual(
+            self.window.file_list_widget.tooltip_at(
+                layout["name"].center()
+            ),
+            item.data(Qt.UserRole),
+        )
+        alert = self.window.file_list_widget.tooltip_at(
+            layout["alert"].center()
+        )
+        self.assertIn("未保存修改", alert)
+        self.assertIn("外部标注冲突", alert)
+        self.assertIn("选择活动标注文档", alert)
+        self.assertIn("只读降级状态", alert)
+
+        self.assertEqual(
+            FileListItemDelegate.highest_alert(
+                ("dirty", "ambiguous", "conflict", "degraded")
+            ),
+            "degraded",
+        )
+
     def test_open_next_preserves_selection(self):
         self.click_row(2)
         self.window.open_next_image()
@@ -494,6 +569,46 @@ class FileListSelectionTest(unittest.TestCase):
                 "清除选中的 2 个文件的全部标注…",
                 "删除选中的 2 个文件…",
             ],
+        )
+
+    def test_file_context_menu_splits_annotation_and_review_selection(self):
+        self.click_row(0)
+        point = self.window.file_list_widget.visualItemRect(
+            self.window.file_list_widget.item(0)
+        ).center()
+        captured = []
+
+        with patch.object(
+            QMenu,
+            "exec_",
+            new=lambda menu, *_arguments: captured.append(menu),
+        ):
+            self.window.pop_file_list_menu(point)
+
+        root = captured[0]
+        select_menu = next(
+            action.menu()
+            for action in root.actions()
+            if action.text() == "选择"
+        )
+        annotation_menu = next(
+            action.menu()
+            for action in select_menu.actions()
+            if action.text() == "按标注状态选择"
+        )
+        review_menu = next(
+            action.menu()
+            for action in select_menu.actions()
+            if action.text() == "按复核状态选择"
+        )
+
+        self.assertEqual(
+            [action.text() for action in annotation_menu.actions()],
+            ["未标注", "已标注"],
+        )
+        self.assertEqual(
+            [action.text() for action in review_menu.actions()],
+            ["未复核", "待复核", "已验证"],
         )
 
 

@@ -525,7 +525,7 @@ Menu text is derived from the next transition, for example:
 
 Long label values are escaped and elided in the menu; the status bar may show the full text. Unavailable actions are disabled. Attempting Undo past an evicted boundary gives a status explanation distinct from an image that never had history.
 
-File-list persistence conditions are orthogonal item-data roles rather than changes to selection painting. Dirty, conflicted, ambiguous-active-document, and degraded states use compact trailing markers and explanatory tooltips; they do not add blue leading blocks, replace the agreed translucent selection appearance, or change the gray hover appearance. History availability alone has no file-list marker.
+File-list persistence conditions are orthogonal item-data roles rather than changes to selection painting. Dirty, conflicted, ambiguous-active-document, and degraded states share one fixed trailing alert column: only the highest-priority active indicator is painted, while its region tooltip lists every active condition. These alerts never modify the file-name text, add blue leading blocks, replace the agreed translucent selection appearance, or change the gray hover appearance. History availability alone has no file-list indicator.
 
 ## Candidate labels
 

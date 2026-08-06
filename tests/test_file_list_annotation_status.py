@@ -22,6 +22,10 @@ from labelimg.file_recovery import (
     ReviewRecoveryRecord,
     TrashIdentity,
 )
+from labelimg.file_list import (
+    FILE_ANNOTATION_STATE_ROLE,
+    FILE_REVIEW_STATE_ROLE,
+)
 
 
 class FakeTrashAdapter:
@@ -153,26 +157,53 @@ class FileListAnnotationStatusTest(unittest.TestCase):
         self.window.set_dirty()
         return shape
 
-    def test_list_marks_annotated_verified_and_questioned_images(self):
-        self.assertEqual(self.item(0).text(), self.display_paths[0])
-        self.assertEqual(
-            self.item(1).text(),
-            self.display_paths[1] + "  ○",
+    def test_list_separates_annotation_and_review_states_from_filename(self):
+        expected_annotation = (
+            "unannotated",
+            "annotated",
+            "annotated",
+            "annotated",
         )
-        self.assertEqual(
-            self.item(2).text(),
-            self.display_paths[2] + "  ✓",
-        )
-        self.assertEqual(
-            self.item(3).text(),
-            self.display_paths[3] + "  ?",
+        expected_review = (
+            "unreviewed",
+            "unreviewed",
+            "verified",
+            "questioned",
         )
         for index, image_path in enumerate(self.image_paths):
+            self.assertEqual(self.item(index).text(), self.display_paths[index])
             self.assertEqual(
                 self.item(index).data(Qt.UserRole),
                 image_path,
             )
+            self.assertEqual(
+                self.item(index).data(FILE_ANNOTATION_STATE_ROLE),
+                expected_annotation[index],
+            )
+            self.assertEqual(
+                self.item(index).data(FILE_REVIEW_STATE_ROLE),
+                expected_review[index],
+            )
             self.assertEqual(self.item(index).toolTip(), image_path)
+
+    def test_state_selection_uses_independent_dimensions(self):
+        self.window.select_files_by_annotation_state("annotated")
+        self.assertEqual(
+            self.window.selected_file_paths(),
+            self.image_paths[1:],
+        )
+
+        self.window.select_files_by_review_state("unreviewed")
+        self.assertEqual(
+            self.window.selected_file_paths(),
+            self.image_paths[:2],
+        )
+
+        self.window.select_files_by_review_state("verified")
+        self.assertEqual(
+            self.window.selected_file_paths(),
+            [self.image_paths[2]],
+        )
 
     def test_nested_file_shows_relative_path_and_opens_absolute_path(self):
         nested_dir = os.path.join(self.image_dir, "nested")
@@ -245,7 +276,7 @@ class FileListAnnotationStatusTest(unittest.TestCase):
         self.assertFalse(self.window.canvas.verified)
         self.assertEqual(
             self.item(1).text(),
-            self.display_paths[1] + "  ?",
+            self.display_paths[1],
         )
 
     def test_loading_questioned_xml_restores_canvas_status(self):
@@ -266,7 +297,7 @@ class FileListAnnotationStatusTest(unittest.TestCase):
         self.assertEqual(root.findall("object"), [])
         self.assertEqual(
             self.item(0).text(),
-            self.display_paths[0] + "  ?",
+            self.display_paths[0],
         )
 
         self.window.question_image()
@@ -291,11 +322,11 @@ class FileListAnnotationStatusTest(unittest.TestCase):
             self.assertEqual(root.attrib.get("verified"), "yes")
         self.assertEqual(
             self.item(0).text(),
-            self.display_paths[0] + "  ✓",
+            self.display_paths[0],
         )
         self.assertEqual(
             self.item(1).text(),
-            self.display_paths[1] + "  ✓",
+            self.display_paths[1],
         )
 
     def test_batch_review_cancels_pending_edit_before_saving(self):
@@ -638,7 +669,7 @@ class FileListAnnotationStatusTest(unittest.TestCase):
 
         self.assertEqual(
             self.item(0).text(),
-            self.display_paths[0] + "  ✓",
+            self.display_paths[0],
         )
         self.assertEqual(self.item(1).text(), self.display_paths[1])
         self.assertEqual(self.item(2).text(), self.display_paths[2])
@@ -649,13 +680,13 @@ class FileListAnnotationStatusTest(unittest.TestCase):
         self.window.save_file()
         self.assertEqual(
             self.item(0).text(),
-            self.display_paths[0] + "  ○",
+            self.display_paths[0],
         )
 
         self.window.question_image()
         self.assertEqual(
             self.item(0).text(),
-            self.display_paths[0] + "  ?",
+            self.display_paths[0],
         )
         root = ElementTree.parse(
             os.path.join(self.annotation_dir, "01_blank.xml")
@@ -671,7 +702,7 @@ class FileListAnnotationStatusTest(unittest.TestCase):
         self.window.verify_image()
         self.assertEqual(
             self.item(0).text(),
-            self.display_paths[0] + "  ✓",
+            self.display_paths[0],
         )
         self.assertFalse(self.window.canvas.questioned)
         self.assertTrue(self.window.canvas.verified)
@@ -683,7 +714,7 @@ class FileListAnnotationStatusTest(unittest.TestCase):
         self.window.question_image()
         self.assertEqual(
             self.item(0).text(),
-            self.display_paths[0] + "  ?",
+            self.display_paths[0],
         )
         self.assertTrue(self.window.canvas.questioned)
         self.assertFalse(self.window.canvas.verified)
@@ -691,7 +722,7 @@ class FileListAnnotationStatusTest(unittest.TestCase):
         self.window.question_image()
         self.assertEqual(
             self.item(0).text(),
-            self.display_paths[0] + "  ○",
+            self.display_paths[0],
         )
         root = ElementTree.parse(
             os.path.join(self.annotation_dir, "01_blank.xml")
@@ -707,12 +738,12 @@ class FileListAnnotationStatusTest(unittest.TestCase):
         self.window.verify_image()
         self.assertEqual(
             self.item(0).text(),
-            self.display_paths[0] + "  ✓",
+            self.display_paths[0],
         )
         self.window.verify_image()
         self.assertEqual(
             self.item(0).text(),
-            self.display_paths[0] + "  ○",
+            self.display_paths[0],
         )
 
         self.window.canvas.select_shape(shape)
