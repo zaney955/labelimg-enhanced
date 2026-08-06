@@ -9,6 +9,7 @@ from PyQt5.QtGui import (
     QContextMenuEvent,
     QImage,
     QKeyEvent,
+    QPalette,
     QPainter,
 )
 from PyQt5.QtTest import QTest
@@ -74,6 +75,36 @@ class LabelGroupListWidgetTest(unittest.TestCase):
             visible_shapes=shapes if visible is None else visible,
         )
         self.app.processEvents()
+
+    def render_view(self):
+        image = QImage(
+            self.widget.viewport().size(),
+            QImage.Format_ARGB32,
+        )
+        image.fill(QColor("transparent"))
+        painter = QPainter(image)
+        self.widget.viewport().render(painter)
+        painter.end()
+        return image
+
+    @staticmethod
+    def blended(foreground, background, alpha):
+        ratio = alpha / 255.0
+        return QColor(
+            round(foreground.red() * ratio + background.red() * (1 - ratio)),
+            round(foreground.green() * ratio + background.green() * (1 - ratio)),
+            round(foreground.blue() * ratio + background.blue() * (1 - ratio)),
+        )
+
+    def assert_color_close(self, actual, expected, tolerance=2):
+        for actual_channel, expected_channel in zip(
+            actual.getRgb()[:3],
+            expected.getRgb()[:3],
+        ):
+            self.assertLessEqual(
+                abs(actual_channel - expected_channel),
+                tolerance,
+            )
 
     def test_groups_exact_labels_and_keeps_document_order(self):
         car_first = rectangle("car", 10)
@@ -189,18 +220,164 @@ class LabelGroupListWidgetTest(unittest.TestCase):
             ((visible, hidden), False),
         )
 
-    def test_button_uses_the_shape_opaque_outline_color(self):
+    def test_button_uses_transparent_fill_and_shape_outline_color(self):
         shape = rectangle("car", 10, QColor(12, 34, 56, 80))
         self.set_scene([shape])
-        image = QImage(self.widget.viewport().size(), QImage.Format_ARGB32)
-        image.fill(QColor("white"))
-        painter = QPainter(image)
-        self.widget.render(painter)
-        painter.end()
+        image = self.render_view()
+        rect = self.widget.instance_rect(shape)
+        base = self.widget.palette().color(QPalette.Base)
 
-        center = self.widget.instance_rect(shape).center()
-        actual = image.pixelColor(center)
-        self.assertEqual(actual, QColor(12, 34, 56, 255))
+        self.assert_color_close(
+            image.pixelColor(rect.left() + 5, rect.top() + 17),
+            base,
+        )
+        self.assert_color_close(
+            image.pixelColor(rect.left() + 1, rect.center().y()),
+            QColor(12, 34, 56),
+        )
+
+    def test_selected_button_uses_48_alpha_shape_fill(self):
+        shape = rectangle("car", 10, QColor(40, 120, 200))
+        self.set_scene([shape])
+        self.widget.project_selection((shape,), shape)
+
+        image = self.render_view()
+        rect = self.widget.instance_rect(shape)
+        expected = self.blended(
+            QColor(40, 120, 200),
+            self.widget.palette().color(QPalette.Base),
+            48,
+        )
+        self.assert_color_close(
+            image.pixelColor(rect.left() + 5, rect.top() + 5),
+            expected,
+        )
+
+    def test_hidden_button_stays_transparent_and_dims_its_outline(self):
+        shape = rectangle("car", 10, QColor(20, 80, 160))
+        self.set_scene([shape], visible=[])
+        image = self.render_view()
+        rect = self.widget.instance_rect(shape)
+        base = self.widget.palette().color(QPalette.Base)
+
+        self.assert_color_close(
+            image.pixelColor(rect.left() + 5, rect.top() + 17),
+            base,
+        )
+        self.assert_color_close(
+            image.pixelColor(rect.left() + 1, rect.center().y()),
+            self.blended(QColor(20, 80, 160), base, 115),
+        )
+
+    def test_hover_replaces_shape_outline_with_dashes(self):
+        shape = rectangle("car", 10, QColor(20, 80, 160))
+        self.set_scene([shape])
+        rect = self.widget.instance_rect(shape)
+
+        solid = self.render_view()
+        QTest.mouseMove(self.widget.viewport(), pos=rect.center())
+        dashed = self.render_view()
+
+        def colored_pixels(image):
+            return sum(
+                1
+                for x in range(rect.left() + 4, rect.right() - 3)
+                if max(
+                    abs(a - b)
+                    for a, b in zip(
+                        image.pixelColor(x, rect.top() + 1).getRgb()[:3],
+                        (20, 80, 160),
+                    )
+                ) < 35
+            )
+
+        self.assertGreater(colored_pixels(solid), colored_pixels(dashed))
+        self.assertGreater(colored_pixels(dashed), 0)
+
+    def test_selected_hover_keeps_fill_while_outline_becomes_dashed(self):
+        shape = rectangle("car", 10, QColor(40, 120, 200))
+        self.set_scene([shape])
+        self.widget.project_selection((shape,), shape)
+        rect = self.widget.instance_rect(shape)
+
+        QTest.mouseMove(self.widget.viewport(), pos=rect.center())
+        image = self.render_view()
+        hover_background = self.blended(
+            self.widget.palette().color(QPalette.Mid),
+            self.widget.palette().color(QPalette.Base),
+            45,
+        )
+        expected_fill = self.blended(
+            QColor(40, 120, 200),
+            hover_background,
+            48,
+        )
+
+        self.assert_color_close(
+            image.pixelColor(rect.left() + 5, rect.top() + 5),
+            expected_fill,
+        )
+        top_colors = [
+            image.pixelColor(x, rect.top() + 1)
+            for x in range(rect.left() + 4, rect.right() - 3)
+        ]
+        self.assertTrue(any(
+            max(
+                abs(a - b)
+                for a, b in zip(color.getRgb()[:3], (40, 120, 200))
+            ) < 35
+            for color in top_colors
+        ))
+        self.assertTrue(any(
+            max(
+                abs(a - b)
+                for a, b in zip(
+                    color.getRgb()[:3],
+                    expected_fill.getRgb()[:3],
+                )
+            ) < 5
+            for color in top_colors
+        ))
+
+    def test_group_hover_uses_file_list_gray_background(self):
+        shape = rectangle("car", 10)
+        self.set_scene([shape])
+        sample = QPointF(
+            self.widget.group_body_rect("car").right() - 3,
+            self.widget.group_body_rect("car").center().y(),
+        ).toPoint()
+        base = self.widget.palette().color(QPalette.Base)
+
+        QTest.mouseMove(self.widget.viewport(), pos=sample)
+        image = self.render_view()
+        expected = self.blended(
+            self.widget.palette().color(QPalette.Mid),
+            base,
+            45,
+        )
+
+        self.assert_color_close(image.pixelColor(sample), expected)
+
+    def test_count_and_visibility_columns_use_faint_dividers(self):
+        shape = rectangle("car", 10)
+        self.set_scene([shape])
+        image = self.render_view()
+        count = self.widget.count_rect_for_label("car")
+        visibility = self.widget.visibility_rect_for_label("car")
+        expected = self.blended(
+            self.widget.palette().color(QPalette.Mid),
+            self.widget.palette().color(QPalette.Base),
+            45,
+        )
+
+        self.assert_color_close(
+            image.pixelColor(count.left(), count.center().y()),
+            expected,
+        )
+        self.assert_color_close(
+            image.pixelColor(visibility.left(), visibility.center().y()),
+            expected,
+        )
 
     def test_overflow_keeps_all_instances_and_scrolls_only_the_strip(self):
         shapes = [rectangle("car", index * 20) for index in range(20)]

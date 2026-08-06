@@ -265,8 +265,8 @@ The compact numbered in-row control representing exactly one annotation box with
 _Avoid_: Group button, count badge, hidden overflow item
 
 **Annotation-instance button appearance**:
-The theme-background button with an outline matching that box's actual annotation color and a readable theme-colored number. Neither the row nor an unselected button uses category-color fill; selection preserves the outline and adds a modest 48/255 fill in the same annotation color plus a bold number, while a hidden button keeps its transparent interior, dims its outline and number to roughly 45%, and adds a fine slash.
-_Avoid_: Category-color fill, label-group-only color, solid hover border, state-overwrites-category-color
+The theme-background button with an outline matching that box's actual annotation color and a readable theme-colored number. Neither the row nor an unselected button uses category-color fill; selection adds a modest 48/255 fill in the same color plus a bold number, while hover independently changes the color outline from solid to dashed so a selected-hovered button retains both states; a hidden button dims its outline and number to roughly 45% and adds a fine slash.
+_Avoid_: Category-color fill, label-group-only color, additional hover outline, state-overwrites-category-color
 
 **Annotation-instance strip**:
 The independently horizontally scrollable portion of a label-group row containing every annotation-instance button while the label identity, total count, and aggregate visibility control remain fixed. Ordinary wheel input continues to scroll the list vertically, deliberate horizontal input moves the strip, and canvas selection minimally reveals its matching button without hover-driven movement; canvas hover over an off-strip instance instead emphasizes the corresponding overflow direction until explicitly revealed. Strip positions survive view changes within the current image, reset on image change, and are never persisted as annotation or workspace data.
@@ -317,8 +317,8 @@ The aggregate selection state of a label-group row with its label background pre
 _Avoid_: Full blue border, primary row, active-row emphasis, binary group selection
 
 **Annotation-list hover appearance**:
-The view-only outline of the complete annotation-list row in synchronized hover, including its visibility-control area: an approximately one-pixel neutral-gray rounded border inset from the row bounds, with its label background and text colors unchanged. A selected hovered row retains its existing left marker and bold text beneath the same gray outline, while the eye icon retains its own hover enhancement.
-_Avoid_: Hover background, blue border, bold hover text
+The view-only treatment of the complete annotation-list row in synchronized hover, including its visibility-control area: the same faint theme-gray background used by the file list plus an approximately one-pixel neutral-gray rounded border inset from the row bounds. A selected hovered row retains its selection marker and bold text, while instance buttons keep their own selection and category-color states.
+_Avoid_: Category-color hover background, blue border, bold hover text
 
 **Initial image selection**:
 The empty selection set established whenever an image becomes current, regardless of whether it was opened directly, reached by navigation, chosen from the file list, or revealed after deletion.
