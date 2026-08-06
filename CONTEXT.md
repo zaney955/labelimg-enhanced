@@ -257,7 +257,7 @@ The annotation boxes in the current image that share exactly the same label, inc
 _Avoid_: Dataset class, case-insensitive class, persistent group
 
 **Label-group row**:
-The single compact, theme-background right annotation-list row representing one label group, ordered by case-insensitive natural label order with exact text as the stable tie-breaker. Faint theme dividers separate rows and delineate the instance strip, count, and visibility columns; the neutral count is written as `×N` without a capsule, while category color is carried only by annotation-instance button borders.
+The single compact, theme-background right annotation-list row representing one label group, ordered by case-insensitive natural label order with exact text as the stable tie-breaker. Visible rows share a generous but bounded, content-fitted class-name column so long names may claim nearly half the row while instance buttons stay aligned and at least one remains complete; any remaining elision preserves full hover identification.
 _Avoid_: Annotation row, instance row, category row
 
 **Annotation-instance button**:
