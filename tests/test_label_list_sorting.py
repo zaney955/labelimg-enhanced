@@ -6,13 +6,12 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt5.QtCore import QEvent, QPointF, Qt
-from PyQt5.QtGui import QColor, QImage, QPainter
+from PyQt5.QtGui import QColor, QImage, QPainter, QPalette
 from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication
 
 from labelimg.app import MainWindow
 from labelimg.shape import Shape
-from labelimg.utils import label_display_color
 
 
 def rectangle(label, left, color=None):
@@ -85,17 +84,17 @@ class LabelListSortingTest(unittest.TestCase):
             (shapes[1], shapes[2]),
         )
 
-    def test_group_row_uses_the_opaque_label_display_color(self):
+    def test_group_row_uses_the_theme_background(self):
         self.load_shapes([rectangle("apple", 10)])
         image = self.render_view()
         label_rect = self.window.label_list.group_body_rect("apple")
 
         self.assertEqual(
             image.pixelColor(label_rect.right() - 3, label_rect.center().y()),
-            label_display_color("apple"),
+            self.window.label_list.palette().color(QPalette.Base),
         )
 
-    def test_instance_buttons_use_their_actual_box_colors(self):
+    def test_instance_buttons_use_actual_box_colors_only_on_outlines(self):
         first = rectangle("car", 10, QColor(12, 34, 56, 70))
         second = rectangle("car", 30, QColor(180, 90, 20, 80))
         self.load_shapes([first, second])
@@ -107,8 +106,12 @@ class LabelListSortingTest(unittest.TestCase):
         ):
             rect = self.window.label_list.instance_rect(shape)
             self.assertEqual(
-                image.pixelColor(rect.left() + 5, rect.top() + 5),
+                image.pixelColor(rect.left() + 1, rect.center().y()),
                 expected,
+            )
+            self.assertEqual(
+                image.pixelColor(rect.left() + 5, rect.top() + 5),
+                self.window.label_list.palette().color(QPalette.Base),
             )
 
     def test_canvas_selection_projects_partial_and_full_group_state(self):

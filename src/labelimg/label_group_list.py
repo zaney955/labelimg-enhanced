@@ -8,9 +8,6 @@ except ImportError:
     from PyQt4.QtCore import *
     from PyQt4.QtGui import *
 
-from labelimg.utils import label_display_color
-
-
 def _natural_label_key(text):
     parts = []
     for part in re.split(r"(\d+)", str(text).casefold()):
@@ -19,16 +16,6 @@ def _natural_label_key(text):
         else:
             parts.append((1, part))
     return tuple(parts), str(text)
-
-
-def _contrast_color(color):
-    color = QColor(color)
-    luminance = (
-        0.299 * color.red()
-        + 0.587 * color.green()
-        + 0.114 * color.blue()
-    )
-    return QColor(Qt.black if luminance >= 150 else Qt.white)
 
 
 class _LabelGroup(object):
@@ -68,6 +55,11 @@ class LabelGroupListWidget(QAbstractScrollArea):
     chip_gap = 4
     chip_step = chip_size + chip_gap
     drag_threshold = 5
+    selected_fill_alpha = 48
+    hover_background_alpha = 45
+    separator_alpha = 45
+    hidden_opacity = 0.45
+    outline_width = 2.0
 
     def __init__(self, parent=None):
         super(LabelGroupListWidget, self).__init__(parent)
@@ -336,6 +328,12 @@ class LabelGroupListWidget(QAbstractScrollArea):
             return QRect()
         return self._layout(group, self.row_rect_for_label(label))["visibility"]
 
+    def count_rect_for_label(self, label):
+        group = self._groups_by_label.get(str(label))
+        if group is None:
+            return QRect()
+        return self._layout(group, self.row_rect_for_label(label))["count"]
+
     def instance_rect(self, shape):
         group = self._shape_to_group.get(shape)
         if group is None:
@@ -399,22 +397,31 @@ class LabelGroupListWidget(QAbstractScrollArea):
 
     def _paint_group(self, painter, group, row_rect):
         layout = self._layout(group, row_rect)
-        background = label_display_color(group.label)
-        foreground = _contrast_color(background)
+        foreground = self.palette().color(QPalette.Text)
         selected = [shape for shape in group.shapes if shape in self._selected]
         all_selected = bool(selected) and len(selected) == len(group.shapes)
         partial_selected = bool(selected) and not all_selected
         row_hovered = self._row_is_hovered(group)
 
         painter.save()
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(background)
-        painter.drawRoundedRect(QRectF(row_rect.adjusted(1, 1, -1, -1)), 3, 3)
+        if row_hovered:
+            hover_background = QColor(self.palette().color(QPalette.Mid))
+            hover_background.setAlpha(self.hover_background_alpha)
+            painter.fillRect(row_rect, hover_background)
+
+        separator = QColor(self.palette().color(QPalette.Mid))
+        separator.setAlpha(self.separator_alpha)
+        painter.fillRect(
+            QRect(row_rect.left(), row_rect.bottom(), row_rect.width(), 1),
+            separator,
+        )
 
         if partial_selected:
+            painter.setPen(Qt.NoPen)
             painter.setBrush(self.palette().color(QPalette.Highlight))
             painter.drawEllipse(QPointF(row_rect.left() + 3, row_rect.center().y()), 3, 3)
         elif all_selected:
+            painter.setPen(Qt.NoPen)
             painter.setBrush(self.palette().color(QPalette.Highlight))
             painter.drawRoundedRect(
                 QRectF(
@@ -441,6 +448,7 @@ class LabelGroupListWidget(QAbstractScrollArea):
         self._paint_strip(painter, group, layout, foreground)
         self._paint_count(painter, group, layout["count"], foreground)
         self._paint_visibility(painter, group, layout["visibility"], foreground)
+        self._paint_column_dividers(painter, layout)
 
         if row_hovered:
             painter.setBrush(Qt.NoBrush)
@@ -465,45 +473,39 @@ class LabelGroupListWidget(QAbstractScrollArea):
                 continue
             color = QColor(shape.line_color)
             color.setAlpha(255)
-            foreground = _contrast_color(color)
             is_visible = shape in self._visible_shapes
             is_selected = shape in self._selected
             is_hovered = shape is hovered_shape
             painter.save()
             if not is_visible:
-                painter.setOpacity(0.45)
-            painter.setBrush(color)
-            if is_selected:
-                pen = QPen(self.palette().color(QPalette.Highlight), 2, Qt.SolidLine)
+                painter.setOpacity(self.hidden_opacity)
+            if is_selected and is_visible:
+                fill = QColor(color)
+                fill.setAlpha(self.selected_fill_alpha)
+                painter.setBrush(fill)
             else:
-                boundary = QColor(foreground)
-                boundary.setAlpha(170)
-                pen = QPen(boundary, 1, Qt.SolidLine)
+                painter.setBrush(Qt.NoBrush)
+            pen = QPen(
+                color,
+                self.outline_width,
+                Qt.CustomDashLine if is_hovered else Qt.SolidLine,
+                Qt.RoundCap,
+                Qt.RoundJoin,
+            )
+            if is_hovered:
+                pen.setDashPattern([3.0, 2.5])
             painter.setPen(pen)
             painter.drawRoundedRect(QRectF(rect).adjusted(1, 1, -1, -1), 3, 3)
             font = QFont(painter.font())
             font.setBold(is_selected)
             painter.setFont(font)
-            painter.setPen(foreground)
+            painter.setPen(self.palette().color(QPalette.Text))
             painter.drawText(rect, Qt.AlignCenter, str(index + 1))
             if not is_visible:
-                slash = QColor(foreground)
+                slash = QColor(self.palette().color(QPalette.Text))
                 painter.setPen(QPen(slash, 1.2, Qt.SolidLine, Qt.RoundCap))
                 painter.drawLine(rect.topLeft() + QPoint(4, 4), rect.bottomRight() - QPoint(4, 4))
             painter.restore()
-
-            if is_hovered:
-                painter.save()
-                painter.setBrush(Qt.NoBrush)
-                painter.setPen(QPen(
-                    self.palette().color(QPalette.Mid),
-                    1,
-                    Qt.DashLine,
-                    Qt.RoundCap,
-                    Qt.RoundJoin,
-                ))
-                painter.drawRoundedRect(QRectF(rect).adjusted(0.5, 0.5, -0.5, -0.5), 4, 4)
-                painter.restore()
         painter.restore()
 
         if layout["overflow"]:
@@ -544,14 +546,29 @@ class LabelGroupListWidget(QAbstractScrollArea):
 
     def _paint_count(self, painter, group, rect, foreground):
         painter.save()
-        backing = QColor(Qt.black if foreground == QColor(Qt.white) else Qt.white)
-        backing.setAlpha(45)
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(backing)
-        capsule = QRectF(rect).adjusted(3, 6, -3, -6)
-        painter.drawRoundedRect(capsule, capsule.height() / 2.0, capsule.height() / 2.0)
         painter.setPen(foreground)
-        painter.drawText(rect, Qt.AlignCenter, str(len(group.shapes)))
+        painter.drawText(
+            rect.adjusted(3, 0, -5, 0),
+            Qt.AlignVCenter | Qt.AlignRight,
+            "×%d" % len(group.shapes),
+        )
+        painter.restore()
+
+    def _paint_column_dividers(self, painter, layout):
+        color = QColor(self.palette().color(QPalette.Mid))
+        color.setAlpha(self.separator_alpha)
+        painter.save()
+        top = layout["row"].top() + 5
+        bottom = layout["row"].bottom() - 5
+        height = max(0, bottom - top + 1)
+        painter.fillRect(
+            QRect(layout["count"].left(), top, 1, height),
+            color,
+        )
+        painter.fillRect(
+            QRect(layout["visibility"].left(), top, 1, height),
+            color,
+        )
         painter.restore()
 
     def _paint_visibility(self, painter, group, rect, color):
