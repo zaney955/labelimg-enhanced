@@ -21,6 +21,7 @@ from labelimg.constants import (
     SETTING_FILE_LIST_SORT_KEY,
 )
 from labelimg.settings import Settings
+from labelimg.i18n import SIMPLIFIED_CHINESE, set_language
 
 
 class FileListViewStateTest(unittest.TestCase):
@@ -149,6 +150,9 @@ class FileListControlsTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self):
+        set_language(SIMPLIFIED_CHINESE)
 
     def tearDown(self):
         if hasattr(self, "widget"):

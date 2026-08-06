@@ -40,6 +40,7 @@ except ImportError:
     )
 
 from labelimg.utils import label_display_color, label_validator, new_icon, trimmed
+from labelimg.i18n import language_changed, localize_dialog_buttons
 
 
 BB = QDialogButtonBox
@@ -240,6 +241,8 @@ class CandidateLabelDialog(QDialog):
         self.dialog_layout = layout = QVBoxLayout()
         layout.addWidget(self.edit)
         self.button_box = bb = BB(BB.Ok | BB.Cancel, Qt.Horizontal, self)
+        localize_dialog_buttons(bb)
+        language_changed.connect(self.retranslate_ui)
         bb.button(BB.Ok).setIcon(new_icon("done"))
         bb.button(BB.Cancel).setIcon(new_icon("undo"))
         bb.accepted.connect(self.validate)
@@ -256,6 +259,9 @@ class CandidateLabelDialog(QDialog):
 
         self.setLayout(layout)
         self.set_candidate_labels(list_item or ())
+
+    def retranslate_ui(self, _language=None):
+        localize_dialog_buttons(self.button_box)
 
     def set_candidate_labels(self, labels):
         labels = tuple(str(label) for label in labels if str(label))

@@ -8,6 +8,8 @@ except ImportError:
 
 BB = QDialogButtonBox
 
+from labelimg.i18n import localize_dialog_buttons
+
 
 class ColorDialog(QColorDialog):
 
@@ -22,9 +24,11 @@ class ColorDialog(QColorDialog):
         self.default = None
         self.bb = self.layout().itemAt(1).widget()
         self.bb.addButton(BB.RestoreDefaults)
+        localize_dialog_buttons(self.bb)
         self.bb.clicked.connect(self.check_restore)
 
     def getColor(self, value=None, title=None, default=None):
+        localize_dialog_buttons(self.bb)
         self.default = default
         if title:
             self.setWindowTitle(title)

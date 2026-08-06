@@ -47,6 +47,7 @@ from PyQt5.QtWidgets import (
 )
 
 from labelimg.file_operations import exact_annotation_paths
+from labelimg.i18n import language_changed, localize_dialog_buttons, tr
 
 
 CURRENT_IMAGE_ROLE = Qt.UserRole + 1
@@ -371,52 +372,73 @@ class FileListFilterPanel(QFrame):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
-        title = QLabel("筛选文件")
-        title_font = title.font()
+        self.title_label = QLabel()
+        title_font = self.title_label.font()
         title_font.setBold(True)
-        title.setFont(title_font)
-        layout.addWidget(title)
+        self.title_label.setFont(title_font)
+        layout.addWidget(self.title_label)
         self.text_edit = QLineEdit()
-        self.text_edit.setPlaceholderText("筛选文件名或相对路径…")
         self.text_edit.setClearButtonEnabled(True)
         layout.addWidget(self.text_edit)
         form = QFormLayout()
         form.setContentsMargins(0, 0, 0, 0)
         self.annotation_combo = QComboBox()
         self._add_options(self.annotation_combo, (
-            ("全部", "all"),
-            ("未标注", "unannotated"),
-            ("已标注", "annotated"),
+            ("common.all", "all"),
+            ("state.unannotated", "unannotated"),
+            ("state.annotated", "annotated"),
         ))
         self.review_combo = QComboBox()
         self._add_options(self.review_combo, (
-            ("全部", "all"),
-            ("未复核", "unreviewed"),
-            ("待复核", "questioned"),
-            ("已验证", "verified"),
+            ("common.all", "all"),
+            ("state.unreviewed", "unreviewed"),
+            ("state.questioned", "questioned"),
+            ("state.verified", "verified"),
         ))
         self.alert_combo = QComboBox()
         self._add_options(self.alert_combo, (
-            ("全部", "all"),
-            ("无告警", "none"),
-            ("有告警", "any"),
+            ("common.all", "all"),
+            ("fileFilter.none", "none"),
+            ("fileFilter.any", "any"),
         ))
-        form.addRow("标注状态", self.annotation_combo)
-        form.addRow("复核状态", self.review_combo)
-        form.addRow("持久化状态", self.alert_combo)
+        self.annotation_label = QLabel()
+        self.review_label = QLabel()
+        self.alert_label = QLabel()
+        form.addRow(self.annotation_label, self.annotation_combo)
+        form.addRow(self.review_label, self.review_combo)
+        form.addRow(self.alert_label, self.alert_combo)
+        self.form = form
         layout.addLayout(form)
-        self.clear_button = QPushButton("清除全部筛选")
+        self.clear_button = QPushButton()
         layout.addWidget(self.clear_button)
         self.text_edit.textChanged.connect(self._emit_filter)
         self.annotation_combo.currentIndexChanged.connect(self._emit_filter)
         self.review_combo.currentIndexChanged.connect(self._emit_filter)
         self.alert_combo.currentIndexChanged.connect(self._emit_filter)
         self.clear_button.clicked.connect(self.clearRequested)
+        language_changed.connect(self.retranslate_ui)
+        self.retranslate_ui()
 
     @staticmethod
     def _add_options(combo, options):
-        for label, value in options:
-            combo.addItem(label, value)
+        for message_id, value in options:
+            combo.addItem(tr(message_id), value)
+            combo.setItemData(combo.count() - 1, message_id, Qt.UserRole + 1)
+
+    def retranslate_ui(self, _language=None):
+        self.title_label.setText(tr("fileFilter.title"))
+        self.text_edit.setPlaceholderText(tr("fileFilter.placeholder"))
+        self.annotation_label.setText(tr("fileFilter.annotation"))
+        self.review_label.setText(tr("fileFilter.review"))
+        self.alert_label.setText(tr("fileFilter.persistence"))
+        self.clear_button.setText(tr("fileFilter.clearAll"))
+        for combo in (
+            self.annotation_combo,
+            self.review_combo,
+            self.alert_combo,
+        ):
+            for index in range(combo.count()):
+                combo.setItemText(index, tr(combo.itemData(index, Qt.UserRole + 1)))
 
     def _emit_filter(self, _value=None):
         self.filterChanged.emit(
@@ -476,11 +498,11 @@ class FileListFilterPanel(QFrame):
 class FileListControlBar(QWidget):
     viewChanged = pyqtSignal()
 
-    SORT_LABELS = {
-        "name": "文件名",
-        "modified": "修改时间",
-        "annotation": "标注状态",
-        "review": "复核状态",
+    SORT_LABEL_IDS = {
+        "name": "fileSort.name",
+        "modified": "fileSort.modified",
+        "annotation": "fileSort.annotation",
+        "review": "fileSort.review",
     }
 
     def __init__(self, sort_key="name", descending=False, parent=None):
@@ -491,10 +513,7 @@ class FileListControlBar(QWidget):
         layout.setSpacing(2)
         layout.addStretch(1)
         self.sort_button = FileListControlButton("sort", self)
-        self.sort_button.setAccessibleName("排序")
         self.filter_button = FileListControlButton("filter", self)
-        self.filter_button.setAccessibleName("筛选")
-        self.filter_button.setToolTip("筛选：未启用")
         self.sort_button.installEventFilter(self)
         self.filter_button.installEventFilter(self)
         layout.addWidget(self.sort_button)
@@ -504,7 +523,7 @@ class FileListControlBar(QWidget):
         self.sort_group.setExclusive(True)
         self.sort_actions = {}
         for key in FileListViewState.SORT_KEYS:
-            action = self.sort_menu.addAction(self.SORT_LABELS[key])
+            action = self.sort_menu.addAction("")
             action.setCheckable(True)
             action.setData(key)
             self.sort_group.addAction(action)
@@ -515,9 +534,9 @@ class FileListControlBar(QWidget):
         self.sort_menu.addSeparator()
         self.direction_group = QActionGroup(self.sort_menu)
         self.direction_group.setExclusive(True)
-        self.ascending_action = self.sort_menu.addAction("升序")
+        self.ascending_action = self.sort_menu.addAction("")
         self.ascending_action.setCheckable(True)
-        self.descending_action = self.sort_menu.addAction("降序")
+        self.descending_action = self.sort_menu.addAction("")
         self.descending_action.setCheckable(True)
         self.direction_group.addAction(self.ascending_action)
         self.direction_group.addAction(self.descending_action)
@@ -528,8 +547,8 @@ class FileListControlBar(QWidget):
             lambda checked=False: self._set_descending(True)
         )
         self.sort_menu.addSeparator()
-        reset_sort = self.sort_menu.addAction("恢复默认排序")
-        reset_sort.triggered.connect(self.reset_sort)
+        self.reset_sort_action = self.sort_menu.addAction("")
+        self.reset_sort_action.triggered.connect(self.reset_sort)
         self.sort_button.setMenu(self.sort_menu)
         self.sort_button.setPopupMode(QToolButton.InstantPopup)
         self.filter_panel = FileListFilterPanel(self)
@@ -537,6 +556,20 @@ class FileListControlBar(QWidget):
         self.filter_panel.clearRequested.connect(self.clear_filters)
         self.filter_button.clicked.connect(self.show_filter_panel)
         self.set_workspace_available(False)
+        self._update_sort_presentation()
+        self._update_filter_presentation()
+        language_changed.connect(self.retranslate_ui)
+        self.retranslate_ui()
+
+    def retranslate_ui(self, _language=None):
+        self.sort_button.setAccessibleName(tr("fileSort.sort"))
+        self.filter_button.setAccessibleName(tr("fileSort.filter"))
+        for key, action in self.sort_actions.items():
+            action.setText(tr(self.SORT_LABEL_IDS[key]))
+        self.ascending_action.setText(tr("fileSort.ascending"))
+        self.descending_action.setText(tr("fileSort.descending"))
+        self.reset_sort_action.setText(tr("fileSort.reset"))
+        self.filter_panel.retranslate_ui()
         self._update_sort_presentation()
         self._update_filter_presentation()
 
@@ -592,11 +625,16 @@ class FileListControlBar(QWidget):
         self.ascending_action.setChecked(not self.state.descending)
         self.descending_action.setChecked(self.state.descending)
         self.sort_button.set_descending(self.state.descending)
-        direction = "降序" if self.state.descending else "升序"
+        direction = tr(
+            "fileSort.descending"
+            if self.state.descending
+            else "fileSort.ascending"
+        )
         self.sort_button.setToolTip(
-            "排序：%s · %s" % (
-                self.SORT_LABELS[self.state.sort_key],
-                direction,
+            tr(
+                "fileSort.tooltip",
+                key=tr(self.SORT_LABEL_IDS[self.state.sort_key]),
+                direction=direction,
             )
         )
 
@@ -629,28 +667,33 @@ class FileListControlBar(QWidget):
     def _update_filter_presentation(self):
         self.filter_button.set_active(self.state.filter_active)
         if not self.state.filter_active:
-            self.filter_button.setToolTip("筛选：未启用")
+            self.filter_button.setToolTip(tr("fileFilter.disabled"))
             return
         labels = []
         if self.state.text_filter:
-            labels.append("路径包含 %s" % self.state.text_filter)
+            labels.append(tr("fileFilter.pathContains", text=self.state.text_filter))
         labels.append({
-            "all": "标注：全部",
-            "unannotated": "标注：未标注",
-            "annotated": "标注：已标注",
+            "all": "common.all",
+            "unannotated": "state.unannotated",
+            "annotated": "state.annotated",
         }[self.state.annotation_filter])
+        labels[-1] = tr("fileFilter.annotationValue", value=tr(labels[-1]))
         labels.append({
-            "all": "复核：全部",
-            "unreviewed": "复核：未复核",
-            "questioned": "复核：待复核",
-            "verified": "复核：已验证",
+            "all": "common.all",
+            "unreviewed": "state.unreviewed",
+            "questioned": "state.questioned",
+            "verified": "state.verified",
         }[self.state.review_filter])
+        labels[-1] = tr("fileFilter.reviewValue", value=tr(labels[-1]))
         labels.append({
-            "all": "告警：全部",
-            "none": "告警：无",
-            "any": "告警：有",
+            "all": "common.all",
+            "none": "fileFilter.none",
+            "any": "fileFilter.any",
         }[self.state.alert_filter])
-        self.filter_button.setToolTip("筛选：" + " · ".join(labels))
+        labels[-1] = tr("fileFilter.alertValue", value=tr(labels[-1]))
+        self.filter_button.setToolTip(
+            tr("fileFilter.tooltip", details=" · ".join(labels))
+        )
 
     def show_filter_panel(self, _checked=False):
         if not self.filter_button.isEnabled():
@@ -772,26 +815,27 @@ class FileListWidget(QListWidget):
             return item.toolTip()
         layout = delegate.row_layout(self.visualItemRect(item))
         if layout["annotation"].contains(point):
-            return (
-                "已标注"
+            return tr(
+                "state.annotated"
                 if item.data(FILE_ANNOTATION_STATE_ROLE) == "annotated"
-                else "未标注"
+                else "state.unannotated"
             )
         if layout["review"].contains(point):
-            return {
-                "questioned": "待复核",
-                "verified": "已验证",
-                "unreviewed": "未复核",
-            }.get(item.data(FILE_REVIEW_STATE_ROLE), "未复核")
+            message_id = {
+                "questioned": "state.questioned",
+                "verified": "state.verified",
+                "unreviewed": "state.unreviewed",
+            }.get(item.data(FILE_REVIEW_STATE_ROLE), "state.unreviewed")
+            return tr(message_id)
         if layout["alert"].contains(point):
             labels = {
-                "dirty": "未保存修改",
-                "conflict": "外部标注冲突",
-                "ambiguous": "选择活动标注文档",
-                "degraded": "只读降级状态",
+                "dirty": "state.dirty",
+                "conflict": "state.conflict",
+                "ambiguous": "state.ambiguous",
+                "degraded": "state.degraded",
             }
             return "\n".join(
-                labels[flag]
+                tr(labels[flag])
                 for flag in item.data(FILE_PERSISTENCE_FLAGS_ROLE) or ()
                 if flag in labels
             )
@@ -1306,11 +1350,11 @@ class BatchRenameDialog(QDialog):
         self.display_root = display_root
         self.save_dir = save_dir
         self._mapping = {}
-        self.setWindowTitle("批量重命名")
+        self.setWindowTitle(tr("renameBatch.title"))
         self.resize(760, 480)
 
         self.prefix_edit = QLineEdit()
-        self.template_edit = QLineEdit("{原名}")
+        self.template_edit = QLineEdit(tr("renameBatch.defaultTemplate"))
         self.suffix_edit = QLineEdit()
         self.start_spin = QSpinBox()
         self.start_spin.setRange(0, 999999999)
@@ -1320,26 +1364,30 @@ class BatchRenameDialog(QDialog):
         self.width_spin.setValue(4)
 
         form = QFormLayout()
-        form.addRow("统一前缀", self.prefix_edit)
-        form.addRow("名称模板", self.template_edit)
-        form.addRow("统一后缀", self.suffix_edit)
+        form.addRow(tr("renameBatch.prefix"), self.prefix_edit)
+        form.addRow(tr("renameBatch.template"), self.template_edit)
+        form.addRow(tr("renameBatch.suffix"), self.suffix_edit)
         numbers = QHBoxLayout()
-        numbers.addWidget(QLabel("起始序号"))
+        numbers.addWidget(QLabel(tr("renameBatch.start")))
         numbers.addWidget(self.start_spin)
         numbers.addSpacing(16)
-        numbers.addWidget(QLabel("编号位数"))
+        numbers.addWidget(QLabel(tr("renameBatch.width")))
         numbers.addWidget(self.width_spin)
         numbers.addStretch(1)
-        form.addRow("序号", numbers)
+        form.addRow(tr("renameBatch.sequence"), numbers)
 
         help_label = QLabel(
-            "模板支持 {原名} 和 {序号}；文件目录与扩展名保持不变。"
+            tr("renameBatch.help")
         )
         help_label.setWordWrap(True)
 
         self.preview = QTableWidget(0, 3)
         self.preview.setHorizontalHeaderLabels(
-            ("原路径", "新文件名", "校验")
+            (
+                tr("renameBatch.oldPath"),
+                tr("renameBatch.newName"),
+                tr("renameBatch.validation"),
+            )
         )
         self.preview.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.preview.setSelectionMode(QAbstractItemView.NoSelection)
@@ -1353,7 +1401,8 @@ class BatchRenameDialog(QDialog):
         self.buttons = QDialogButtonBox(
             QDialogButtonBox.Ok | QDialogButtonBox.Cancel
         )
-        self.buttons.button(QDialogButtonBox.Ok).setText("重命名")
+        localize_dialog_buttons(self.buttons)
+        self.buttons.button(QDialogButtonBox.Ok).setText(tr("renameBatch.rename"))
         self.buttons.accepted.connect(self.accept)
         self.buttons.rejected.connect(self.reject)
 
@@ -1396,6 +1445,8 @@ class BatchRenameDialog(QDialog):
                 template
                 .replace("{原名}", stem)
                 .replace("{序号}", sequence)
+                .replace("{original}", stem)
+                .replace("{sequence}", sequence)
             )
             new_stem = prefix + expanded + suffix
             target = os.path.join(
@@ -1404,7 +1455,7 @@ class BatchRenameDialog(QDialog):
             )
             mapping[source] = target
             error = (
-                "模板包含未知占位符"
+                tr("renameBatch.unknownToken")
                 if unknown_template
                 else validate_base_name(new_stem, target)
             )
@@ -1425,7 +1476,7 @@ class BatchRenameDialog(QDialog):
             self.preview.setItem(
                 row,
                 2,
-                QTableWidgetItem(error or "可用"),
+                QTableWidgetItem(error or tr("common.available")),
             )
 
         mapping_errors = validate_rename_mapping(
@@ -1447,28 +1498,28 @@ class BatchRenameDialog(QDialog):
         self.buttons.button(QDialogButtonBox.Ok).setEnabled(valid)
         if row_errors:
             self.message.setText(
-                "请先解决预览中的命名冲突或非法名称。"
+                tr("renameBatch.resolveErrors")
             )
         elif not changed:
-            self.message.setText("新名称与原名称完全相同。")
+            self.message.setText(tr("renameBatch.unchanged"))
         else:
             self.message.setText(
-                "将按当前预览同步重命名图片及关联标注。"
+                tr("renameBatch.ready")
             )
 
 
 def validate_base_name(base_name, full_path=None):
     if not base_name:
-        return "名称不能为空"
+        return tr("renameError.empty")
     if INVALID_FILENAME_CHARACTERS.search(base_name):
-        return "名称包含非法字符"
+        return tr("renameError.invalidChars")
     if base_name.endswith((" ", ".")):
-        return "名称不能以空格或句点结尾"
+        return tr("renameError.trailing")
     reserved_key = base_name.split(".", 1)[0].upper()
     if reserved_key in WINDOWS_RESERVED_NAMES:
-        return "名称是 Windows 保留名称"
+        return tr("renameError.reserved")
     if full_path is not None and os.name == "nt" and len(full_path) >= 260:
-        return "完整路径过长"
+        return tr("renameError.pathLong")
     return ""
 
 
@@ -1491,11 +1542,11 @@ def validate_rename_mapping(mapping, save_dir=None):
         target_key = os.path.normcase(os.path.abspath(target))
         owner = target_owners.get(target_key)
         if owner is not None and owner != source:
-            errors[source] = "新名称与另一选中项重复"
-            errors[owner] = "新名称与另一选中项重复"
+            errors[source] = tr("renameError.duplicate")
+            errors[owner] = tr("renameError.duplicate")
         target_owners[target_key] = source
         if os.path.exists(target) and target_key not in source_keys:
-            errors[source] = "目标图片已存在"
+            errors[source] = tr("renameError.imageExists")
 
         old_stem = os.path.splitext(os.path.basename(source))[0]
         new_stem = os.path.splitext(os.path.basename(target))[0]
@@ -1516,7 +1567,7 @@ def validate_rename_mapping(mapping, save_dir=None):
                 os.path.exists(annotation_target)
                 and target_annotation_key not in annotation_source_keys
             ):
-                errors[source] = "关联标注目标已存在"
+                errors[source] = tr("renameError.annotationExists")
             if old_stem.casefold() == new_stem.casefold():
                 continue
     return errors
@@ -1527,6 +1578,8 @@ def _has_unknown_template_tokens(template):
         template
         .replace("{原名}", "")
         .replace("{序号}", "")
+        .replace("{original}", "")
+        .replace("{sequence}", "")
     )
     return "{" in stripped or "}" in stripped
 

@@ -32,7 +32,22 @@ from labelimg.constants import *
 from labelimg.utils import *
 from labelimg.settings import Settings
 from labelimg.shape import Shape, DEFAULT_LINE_COLOR, DEFAULT_FILL_COLOR
-from labelimg.stringBundle import StringBundle
+from labelimg.i18n import (
+    ENGLISH,
+    LANGUAGE_NAMES,
+    SIMPLIFIED_CHINESE,
+    current_language,
+    critical as localized_critical,
+    information as localized_information,
+    localize_dialog_buttons,
+    localize_message_box_buttons,
+    question as localized_question,
+    set_language,
+    system_language,
+    tr,
+    translate_history_description,
+    warning as localized_warning,
+)
 from labelimg.canvas import Canvas
 from labelimg.zoomWidget import ZoomWidget
 from labelimg.candidate_label_dialog import CandidateLabelDialog
@@ -573,11 +588,11 @@ class MainWindow(QMainWindow, WindowMixin):
         self.settings.load()
         settings = self.settings
 
+        set_language(settings.get(SETTING_LANGUAGE, system_language()))
+
         self.os_name = platform.system()
 
-        # Load string bundle for i18n
-        self.string_bundle = StringBundle.get_bundle()
-        get_str = lambda str_id: self.string_bundle.get_string(str_id)
+        get_str = tr
 
         # Save as Pascal voc xml
         self.default_save_dir = default_save_dir
@@ -647,7 +662,7 @@ class MainWindow(QMainWindow, WindowMixin):
         list_layout.addWidget(use_default_label_container)
 
         self.label_filter = QLineEdit()
-        self.label_filter.setPlaceholderText('筛选标签…')
+        self.label_filter.setPlaceholderText(tr('labels.filter'))
         self.label_filter.setClearButtonEnabled(True)
         list_layout.addWidget(self.label_filter)
 
@@ -732,11 +747,11 @@ class MainWindow(QMainWindow, WindowMixin):
         self.file_list_empty_state = QWidget()
         empty_layout = QVBoxLayout(self.file_list_empty_state)
         empty_layout.addStretch(1)
-        empty_label = QLabel('没有符合筛选条件的文件')
-        empty_label.setAlignment(Qt.AlignCenter)
-        empty_label.setStyleSheet('color: palette(mid);')
-        empty_layout.addWidget(empty_label)
-        self.file_list_clear_filter_button = QPushButton('清除筛选')
+        self.file_list_empty_label = QLabel(tr('files.noMatch'))
+        self.file_list_empty_label.setAlignment(Qt.AlignCenter)
+        self.file_list_empty_label.setStyleSheet('color: palette(mid);')
+        empty_layout.addWidget(self.file_list_empty_label)
+        self.file_list_clear_filter_button = QPushButton(tr('files.clearFilter'))
         self.file_list_clear_filter_button.setSizePolicy(
             QSizePolicy.Fixed,
             QSizePolicy.Fixed,
@@ -861,11 +876,11 @@ class MainWindow(QMainWindow, WindowMixin):
 
         open_annotation = action(get_str('openAnnotation'), self.open_annotation_dialog,
                                  'Ctrl+Shift+O', 'open', get_str('openAnnotationDetail'))
-        copy_annotations = action('Copy Labels', self.copy_current_bounding_boxes, 'Ctrl+C',
-                                  'copy', 'Copy selected labels from the current image',
+        copy_annotations = action(tr('action.copyLabels'), self.copy_current_bounding_boxes, 'Ctrl+C',
+                                  'copy', tr('action.copyLabelsTip'),
                                   enabled=False)
-        paste_annotations = action('Paste Labels', self.paste_copied_bounding_boxes, 'Ctrl+V',
-                                   'copy', 'Paste copied labels to the current image')
+        paste_annotations = action(tr('action.pasteLabels'), self.paste_copied_bounding_boxes, 'Ctrl+V',
+                                   'copy', tr('action.pasteLabelsTip'))
         copy_prev_bounding = action(get_str('copyPrevBounding'), self.copy_previous_bounding_boxes,
                                     None, 'copy', get_str('copyPrevBounding'))
 
@@ -880,11 +895,11 @@ class MainWindow(QMainWindow, WindowMixin):
         verify = action(get_str('verifyImg'), self.verify_image,
                         'space', 'verify', get_str('verifyImgDetail'))
         question = action(
-            'Question Image',
+            tr('action.questionImage'),
             self.question_image,
             'Ctrl+Space',
             'help',
-            'Mark or unmark image as needing review',
+            tr('action.questionImageTip'),
         )
 
         save = action(get_str('save'), self.save_file,
@@ -913,7 +928,7 @@ class MainWindow(QMainWindow, WindowMixin):
 
         delete_image = action(get_str('deleteImg'), self.delete_image, 'Ctrl+Delete', 'close', get_str('deleteImgDetail'))
         recent_file_operations = QAction(
-            'Recent File Operations\u2026',
+            tr('action.recentOperations'),
             self,
         )
         recent_file_operations.triggered.connect(
@@ -956,9 +971,12 @@ class MainWindow(QMainWindow, WindowMixin):
         zoom = QWidgetAction(self)
         zoom.setDefaultWidget(self.zoom_widget)
         self.zoom_widget.setWhatsThis(
-            u"Zoom in or out of the image. Also accessible with"
-            " %s and %s from the canvas." % (format_shortcut("Ctrl+[-+]"),
-                                             format_shortcut("Ctrl+Wheel")))
+            tr(
+                'zoom.help',
+                keyboard=format_shortcut("Ctrl+[-+]"),
+                wheel=format_shortcut("Ctrl+Wheel"),
+            )
+        )
         self.zoom_widget.setEnabled(False)
 
         zoom_in = action(get_str('zoomin'), partial(self.add_zoom, 10),
@@ -984,11 +1002,11 @@ class MainWindow(QMainWindow, WindowMixin):
             self.MANUAL_ZOOM: lambda: 1,
         }
 
-        undo_annotation = QAction('Undo\tCtrl+Z', self)
+        undo_annotation = QAction(tr('action.undo'), self)
         undo_annotation.setEnabled(False)
         undo_annotation.triggered.connect(self.undo_annotation)
         redo_annotation = QAction(
-            'Redo\tCtrl+Y / Ctrl+Shift+Z',
+            tr('action.redo'),
             self,
         )
         redo_annotation.setEnabled(False)
@@ -1057,6 +1075,23 @@ class MainWindow(QMainWindow, WindowMixin):
             recentFiles=QMenu(get_str('menu_openRecent')),
             labelList=label_menu)
 
+        self.menus.language = QMenu(tr('language.menu'), self)
+        self.language_action_group = QActionGroup(self.menus.language)
+        self.language_action_group.setExclusive(True)
+        self.language_actions = {}
+        for language in (SIMPLIFIED_CHINESE, ENGLISH):
+            language_action = self.menus.language.addAction(
+                LANGUAGE_NAMES[language]
+            )
+            language_action.setCheckable(True)
+            language_action.setData(language)
+            language_action.setChecked(current_language() == language)
+            language_action.triggered.connect(
+                lambda checked=False, value=language: self.change_language(value)
+            )
+            self.language_action_group.addAction(language_action)
+            self.language_actions[language] = language_action
+
         # Auto saving: persist annotation changes shortly after they occur.
         self.auto_saving = QAction(get_str('autoSaveMode'), self)
         self.auto_saving.setCheckable(True)
@@ -1084,6 +1119,8 @@ class MainWindow(QMainWindow, WindowMixin):
                      reset_all, delete_image, recent_file_operations, quit))
         add_actions(self.menus.help, (help_default, show_info, show_shortcut))
         add_actions(self.menus.view, (
+            self.menus.language,
+            None,
             self.auto_saving,
             self.single_class_mode,
             self.display_label_option,
@@ -1105,11 +1142,18 @@ class MainWindow(QMainWindow, WindowMixin):
 
         # Custom context menu for the canvas widget:
         add_actions(self.canvas.menus[0], self.actions.beginnerContext)
+        self.copy_here_action = action(
+            tr('action.copyHere'), self.copy_shape
+        )
+        self.move_here_action = action(
+            tr('action.moveHere'), self.move_shape
+        )
         add_actions(self.canvas.menus[1], (
-            action('&Copy here', self.copy_shape),
-            action('&Move here', self.move_shape)))
+            self.copy_here_action,
+            self.move_here_action,
+        ))
 
-        self.tools = self.toolbar('Tools')
+        self.tools = self.toolbar(tr('toolbar.tools'))
         self.actions.beginner = (
             open, open_dir, change_save_dir, open_next_image, open_prev_image, verify, question, save, save_format, None, create, copy, delete, None,
             zoom_in, zoom, zoom_out, fit_window, fit_width)
@@ -1119,7 +1163,57 @@ class MainWindow(QMainWindow, WindowMixin):
             create_mode, edit_mode, None,
             hide_all, show_all)
 
-        self.statusBar().showMessage('%s started.' % __appname__)
+        self._i18n_action_specs = {
+            quit: ('quit', 'quitApp'),
+            open: ('openFile', 'openFileDetail'),
+            open_dir: ('openDir', 'openDir'),
+            change_save_dir: ('changeSaveDir', 'changeSavedAnnotationDir'),
+            open_annotation: ('openAnnotation', 'openAnnotationDetail'),
+            copy_annotations: ('action.copyLabels', 'action.copyLabelsTip'),
+            paste_annotations: ('action.pasteLabels', 'action.pasteLabelsTip'),
+            copy_prev_bounding: ('copyPrevBounding', 'copyPrevBounding'),
+            open_next_image: ('nextImg', 'nextImgDetail'),
+            open_prev_image: ('prevImg', 'prevImgDetail'),
+            verify: ('verifyImg', 'verifyImgDetail'),
+            question: ('action.questionImage', 'action.questionImageTip'),
+            save: ('save', 'saveDetail'),
+            save_format: (None, 'changeSaveFormat'),
+            save_as: ('saveAs', 'saveAsDetail'),
+            close: ('closeCur', 'closeCurDetail'),
+            delete_image: ('deleteImg', 'deleteImgDetail'),
+            recent_file_operations: ('action.recentOperations', None),
+            reset_all: ('resetAll', 'resetAllDetail'),
+            color1: ('boxLineColor', 'boxLineColorDetail'),
+            create_mode: ('crtBox', 'crtBoxDetail'),
+            edit_mode: ('editBox', 'editBoxDetail'),
+            create: ('crtBox', 'crtBoxDetail'),
+            delete: ('delBox', 'delBoxDetail'),
+            copy: ('dupBox', 'dupBoxDetail'),
+            advanced_mode: ('advancedMode', 'advancedModeDetail'),
+            hide_all: ('hideAllBox', 'hideAllBoxDetail'),
+            show_all: ('showAllBox', 'showAllBoxDetail'),
+            help_default: ('tutorialDefault', 'tutorialDetail'),
+            show_info: ('info', 'info'),
+            show_shortcut: ('shortcut', 'shortcut'),
+            zoom_in: ('zoomin', 'zoominDetail'),
+            zoom_out: ('zoomout', 'zoomoutDetail'),
+            zoom_org: ('originalsize', 'originalsizeDetail'),
+            fit_window: ('fitWin', 'fitWinDetail'),
+            fit_width: ('fitWidth', 'fitWidthDetail'),
+            edit: ('editLabel', 'editLabelDetail'),
+            shape_line_color: ('shapeLineColor', 'shapeLineColorDetail'),
+            shape_fill_color: ('shapeFillColor', 'shapeFillColorDetail'),
+            labels: ('showHide', None),
+            self.draw_squares_option: ('drawSquares', None),
+            self.auto_saving: ('autoSaveMode', None),
+            self.single_class_mode: ('singleClsMode', None),
+            self.display_label_option: ('displayLabel', None),
+            self.copy_here_action: ('action.copyHere', None),
+            self.move_here_action: ('action.moveHere', None),
+        }
+        self.retranslate_ui()
+
+        self.statusBar().showMessage(tr('status.started', app=__appname__))
         self.statusBar().show()
 
         # Application state.
@@ -1157,8 +1251,11 @@ class MainWindow(QMainWindow, WindowMixin):
         self.last_open_dir = ustr(settings.get(SETTING_LAST_OPEN_DIR, None))
         if self.default_save_dir is None and save_dir is not None and os.path.exists(save_dir):
             self.default_save_dir = save_dir
-            self.statusBar().showMessage('%s started. Annotation will be saved to %s' %
-                                         (__appname__, self.default_save_dir))
+            self.statusBar().showMessage(tr(
+                'status.startedSaveDir',
+                app=__appname__,
+                path=self.default_save_dir,
+            ))
             self.statusBar().show()
         if self.default_save_dir\
                 and os.path.isdir(ustr(self.default_save_dir)):
@@ -1224,6 +1321,56 @@ class MainWindow(QMainWindow, WindowMixin):
         if hasattr(self, 'file_operations'):
             self.file_operations.replace_trash_adapter(value)
 
+    def change_language(self, language):
+        if not set_language(language):
+            return
+        self.settings[SETTING_LANGUAGE] = current_language()
+        self.settings.save()
+        self.retranslate_ui()
+        self.status(tr(
+            'language.changed',
+            language=LANGUAGE_NAMES[current_language()],
+        ))
+
+    def retranslate_ui(self):
+        if not hasattr(self, '_i18n_action_specs'):
+            return
+        for action, (text_id, tip_id) in self._i18n_action_specs.items():
+            if text_id is not None:
+                action.setText(tr(text_id))
+            if tip_id is not None:
+                tip = tr(tip_id)
+                action.setToolTip(tip)
+                action.setStatusTip(tip)
+        self.use_default_label_checkbox.setText(tr('useDefaultLabel'))
+        self.diffc_button.setText(tr('useDifficult'))
+        self.label_filter.setPlaceholderText(tr('labels.filter'))
+        self.file_list_empty_label.setText(tr('files.noMatch'))
+        self.file_list_clear_filter_button.setText(tr('files.clearFilter'))
+        self.dock.setWindowTitle(tr('boxLabelText'))
+        self.file_dock.setWindowTitle(tr('fileList'))
+        self.menus.file.setTitle(tr('menu_file'))
+        self.menus.edit.setTitle(tr('menu_edit'))
+        self.menus.view.setTitle(tr('menu_view'))
+        self.menus.help.setTitle(tr('menu_help'))
+        self.menus.recentFiles.setTitle(tr('menu_openRecent'))
+        self.menus.language.setTitle(tr('language.menu'))
+        self.tools.setWindowTitle(tr('toolbar.tools'))
+        self.zoom_widget.setWhatsThis(tr(
+            'zoom.help',
+            keyboard=format_shortcut("Ctrl+[-+]"),
+            wheel=format_shortcut("Ctrl+Wheel"),
+        ))
+        for language, action in self.language_actions.items():
+            action.setChecked(language == current_language())
+        self.canvas.setToolTip(tr('canvas.image'))
+        self.update_file_selection_count()
+        self.label_summary_label.setText(self.label_list.summary_text())
+        if hasattr(self, 'annotation_editing'):
+            self._sync_annotation_history_ui()
+        if self.file_list_widget.count():
+            self.refresh_file_list_statuses()
+
     @property
     def default_save_dir(self):
         return self._default_save_dir
@@ -1264,7 +1411,7 @@ class MainWindow(QMainWindow, WindowMixin):
             self.annotation_editing.pending
             or self.annotation_editing.edit_open
         ):
-            self.status('Finish or cancel the current annotation edit first')
+            self.status(tr('status.finishEdit'))
             return
         if self.annotation_format == AnnotationFormat.PASCAL_VOC:
             self.set_format(FORMAT_YOLO)
@@ -1435,22 +1582,19 @@ class MainWindow(QMainWindow, WindowMixin):
                 )
                 self.annotation_editing.clear_degraded(image_key)
                 self.status(
-                    'History projection failed; reloaded the verified '
-                    'stored annotation document',
+                    tr('history.reloadedAfterFailure'),
                     10000,
                 )
                 return
         except Exception as error:
             recovery_error = error
         self.status(
-            (
-                'Annotation history failed for %s; editing is disabled. '
-                'Projection: %s; rollback: %s; stored reload: %s'
-            ) % (
-                os.path.basename(image_key),
-                target_error,
-                rollback_error,
-                recovery_error or 'unavailable',
+            tr(
+                'history.failureDetail',
+                image=os.path.basename(image_key),
+                projection=target_error,
+                rollback=rollback_error,
+                reload=recovery_error or tr('history.unavailable'),
             ),
             10000,
         )
@@ -1616,16 +1760,22 @@ class MainWindow(QMainWindow, WindowMixin):
         redo = view.redo_transition
         if self.annotation_editing.pending:
             self.actions.undoAnnotation.setText(
-                'Cancel %s\tCtrl+Z'
-                % self.annotation_editing.pending_kind
+                tr(
+                    'history.cancel',
+                    operation=translate_history_description(
+                        self.annotation_editing.pending_kind
+                    ),
+                )
             )
         else:
             self.actions.undoAnnotation.setText(
-                self._history_action_text('Undo', undo, 'Ctrl+Z')
+                self._history_action_text(
+                    tr('history.undo'), undo, 'Ctrl+Z'
+                )
             )
         self.actions.redoAnnotation.setText(
             self._history_action_text(
-                'Redo',
+                tr('history.redo'),
                 redo,
                 'Ctrl+Y / Ctrl+Shift+Z',
             )
@@ -1691,13 +1841,17 @@ class MainWindow(QMainWindow, WindowMixin):
                 transition.old_label,
                 transition.new_label,
             )
-        description = ' '.join(str(description).split())
+        description = translate_history_description(description)
         if len(description) > 80:
             description = description[:79].rstrip() + '\u2026'
         description = description.replace('&', '&&')
         count = transition.affected_count if transition else 0
         if count > 1 and str(count) not in description:
-            description = '%s %d boxes' % (description, count)
+            description = tr(
+                'history.multiple',
+                description=description,
+                count=count,
+            )
         text = prefix + ((' ' + description) if description else '')
         return '%s\t%s' % (text, shortcut)
 
@@ -1708,7 +1862,7 @@ class MainWindow(QMainWindow, WindowMixin):
             result = self.annotation_editing.undo()
         except ProjectionFailed as error:
             self.error_message(
-                'Undo failed',
+                tr('history.undoFailed'),
                 '<p>%s</p>' % error,
             )
             return
@@ -1722,7 +1876,7 @@ class MainWindow(QMainWindow, WindowMixin):
             result = self.annotation_editing.redo()
         except ProjectionFailed as error:
             self.error_message(
-                'Redo failed',
+                tr('history.redoFailed'),
                 '<p>%s</p>' % error,
             )
             return
@@ -1838,8 +1992,13 @@ class MainWindow(QMainWindow, WindowMixin):
 
     def show_info_dialog(self):
         from labelimg.__init__ import __version__
-        msg = u'Name:{0} \nApp Version:{1} \n{2} '.format(__appname__, __version__, sys.version_info)
-        QMessageBox.information(self, u'Information', msg)
+        msg = tr(
+            'info.message',
+            name=__appname__,
+            version=__version__,
+            python=sys.version.split()[0],
+        )
+        localized_information(self, tr('info.title'), msg)
 
     def show_shortcuts_dialog(self):
         self.show_tutorial_dialog(browser='default', link='https://github.com/tzutalin/labelImg#Hotkeys')
@@ -1891,13 +2050,19 @@ class MainWindow(QMainWindow, WindowMixin):
 
     def open_file_recovery_center(self, _checked=False):
         dialog = QDialog(self)
-        dialog.setWindowTitle('Recent File Operations')
+        dialog.setWindowTitle(tr('recovery.title'))
         layout = QVBoxLayout(dialog)
         table = QTableWidget(
             len(self.file_operations.recovery_entries), 5, dialog
         )
         table.setHorizontalHeaderLabels(
-            ('Time', 'Operation', 'Targets', 'Status', '')
+            (
+                tr('recovery.time'),
+                tr('recovery.operation'),
+                tr('recovery.targets'),
+                tr('recovery.status'),
+                '',
+            )
         )
         table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeToContents
@@ -1908,9 +2073,9 @@ class MainWindow(QMainWindow, WindowMixin):
         ):
             values = (
                 entry.created_at.astimezone().strftime('%H:%M:%S'),
-                entry.operation,
+                tr('recovery.operation.%s' % entry.operation),
                 str(entry.target_count),
-                entry.status.value,
+                tr('recovery.status.%s' % entry.status.value),
             )
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
@@ -1918,7 +2083,7 @@ class MainWindow(QMainWindow, WindowMixin):
                 if entry.detail:
                     item.setToolTip(entry.detail)
                 table.setItem(row, column, item)
-            recover = QPushButton('Recover', table)
+            recover = QPushButton(tr('recovery.recover'), table)
             recover.setEnabled(entry.recoverable)
             recover.clicked.connect(
                 partial(
@@ -1930,6 +2095,7 @@ class MainWindow(QMainWindow, WindowMixin):
             table.setCellWidget(row, 4, recover)
         layout.addWidget(table)
         buttons = QDialogButtonBox(QDialogButtonBox.Close, dialog)
+        localize_dialog_buttons(buttons)
         buttons.rejected.connect(dialog.reject)
         layout.addWidget(buttons)
         dialog.resize(680, 360)
@@ -1946,13 +2112,14 @@ class MainWindow(QMainWindow, WindowMixin):
             for item in self.file_operations.recovery_entries
             if item.entry_id == entry_id
         )
-        answer = QMessageBox.question(
+        answer = localized_question(
             self,
-            'Recover file operation',
-            (
-                'Recover the complete “%s” operation affecting %d '
-                'target(s)? Existing paths will never be overwritten.'
-            ) % (entry.operation, entry.target_count),
+            tr('recovery.confirmTitle'),
+            tr(
+                'recovery.confirm',
+                operation=tr('recovery.operation.%s' % entry.operation),
+                count=entry.target_count,
+            ),
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
@@ -1962,16 +2129,16 @@ class MainWindow(QMainWindow, WindowMixin):
         try:
             outcome = self.file_operations.recover(entry_id)
         except FileRecoveryBlocked as error:
-            QMessageBox.warning(
+            localized_warning(
                 self,
-                'Recovery blocked',
+                tr('recovery.blocked'),
                 str(error),
             )
             return
         except Exception as error:
-            QMessageBox.warning(
+            localized_warning(
                 self,
-                'Recovery failed',
+                tr('recovery.failed'),
                 str(error),
             )
             return
@@ -2025,7 +2192,7 @@ class MainWindow(QMainWindow, WindowMixin):
             )
         ):
             self.load_file(self.file_path)
-        self.status('Recovered file operation')
+        self.status(tr('recovery.completed'))
         if dialog is not None:
             dialog.accept()
 
@@ -2051,14 +2218,14 @@ class MainWindow(QMainWindow, WindowMixin):
             selected = tuple(self.canvas.selected_shapes)
             scoped = selected if shape in selected else (shape,)
             menu.addAction(
-                '修改此标注标签',
+                tr('labelMenu.edit'),
                 lambda: self.edit_shape_label(shape),
             )
             all_visible = all(self.canvas.isVisible(item) for item in scoped)
             menu.addAction(
-                ('隐藏所选标注' if len(scoped) > 1 else '隐藏此标注')
+                (tr('labelMenu.hideSelected') if len(scoped) > 1 else tr('labelMenu.hideOne'))
                 if all_visible
-                else ('显示所选标注' if len(scoped) > 1 else '显示此标注'),
+                else (tr('labelMenu.showSelected') if len(scoped) > 1 else tr('labelMenu.showOne')),
                 lambda: self.label_visibility_requested(
                     scoped,
                     not all_visible,
@@ -2066,9 +2233,9 @@ class MainWindow(QMainWindow, WindowMixin):
             )
             menu.addSeparator()
             menu.addAction(
-                '删除所选 %d 个标注' % len(scoped)
+                tr('labelMenu.deleteSelected', count=len(scoped))
                 if len(scoped) > 1
-                else '删除此标注',
+                else tr('labelMenu.deleteOne'),
                 lambda: self.delete_annotation_shapes(
                     scoped,
                     'Delete selected boxes',
@@ -2083,32 +2250,32 @@ class MainWindow(QMainWindow, WindowMixin):
             if not shapes:
                 return
             menu.addAction(
-                '选择此标签组的 %d 个标注' % len(shapes),
+                tr('labelMenu.selectGroup', count=len(shapes)),
                 lambda: self.canvas.set_selected_shapes(
                     shapes,
                     active_shape=shapes[0] if len(shapes) == 1 else None,
                 ),
             )
             menu.addAction(
-                '重命名此标签组',
+                tr('labelMenu.renameGroup'),
                 lambda: self.edit_label_group(label),
             )
             all_visible = all(self.canvas.isVisible(shape) for shape in shapes)
             menu.addAction(
-                '隐藏此标签组' if all_visible else '显示此标签组',
+                tr('labelMenu.hideGroup') if all_visible else tr('labelMenu.showGroup'),
                 lambda: self.label_visibility_requested(
                     shapes,
                     not all_visible,
                 ),
             )
             menu.addAction(
-                '仅显示此标签组',
+                tr('labelMenu.isolateGroup'),
                 lambda: self.isolate_label_group(label),
             )
-            menu.addAction('显示所有标签组', lambda: self.toggle_polygons(True))
+            menu.addAction(tr('labelMenu.showAllGroups'), lambda: self.toggle_polygons(True))
             menu.addSeparator()
             menu.addAction(
-                '删除此标签组的 %d 个标注' % len(shapes),
+                tr('labelMenu.deleteGroup', count=len(shapes)),
                 lambda: self.delete_annotation_shapes(
                     shapes,
                     'Delete label group: %s' % label,
@@ -2155,7 +2322,7 @@ class MainWindow(QMainWindow, WindowMixin):
         )
         if removed:
             self.status(
-                '已删除 %d 个标注｜Ctrl+Z 撤销' % len(removed)
+                tr('status.deletedAnnotations', count=len(removed))
             )
             if self.no_shapes():
                 for action in self.actions.onShapesPresent:
@@ -2346,17 +2513,17 @@ class MainWindow(QMainWindow, WindowMixin):
         if not filter_active:
             self.file_selection_count_label.setText(
                 (
-                    '已选 %d / 共 %d' % (selected_count, total_count)
+                    tr('fileCount.selected', selected=selected_count, total=total_count)
                     if selected_count
-                    else '共 %d 个文件' % total_count
+                    else tr('fileCount.total', total=total_count)
                 )
             )
             return
-        parts = ['显示 %d/%d' % (visible_count, total_count)]
+        parts = [tr('fileCount.visible', visible=visible_count, total=total_count)]
         if selected_count:
-            selection = '已选 %d' % selected_count
+            selection = tr('fileCount.selectedShort', selected=selected_count)
             if hidden_selected:
-                selection += '（隐藏 %d）' % hidden_selected
+                selection += tr('fileCount.hidden', hidden=hidden_selected)
             parts.append(selection)
         if (
             filter_active
@@ -2364,7 +2531,7 @@ class MainWindow(QMainWindow, WindowMixin):
             and self.file_path in self.m_img_list
             and self.file_path not in self.visible_file_paths()
         ):
-            parts.append('当前图像已被筛选隐藏')
+            parts.append(tr('fileCount.currentHidden'))
         self.file_selection_count_label.setText(' · '.join(parts))
 
     def update_current_file_marker(self):
@@ -2405,7 +2572,7 @@ class MainWindow(QMainWindow, WindowMixin):
         item = self.file_list_widget.itemAt(point)
         menu = QMenu(self.file_list_widget)
         if item is None:
-            select_all = menu.addAction('全选')
+            select_all = menu.addAction(tr('fileMenu.selectAll'))
             select_all.triggered.connect(
                 self.file_list_widget.select_all_visible
             )
@@ -2418,30 +2585,30 @@ class MainWindow(QMainWindow, WindowMixin):
         paths = self.selected_file_paths()
         count = len(paths)
 
-        open_action = menu.addAction('打开')
+        open_action = menu.addAction(tr('fileMenu.open'))
         open_action.setEnabled(count == 1)
         open_action.triggered.connect(self.open_selected_file)
 
-        rename_text = '重命名…' if count == 1 else '批量重命名…'
+        rename_text = tr('fileMenu.rename') if count == 1 else tr('fileMenu.batchRename')
         rename_action = menu.addAction(rename_text)
         rename_action.setEnabled(count > 0)
         rename_action.triggered.connect(self.rename_selected_files)
 
-        reveal = menu.addAction('在文件资源管理器中显示')
+        reveal = menu.addAction(tr('fileMenu.reveal'))
         reveal.setEnabled(count == 1)
         reveal.triggered.connect(self.reveal_selected_file)
 
         menu.addSeparator()
-        review_menu = menu.addMenu('设置复核状态')
+        review_menu = menu.addMenu(tr('fileMenu.setReview'))
         review_enabled = (
             count > 0
             and self.annotation_format
             is AnnotationFormat.PASCAL_VOC
         )
         for title, state in (
-            ('标记为已验证', 'verified'),
-            ('标记为待复核', 'questioned'),
-            ('清除复核状态', 'unreviewed'),
+            (tr('fileMenu.markVerified'), 'verified'),
+            (tr('fileMenu.markQuestioned'), 'questioned'),
+            (tr('fileMenu.clearReview'), 'unreviewed'),
         ):
             review_action = review_menu.addAction(title)
             review_action.setEnabled(review_enabled)
@@ -2449,42 +2616,42 @@ class MainWindow(QMainWindow, WindowMixin):
                 partial(self.set_selected_review_state, state)
             )
 
-        select_menu = menu.addMenu('选择')
-        select_all = select_menu.addAction('全选')
+        select_menu = menu.addMenu(tr('fileMenu.select'))
+        select_all = select_menu.addAction(tr('fileMenu.selectAll'))
         select_all.triggered.connect(
             self.file_list_widget.select_all_visible
         )
-        invert = select_menu.addAction('反选')
+        invert = select_menu.addAction(tr('fileMenu.invert'))
         invert.triggered.connect(self.invert_file_selection)
-        state_menu = select_menu.addMenu('按标注状态选择')
+        state_menu = select_menu.addMenu(tr('fileMenu.byAnnotation'))
         for title, state in (
-            ('未标注', 'unannotated'),
-            ('已标注', 'annotated'),
+            (tr('state.unannotated'), 'unannotated'),
+            (tr('state.annotated'), 'annotated'),
         ):
             action = state_menu.addAction(title)
             action.triggered.connect(
                 partial(self.select_files_by_annotation_state, state)
             )
-        review_state_menu = select_menu.addMenu('按复核状态选择')
+        review_state_menu = select_menu.addMenu(tr('fileMenu.byReview'))
         for title, state in (
-            ('未复核', 'unreviewed'),
-            ('待复核', 'questioned'),
-            ('已验证', 'verified'),
+            (tr('state.unreviewed'), 'unreviewed'),
+            (tr('state.questioned'), 'questioned'),
+            (tr('state.verified'), 'verified'),
         ):
             action = review_state_menu.addAction(title)
             action.triggered.connect(
                 partial(self.select_files_by_review_state, state)
             )
-        clear_selection = select_menu.addAction('清除选择')
+        clear_selection = select_menu.addAction(tr('fileMenu.clearSelection'))
         clear_selection.triggered.connect(
             self.file_list_widget.clearSelection
         )
 
-        copy_menu = menu.addMenu('复制')
+        copy_menu = menu.addMenu(tr('fileMenu.copy'))
         for title, representation in (
-            ('文件名', 'name'),
-            ('相对路径', 'relative'),
-            ('完整路径', 'absolute'),
+            (tr('fileMenu.fileName'), 'name'),
+            (tr('fileMenu.relativePath'), 'relative'),
+            (tr('fileMenu.fullPath'), 'absolute'),
         ):
             action = copy_menu.addAction(title)
             action.triggered.connect(
@@ -2497,7 +2664,7 @@ class MainWindow(QMainWindow, WindowMixin):
         menu.addSeparator()
         annotation_count = self.file_operations.annotation_count(paths)
         clear_annotations = menu.addAction(
-            '清除选中的 %d 个文件的全部标注…' % count
+            tr('fileMenu.clearAnnotations', count=count)
         )
         clear_annotations.setEnabled(
             annotation_count > 0
@@ -2511,7 +2678,7 @@ class MainWindow(QMainWindow, WindowMixin):
         )
 
         delete_files = menu.addAction(
-            '删除选中的 %d 个文件…' % count
+            tr('fileMenu.deleteFiles', count=count)
         )
         delete_files.setEnabled(count > 0)
         delete_files.triggered.connect(self.delete_selected_files)
@@ -2576,7 +2743,7 @@ class MainWindow(QMainWindow, WindowMixin):
                 )
         except OSError as error:
             self.error_message(
-                'Could not open file manager',
+                tr('error.fileManager'),
                 u'<p>%s</p>' % error,
             )
 
@@ -2598,15 +2765,14 @@ class MainWindow(QMainWindow, WindowMixin):
             return
         if len(paths) > 1:
             title = {
-                'verified': '标记为已验证',
-                'questioned': '标记为待复核',
-                'unreviewed': '清除复核状态',
+                'verified': tr('fileMenu.markVerified'),
+                'questioned': tr('fileMenu.markQuestioned'),
+                'unreviewed': tr('fileMenu.clearReview'),
             }[state]
-            answer = QMessageBox.question(
+            answer = localized_question(
                 self,
                 title,
-                '确定对选中的 %d 个文件执行“%s”吗？'
-                % (len(paths), title),
+                tr('review.confirm', count=len(paths), action=title),
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No,
             )
@@ -2641,11 +2807,11 @@ class MainWindow(QMainWindow, WindowMixin):
             self.file_operations.record_review(result.recovery_records)
         if result.failures:
             self.show_file_operation_failures(
-                '部分复核状态未能保存',
+                tr('review.partialFailure'),
                 result.failures,
             )
         else:
-            self.status('Updated review state for %d file(s)' % len(paths))
+            self.status(tr('status.reviewUpdated', count=len(paths)))
 
     def annotation_document_for_path(self, image_path):
         if image_path == self.file_path:
@@ -2687,7 +2853,7 @@ class MainWindow(QMainWindow, WindowMixin):
             return True
         except Exception as error:
             self.error_message(
-                'Error saving label data',
+                tr('error.saveLabelData'),
                 u'<p>%s</p>' % error,
             )
             return False
@@ -2697,14 +2863,10 @@ class MainWindow(QMainWindow, WindowMixin):
         if not paths:
             return
         count = self.file_operations.annotation_count(paths)
-        answer = QMessageBox.question(
+        answer = localized_question(
             self,
-            '清除全部标注',
-            (
-                '确定清除选中的 %d 个文件对应的 %d 个标注文件吗？'
-                '\n图片文件会保留，标注将移入系统回收站。'
-                '\n未保存的当前标注也会被丢弃。'
-            ) % (len(paths), count),
+            tr('fileOps.clearTitle'),
+            tr('fileOps.clearConfirm', files=len(paths), annotations=count),
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
@@ -2713,7 +2875,7 @@ class MainWindow(QMainWindow, WindowMixin):
         current_path = self.file_path
         outcome = self.run_file_operation(
             paths,
-            '正在清除标注…',
+            tr('fileOps.clearing'),
             partial(self.file_operations.execute, 'clear'),
         )
         result = outcome.file_result
@@ -2726,7 +2888,7 @@ class MainWindow(QMainWindow, WindowMixin):
         if current_path in processed and os.path.isfile(current_path):
             self.load_file(current_path)
         self.report_file_operation_result(
-            '清除标注',
+            tr('fileOps.clear'),
             result,
         )
 
@@ -2734,13 +2896,10 @@ class MainWindow(QMainWindow, WindowMixin):
         paths = self.selected_file_paths()
         if not paths:
             return
-        answer = QMessageBox.question(
+        answer = localized_question(
             self,
-            '删除选中的文件',
-            (
-                '确定删除选中的 %d 个文件吗？'
-                '\n图片及关联标注将移入系统回收站。'
-            ) % len(paths),
+            tr('fileOps.deleteTitle'),
+            tr('fileOps.deleteConfirm', count=len(paths)),
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
@@ -2758,7 +2917,7 @@ class MainWindow(QMainWindow, WindowMixin):
         )
         outcome = self.run_file_operation(
             paths,
-            '正在删除文件…',
+            tr('fileOps.deleting'),
             partial(self.file_operations.execute, 'delete'),
         )
         result = outcome.file_result
@@ -2770,7 +2929,7 @@ class MainWindow(QMainWindow, WindowMixin):
             result,
         )
         self.rescan_annotation_workspace()
-        self.report_file_operation_result('删除文件', result)
+        self.report_file_operation_result(tr('fileOps.delete'), result)
         return result
 
     def _warn_manual_trash_recovery(self, result):
@@ -2780,14 +2939,10 @@ class MainWindow(QMainWindow, WindowMixin):
         )
         if not manual_count:
             return
-        QMessageBox.warning(
+        localized_warning(
             self,
-            'Manual Recycle Bin recovery required',
-            (
-                '%d item(s) were moved to the system trash, but this '
-                'platform did not return a stable recovery identity. '
-                'They can only be restored manually from the system trash.'
-            ) % manual_count,
+            tr('fileOps.manualRecoveryTitle'),
+            tr('fileOps.manualRecovery', count=manual_count),
         )
 
     def run_file_operation(self, paths, title, operation):
@@ -2796,7 +2951,7 @@ class MainWindow(QMainWindow, WindowMixin):
         if len(paths) >= 20:
             progress = QProgressDialog(
                 title,
-                '取消',
+                tr('common.cancel'),
                 0,
                 len(paths),
                 self,
@@ -2881,7 +3036,7 @@ class MainWindow(QMainWindow, WindowMixin):
     def report_file_operation_result(self, title, result):
         if result.failures:
             self.show_file_operation_failures(
-                title + '部分失败',
+                tr('fileOps.partialFailure', title=title),
                 [
                     (
                         failure.path,
@@ -2891,12 +3046,13 @@ class MainWindow(QMainWindow, WindowMixin):
                 ],
             )
             return
-        message = '%s完成：%d 个文件' % (
-            title,
-            len(result.succeeded_images),
+        message = tr(
+            'fileOps.complete',
+            title=title,
+            count=len(result.succeeded_images),
         )
         if result.canceled:
-            message += '（已取消剩余操作）'
+            message += tr('fileOps.canceled')
         self.status(message)
 
     def show_file_operation_failures(self, title, failures):
@@ -2904,7 +3060,7 @@ class MainWindow(QMainWindow, WindowMixin):
             '%s: %s' % (path, error)
             for path, error in failures
         )
-        QMessageBox.warning(
+        localized_warning(
             self,
             title,
             '%s\n\n%s' % (title, details),
@@ -2931,8 +3087,8 @@ class MainWindow(QMainWindow, WindowMixin):
         stem, extension = os.path.splitext(os.path.basename(source))
         new_stem, accepted = QInputDialog.getText(
             self,
-            '重命名',
-            '新文件名（扩展名 %s 保持不变）' % extension,
+            tr('rename.title'),
+            tr('rename.prompt', extension=extension),
             QLineEdit.Normal,
             stem,
         )
@@ -2950,7 +3106,7 @@ class MainWindow(QMainWindow, WindowMixin):
                 self.default_save_dir,
             ).get(source, '')
         if error:
-            QMessageBox.warning(self, '无法重命名', error)
+            localized_warning(self, tr('rename.unable'), error)
             return
         if source == target:
             return
@@ -2958,10 +3114,10 @@ class MainWindow(QMainWindow, WindowMixin):
 
     def execute_file_rename(self, mapping):
         if self.annotation_persistence.conflicts:
-            QMessageBox.warning(
+            localized_warning(
                 self,
-                '重命名暂不可用',
-                '请先解决标注资源冲突，再重命名文件。',
+                tr('rename.unavailable'),
+                tr('rename.resolveConflicts'),
             )
             return
         if self.file_path in mapping and self.dirty:
@@ -2972,16 +3128,16 @@ class MainWindow(QMainWindow, WindowMixin):
         try:
             outcome = self.file_operations.execute('rename', mapping)
         except FileOperationBlocked:
-            QMessageBox.warning(
+            localized_warning(
                 self,
-                '重命名暂不可用',
-                '请先解决标注资源冲突，再重命名文件。',
+                tr('rename.unavailable'),
+                tr('rename.resolveConflicts'),
             )
             return
         except FileOperationError as error:
-            QMessageBox.warning(
+            localized_warning(
                 self,
-                '重命名失败',
+                tr('rename.failed'),
                 str(error),
             )
             return
@@ -3006,7 +3162,7 @@ class MainWindow(QMainWindow, WindowMixin):
         self.rescan_annotation_workspace()
         self.refresh_file_list_statuses()
         self.update_file_selection_count()
-        self.status('Renamed %d file(s)' % len(renamed))
+        self.status(tr('status.renamed', count=len(renamed)))
 
     def edit_label(self):
         if not self.canvas.editing():
@@ -3238,7 +3394,7 @@ class MainWindow(QMainWindow, WindowMixin):
             if isinstance(error, AnnotationStorageConflict):
                 return self._handle_annotation_storage_conflict(error)
             self.error_message(
-                u'Error saving label data', u'<b>%s</b>' % error
+                tr('error.saveLabelData'), u'<b>%s</b>' % error
             )
             return None
         saved = outcome.saved_by_image[self.file_path]
@@ -3262,30 +3418,30 @@ class MainWindow(QMainWindow, WindowMixin):
         self.refresh_file_list_statuses()
         if self._autosave_request:
             self.status(
-                'Autosave paused: annotation files changed outside LabelImg',
+                tr('conflict.autosavePaused'),
                 10000,
             )
             return None
 
         box = QMessageBox(self)
-        box.setWindowTitle('Annotation file conflict')
+        box.setWindowTitle(tr('conflict.title'))
         box.setIcon(QMessageBox.Warning)
         box.setText(
-            'The annotation resource changed outside LabelImg.'
+            tr('conflict.changed')
         )
         box.setInformativeText(
-            'Load the external version, overwrite it with the current '
-            'in-memory version, or cancel.'
+            tr('conflict.options')
         )
         load_button = box.addButton(
-            'Load External',
+            tr('conflict.loadExternal'),
             QMessageBox.DestructiveRole,
         )
         overwrite_button = box.addButton(
-            'Overwrite External',
+            tr('conflict.overwriteExternal'),
             QMessageBox.AcceptRole,
         )
         box.addButton(QMessageBox.Cancel)
+        localize_message_box_buttons(box)
         box.exec_()
         clicked = box.clickedButton()
         if clicked is load_button:
@@ -3328,7 +3484,7 @@ class MainWindow(QMainWindow, WindowMixin):
         for shape in copied_shapes:
             self.add_label(shape)
         self.shape_selection_changed(True)
-        self.status('Duplicated %d label(s)' % len(copied_shapes))
+        self.status(tr('status.duplicated', count=len(copied_shapes)))
 
     def combo_selection_changed(self, index):
         return
@@ -3534,8 +3690,8 @@ class MainWindow(QMainWindow, WindowMixin):
                 )
             if unicode_file_path is None:
                 self.error_message(
-                    u'Error opening annotation document',
-                    u'<p>Could not locate its image.</p>',
+                    tr('open.annotationTitle'),
+                    u'<p>%s</p>' % tr('open.imageMissing'),
                 )
                 return False
 
@@ -3558,11 +3714,13 @@ class MainWindow(QMainWindow, WindowMixin):
             else:
                 image = QImage.fromData(self.image_data)
             if image.isNull():
-                self.error_message(u'Error opening file',
-                                   u"<p>Make sure <i>%s</i> is a valid image file." % unicode_file_path)
-                self.status("Error reading %s" % unicode_file_path)
+                self.error_message(
+                    tr('open.fileTitle'),
+                    u"<p>%s</p>" % tr('open.invalidImage', path=unicode_file_path),
+                )
+                self.status(tr('status.errorReading', detail=unicode_file_path))
                 return False
-            self.status("Loaded %s" % os.path.basename(unicode_file_path))
+            self.status(tr('status.loaded', name=os.path.basename(unicode_file_path)))
             self.image = image
             self.file_path = unicode_file_path
             self.update_current_file_marker()
@@ -3576,7 +3734,7 @@ class MainWindow(QMainWindow, WindowMixin):
                     )
                 except AnnotationDocumentError as error:
                     self.error_message(
-                        u'Error opening annotation document',
+                        tr('open.annotationTitle'),
                         u'<b>%s</b>' % error,
                     )
                     return False
@@ -3627,11 +3785,8 @@ class MainWindow(QMainWindow, WindowMixin):
         ]
         selected, accepted = QInputDialog.getItem(
             self,
-            'Choose annotation document',
-            (
-                'Multiple annotation formats exist for this image. '
-                'Choose the active document for this workspace session:'
-            ),
+            tr('open.chooseDocument'),
+            tr('open.chooseDocumentPrompt'),
             labels,
             0,
             False,
@@ -3658,7 +3813,7 @@ class MainWindow(QMainWindow, WindowMixin):
                 self.image_data,
             )
         except AnnotationDocumentError as error:
-            self.status("Error reading %s" % error)
+            self.status(tr('status.errorReading', detail=error))
             return False
         if loaded is None:
             return False
@@ -3745,18 +3900,22 @@ class MainWindow(QMainWindow, WindowMixin):
         settings[SETTING_FILE_LIST_SORT_DESCENDING] = (
             self.file_list_controls.state.descending
         )
+        settings[SETTING_LANGUAGE] = current_language()
         settings.save()
 
     def _resolve_conflicts_for_close(self):
         dialog = QDialog(self)
-        dialog.setWindowTitle('Resolve annotation conflicts')
+        dialog.setWindowTitle(tr('conflict.resolveTitle'))
         layout = QVBoxLayout(dialog)
         layout.addWidget(QLabel(
-            'Choose a resolution for every external annotation conflict.'
+            tr('conflict.resolvePrompt')
         ))
         conflicts = list(self.annotation_persistence.conflicts.values())
         table = QTableWidget(len(conflicts), 2, dialog)
-        table.setHorizontalHeaderLabels(('Resource', 'Resolution'))
+        table.setHorizontalHeaderLabels((
+            tr('conflict.resource'),
+            tr('conflict.resolution'),
+        ))
         choices = []
         for row, conflict in enumerate(conflicts):
             item = QTableWidgetItem(conflict.resource)
@@ -3764,7 +3923,11 @@ class MainWindow(QMainWindow, WindowMixin):
             table.setItem(row, 0, item)
             combo = QComboBox(table)
             combo.addItems(
-                ('Choose\u2026', 'Load External', 'Overwrite External')
+                (
+                    tr('common.choose'),
+                    tr('conflict.loadExternal'),
+                    tr('conflict.overwriteExternal'),
+                )
             )
             table.setCellWidget(row, 1, combo)
             choices.append(combo)
@@ -3773,9 +3936,9 @@ class MainWindow(QMainWindow, WindowMixin):
         apply_to_all = QComboBox(dialog)
         apply_to_all.addItems(
             (
-                'Apply to all…',
-                'Load External for all',
-                'Overwrite External for all',
+                tr('conflict.applyAll'),
+                tr('conflict.loadAll'),
+                tr('conflict.overwriteAll'),
             )
         )
         layout.addWidget(apply_to_all)
@@ -3783,6 +3946,7 @@ class MainWindow(QMainWindow, WindowMixin):
             QDialogButtonBox.Ok | QDialogButtonBox.Cancel,
             dialog,
         )
+        localize_dialog_buttons(buttons)
         ok_button = buttons.button(QDialogButtonBox.Ok)
         ok_button.setEnabled(False)
 
@@ -3828,13 +3992,14 @@ class MainWindow(QMainWindow, WindowMixin):
             ).dirty
         )
         if conflict.affected_count > 1 or dirty_count > 1:
-            answer = QMessageBox.question(
+            answer = localized_question(
                 self,
-                'Load shared external resource',
-                (
-                    'Loading this resource affects %d images and '
-                    'discards changes in %d dirty images. Continue?'
-                ) % (conflict.affected_count, dirty_count),
+                tr('conflict.loadSharedTitle'),
+                tr(
+                    'conflict.loadShared',
+                    images=conflict.affected_count,
+                    dirty=dirty_count,
+                ),
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No,
             )
@@ -3949,7 +4114,7 @@ class MainWindow(QMainWindow, WindowMixin):
             )
         except Exception as error:
             self.error_message(
-                'Conflict resolution failed',
+                tr('conflict.resolveFailed'),
                 '<p>%s</p>' % error,
             )
             return False
@@ -3964,9 +4129,8 @@ class MainWindow(QMainWindow, WindowMixin):
             for image_key in conflict.image_keys
         ):
             self.error_message(
-                'Image file conflict',
-                '<p>The image itself changed externally. Reload the '
-                'external image before saving annotations.</p>',
+                tr('conflict.imageTitle'),
+                '<p>%s</p>' % tr('conflict.imageChanged'),
             )
             return False
         affected_views = [
@@ -3978,13 +4142,14 @@ class MainWindow(QMainWindow, WindowMixin):
         ]
         dirty_views = [view for view in affected_views if view.dirty]
         if conflict.affected_count > 1 or len(dirty_views) > 1:
-            answer = QMessageBox.question(
+            answer = localized_question(
                 self,
-                'Overwrite shared external resource',
-                (
-                    'Overwriting this resource affects %d images and '
-                    'writes changes from %d dirty images. Continue?'
-                ) % (conflict.affected_count, len(dirty_views)),
+                tr('conflict.overwriteSharedTitle'),
+                tr(
+                    'conflict.overwriteShared',
+                    images=conflict.affected_count,
+                    dirty=len(dirty_views),
+                ),
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No,
             )
@@ -3995,7 +4160,7 @@ class MainWindow(QMainWindow, WindowMixin):
         )
         if not outcome.ok:
             self.error_message(
-                'Unable to save annotation changes',
+                tr('conflict.saveFailed'),
                 '<p>%s</p>' % outcome.failure.error,
             )
             return False
@@ -4103,13 +4268,13 @@ class MainWindow(QMainWindow, WindowMixin):
         item.setText(self.file_list_item_text(image_path))
         details = [image_path]
         if 'dirty' in flags:
-            details.append('Unsaved annotation changes')
+            details.append(tr('state.dirty'))
         if 'conflict' in flags:
-            details.append('External annotation conflict')
+            details.append(tr('state.conflict'))
         if 'ambiguous' in flags:
-            details.append('Choose an active annotation format')
+            details.append(tr('fileStatus.ambiguous'))
         if 'degraded' in flags:
-            details.append('Read-only degraded annotation state')
+            details.append(tr('fileStatus.degraded'))
         item.setToolTip('\n'.join(details))
         if refresh_view:
             self.apply_file_list_view()
@@ -4152,7 +4317,7 @@ class MainWindow(QMainWindow, WindowMixin):
             path = '.'
 
         dir_path = ustr(QFileDialog.getExistingDirectory(self,
-                                                         '%s - Save annotations to the directory' % __appname__, path,  QFileDialog.ShowDirsOnly
+                                                         tr('dialog.saveDirectory', app=__appname__), path,  QFileDialog.ShowDirsOnly
                                                          | QFileDialog.DontResolveSymlinks))
 
         if dir_path is not None and len(dir_path) > 1:
@@ -4177,7 +4342,7 @@ class MainWindow(QMainWindow, WindowMixin):
                 )
             except Exception as error:
                 self.error_message(
-                    'Unable to change annotation directory',
+                    tr('error.changeAnnotationDir'),
                     '<p>%s</p>' % error,
                 )
                 return
@@ -4211,26 +4376,28 @@ class MainWindow(QMainWindow, WindowMixin):
             self.refresh_candidate_labels()
             self.refresh_file_list_statuses()
 
-        self.statusBar().showMessage('%s . Annotation will be saved to %s' %
-                                     ('Change saved folder', self.default_save_dir))
+        self.statusBar().showMessage(tr(
+            'status.saveDirectoryChanged',
+            path=self.default_save_dir,
+        ))
         self.statusBar().show()
 
     def open_annotation_dialog(self, _value=False):
         if self.file_path is None:
-            self.statusBar().showMessage('Please select image first')
+            self.statusBar().showMessage(tr('status.selectImage'))
             self.statusBar().show()
             return
 
         path = os.path.dirname(ustr(self.file_path))\
             if self.file_path else '.'
-        filters = "Open Annotation file (%s)" % ' '.join(
+        filters = tr('dialog.annotationFilter', patterns=' '.join(
             '*%s' % annotation_format.extension
             for annotation_format in AnnotationFormat
-        )
+        ))
         filename = ustr(
             QFileDialog.getOpenFileName(
                 self,
-                '%s - Choose an annotation file' % __appname__,
+                tr('dialog.chooseAnnotation', app=__appname__),
                 path,
                 filters,
             )
@@ -4251,7 +4418,7 @@ class MainWindow(QMainWindow, WindowMixin):
             default_open_dir_path = os.path.dirname(self.file_path) if self.file_path else '.'
         if silent != True:
             target_dir_path = ustr(QFileDialog.getExistingDirectory(self,
-                                                                    '%s - Open Directory' % __appname__, default_open_dir_path,
+                                                                    tr('dialog.openDirectory', app=__appname__), default_open_dir_path,
                                                                     QFileDialog.ShowDirsOnly | QFileDialog.DontResolveSymlinks))
         else:
             target_dir_path = ustr(default_open_dir_path)
@@ -4360,7 +4527,7 @@ class MainWindow(QMainWindow, WindowMixin):
                 return
         except Exception as error:
             self.error_message(
-                'Error saving label data',
+                tr('error.saveLabelData'),
                 u'<p>%s</p>' % error,
             )
             return
@@ -4415,14 +4582,19 @@ class MainWindow(QMainWindow, WindowMixin):
             return
         path = os.path.dirname(ustr(self.file_path)) if self.file_path else '.'
         formats = ['*.%s' % fmt.data().decode("ascii").lower() for fmt in QImageReader.supportedImageFormats()]
-        filters = "Image & Annotation files (%s)" % ' '.join(
+        filters = tr('dialog.imageAnnotationFilter', patterns=' '.join(
             formats
             + [
                 '*%s' % annotation_format.extension
                 for annotation_format in AnnotationFormat
             ]
+        ))
+        filename = QFileDialog.getOpenFileName(
+            self,
+            tr('dialog.chooseImageOrAnnotation', app=__appname__),
+            path,
+            filters,
         )
-        filename = QFileDialog.getOpenFileName(self, '%s - Choose Image or Label file' % __appname__, path, filters)
         if filename:
             if isinstance(filename, (tuple, list)):
                 filename = filename[0]
@@ -4435,7 +4607,7 @@ class MainWindow(QMainWindow, WindowMixin):
             self.annotation_editing.pending
             or self.annotation_editing.edit_open
         ):
-            self.status('Finish or cancel the current annotation edit first')
+            self.status(tr('status.finishEdit'))
             return
         if self.default_save_dir is not None and len(ustr(self.default_save_dir)):
             if self.file_path:
@@ -4456,14 +4628,16 @@ class MainWindow(QMainWindow, WindowMixin):
             self.annotation_editing.pending
             or self.annotation_editing.edit_open
         ):
-            self.status('Finish or cancel the current annotation edit first')
+            self.status(tr('status.finishEdit'))
             return
         assert not self.image.isNull(), "cannot save empty image"
         self._save_file(self.save_file_dialog())
 
     def save_file_dialog(self, remove_ext=True):
-        caption = '%s - Choose File' % __appname__
-        filters = 'File (*%s)' % self.annotation_format.extension
+        caption = tr('dialog.chooseFile', app=__appname__)
+        filters = tr(
+            'dialog.fileFilter', extension=self.annotation_format.extension
+        )
         open_dialog_path = self.current_path()
         dlg = QFileDialog(self, caption, open_dialog_path, filters)
         dlg.setDefaultSuffix(self.annotation_format.extension[1:])
@@ -4489,8 +4663,8 @@ class MainWindow(QMainWindow, WindowMixin):
                 rescue_path += self.annotation_format.extension
             if os.path.lexists(rescue_path):
                 self.error_message(
-                    'Rescue Save As requires a new path',
-                    '<p>Choose a path that does not already exist.</p>',
+                    tr('save.rescueTitle'),
+                    '<p>%s</p>' % tr('save.rescuePrompt'),
                 )
                 return
         saved = (
@@ -4506,13 +4680,12 @@ class MainWindow(QMainWindow, WindowMixin):
             self.update_file_list_item_status(self.file_path)
             if saved.removed:
                 self.statusBar().showMessage(
-                    'Removed empty annotation file %s'
-                    % saved.annotation_path
+                    tr('status.removedEmpty', path=saved.annotation_path)
                 )
                 self.statusBar().show()
             elif saved.document is not None:
                 self.statusBar().showMessage(
-                    'Saved to  %s' % saved.annotation_path
+                    tr('status.saved', path=saved.annotation_path)
                 )
                 self.statusBar().show()
 
@@ -4553,20 +4726,27 @@ class MainWindow(QMainWindow, WindowMixin):
             return True
 
         dialog = QDialog(self)
-        dialog.setWindowTitle('Unsaved annotation changes')
+        dialog.setWindowTitle(tr('unsaved.title'))
         layout = QVBoxLayout(dialog)
         layout.addWidget(QLabel(
-            'Choose Save or Discard for every changed image.'
+            tr('unsaved.prompt')
         ))
         table = QTableWidget(len(dirty_views), 2, dialog)
-        table.setHorizontalHeaderLabels(('Image', 'Action'))
+        table.setHorizontalHeaderLabels((
+            tr('unsaved.image'),
+            tr('unsaved.action'),
+        ))
         choices = []
         for row, view in enumerate(dirty_views):
             item = QTableWidgetItem(view.image_key)
             item.setFlags(item.flags() & ~Qt.ItemIsEditable)
             table.setItem(row, 0, item)
             combo = QComboBox(table)
-            combo.addItems(('Choose\u2026', 'Save', 'Discard'))
+            combo.addItems((
+                tr('common.choose'),
+                tr('unsaved.save'),
+                tr('unsaved.discard'),
+            ))
             table.setCellWidget(row, 1, combo)
             choices.append(combo)
         table.horizontalHeader().setStretchLastSection(True)
@@ -4575,6 +4755,7 @@ class MainWindow(QMainWindow, WindowMixin):
             QDialogButtonBox.Ok | QDialogButtonBox.Cancel,
             dialog,
         )
+        localize_dialog_buttons(buttons)
         ok_button = buttons.button(QDialogButtonBox.Ok)
         ok_button.setEnabled(False)
 
@@ -4619,7 +4800,7 @@ class MainWindow(QMainWindow, WindowMixin):
             self.update_file_list_item_status(receipt.image_key)
         if not outcome.ok:
             self.error_message(
-                'Unable to save annotation changes',
+                tr('conflict.saveFailed'),
                 '<p>%s</p>' % outcome.failure.error,
             )
             return None
@@ -4643,8 +4824,8 @@ class MainWindow(QMainWindow, WindowMixin):
             )
             self.update_file_list_item_status(view.image_key)
             self.error_message(
-                'Unable to discard annotation changes',
-                '<p>The stored annotation resource changed externally.</p>',
+                tr('conflict.discardFailed'),
+                '<p>%s</p>' % tr('conflict.storedChanged'),
             )
             return False
         self.annotation_editing.remove_images((view.image_key,))
@@ -4657,22 +4838,22 @@ class MainWindow(QMainWindow, WindowMixin):
 
     def discard_changes_dialog(self):
         yes, no, cancel = QMessageBox.Yes, QMessageBox.No, QMessageBox.Cancel
-        msg = (
-            u'You have unsaved annotation changes. '
-            u'Save them before continuing?\n'
-            u'Choose No to discard the in-memory document.'
+        return localized_warning(
+            self,
+            tr('unsaved.attention'),
+            tr('unsaved.legacyPrompt'),
+            yes | no | cancel,
         )
-        return QMessageBox.warning(self, u'Attention', msg, yes | no | cancel)
 
     def error_message(self, title, message):
-        return QMessageBox.critical(self, title,
+        return localized_critical(self, title,
                                     '<p><b>%s</b></p>%s' % (title, message))
 
     def current_path(self):
         return os.path.dirname(self.file_path) if self.file_path else '.'
 
     def choose_color1(self):
-        color = self.color_dialog.getColor(self.line_color, u'Choose line color',
+        color = self.color_dialog.getColor(self.line_color, tr('color.chooseLine'),
                                            default=DEFAULT_LINE_COLOR)
         if color:
             self.line_color = color
@@ -4690,7 +4871,7 @@ class MainWindow(QMainWindow, WindowMixin):
         selection = self.canvas.selection_snapshot
         if not selection.capabilities.can_edit_single:
             return
-        color = self.color_dialog.getColor(self.line_color, u'Choose Line Color',
+        color = self.color_dialog.getColor(self.line_color, tr('color.chooseLine'),
                                            default=DEFAULT_LINE_COLOR)
         if color and color != selection.active.line_color:
             shape = selection.active
@@ -4706,7 +4887,7 @@ class MainWindow(QMainWindow, WindowMixin):
         selection = self.canvas.selection_snapshot
         if not selection.capabilities.can_edit_single:
             return
-        color = self.color_dialog.getColor(self.fill_color, u'Choose Fill Color',
+        color = self.color_dialog.getColor(self.fill_color, tr('color.chooseFill'),
                                            default=DEFAULT_FILL_COLOR)
         if color and color != selection.active.fill_color:
             shape = selection.active
@@ -4762,7 +4943,7 @@ class MainWindow(QMainWindow, WindowMixin):
             )
         except AnnotationDocumentError as error:
             self.error_message(
-                u'Error opening annotation document',
+                tr('open.annotationTitle'),
                 u'<b>%s</b>' % error,
             )
             return False
@@ -4791,18 +4972,18 @@ class MainWindow(QMainWindow, WindowMixin):
     def copy_current_bounding_boxes(self):
         selected_shapes = list(self.canvas.selected_shapes)
         if not selected_shapes:
-            self.status('No selected labels to copy')
+            self.status(tr('status.noSelectedLabels'))
             return
 
         self.annotation_clipboard = [
             self.format_shape_for_clipboard(shape)
             for shape in selected_shapes
         ]
-        self.status('Copied %d label(s)' % len(self.annotation_clipboard))
+        self.status(tr('status.copiedLabels', count=len(self.annotation_clipboard)))
 
     def paste_copied_bounding_boxes(self):
         if not self.annotation_clipboard:
-            self.status('No copied labels to paste')
+            self.status(tr('status.noCopiedLabels'))
             return
         if self.file_path is None:
             return
@@ -4828,7 +5009,7 @@ class MainWindow(QMainWindow, WindowMixin):
         self.shape_selection_changed(True)
 
         self.canvas.setFocus(True)
-        self.status('Pasted %d label(s)' % len(pasted_shapes))
+        self.status(tr('status.pastedLabels', count=len(pasted_shapes)))
 
     def copy_previous_bounding_boxes(self):
         current_index = self.m_img_list.index(self.file_path)

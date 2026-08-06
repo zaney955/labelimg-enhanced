@@ -7,6 +7,8 @@ except ImportError:
     from PyQt4.QtGui import *
     from PyQt4.QtCore import *
 
+from labelimg.i18n import tr
+
 # from PyQt4.QtOpenGL import *
 
 from labelimg.shape import Shape
@@ -530,7 +532,7 @@ class Canvas(QWidget):
             target = self._refresh_hover(pos, suppress_handles=True)
             if target.shape is not None:
                 self.setToolTip(
-                    "Ctrl-click to toggle shape '%s'" % target.shape.label
+                    tr("canvas.ctrlToggle", label=target.shape.label)
                 )
             self.override_cursor(CURSOR_SELECT)
             return
@@ -640,15 +642,15 @@ class Canvas(QWidget):
             return
 
         # Resolve one geometry-only target shared by every pointer gesture.
-        self.setToolTip("Image")
+        self.setToolTip(tr("canvas.image"))
         target = self._refresh_hover(pos)
         if target.vertex is not None:
             self.override_cursor(self.vertex_cursor(target.vertex))
-            self.setToolTip("Click & drag to move point")
+            self.setToolTip(tr("canvas.movePoint"))
             self.setStatusTip(self.toolTip())
         elif target.edge is not None:
             self.setToolTip(
-                "Click & drag to resize shape '%s'" % target.shape.label
+                tr("canvas.resizeShape", label=target.shape.label)
             )
             self.setStatusTip(self.toolTip())
             self.override_cursor(
@@ -658,7 +660,7 @@ class Canvas(QWidget):
             )
         elif target.shape is not None:
             self.setToolTip(
-                "Click & drag to move shape '%s'" % target.shape.label
+                tr("canvas.moveShape", label=target.shape.label)
             )
             self.setStatusTip(self.toolTip())
             self.override_cursor(CURSOR_GRAB)
