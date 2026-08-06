@@ -445,9 +445,8 @@ class LabelGroupListWidget(QAbstractScrollArea):
         font.setBold(all_selected)
         painter.setFont(font)
         painter.setPen(foreground)
-        text = painter.fontMetrics().elidedText(
+        text = self._elided_label_text(
             group.label,
-            Qt.ElideRight,
             max(0, layout["label"].width() - self.label_button_gap),
         )
         painter.drawText(
@@ -1029,7 +1028,7 @@ class LabelGroupListWidget(QAbstractScrollArea):
         if cached is not None:
             return cached
 
-        metrics = self.fontMetrics()
+        metrics = QFontMetrics(self._label_measurement_font())
         measure = getattr(metrics, "horizontalAdvance", metrics.width)
         widest = max(
             [measure(group.label) for group in self._filtered_groups()]
@@ -1058,6 +1057,18 @@ class LabelGroupListWidget(QAbstractScrollArea):
         width = min(desired, maximum)
         self._label_width_cache[available] = width
         return width
+
+    def _label_measurement_font(self):
+        font = QFont(self.font())
+        font.setBold(True)
+        return font
+
+    def _elided_label_text(self, text, width):
+        return QFontMetrics(self._label_measurement_font()).elidedText(
+            str(text),
+            Qt.ElideRight,
+            max(0, int(width)),
+        )
 
     def _invalidate_label_width(self):
         self._label_width_cache.clear()
