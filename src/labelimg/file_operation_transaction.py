@@ -17,6 +17,10 @@ from labelimg.file_recovery import (
     FileRecoveryError,
     RecoveryOperation,
 )
+from labelimg.image_tools.recoverable_replacement import (
+    RecoverableImageReplacementError,
+    RecoverableImageReplacementTransaction,
+)
 
 
 class FileOperationBlocked(FileOperationError):
@@ -68,6 +72,9 @@ class FileOperationTransaction:
         self._review_transaction = review_transaction
         self._trash = trash_adapter
         self._recovery = recovery_center or FileRecoveryCenter()
+        self._image_replacements = RecoverableImageReplacementTransaction(
+            trash_adapter
+        )
 
     @property
     def recovery_entries(self):
@@ -100,8 +107,47 @@ class FileOperationTransaction:
     def record_review(self, changes):
         return self._recovery.record_review(changes)
 
-    def recover(self, entry_id):
+    def execute_image_processing(self, replacements):
+        """Atomically install prepared images and record their originals."""
+        result = self._image_replacements.commit(replacements)
+        entry = self._recovery.record_image_processing(result.resources)
+        return FileOperationOutcome(
+            RecoveryOperation.IMAGE_PROCESSING,
+            file_result=result,
+            recovery_entry=entry,
+        )
+
+    def recover(self, entry_id, selected_paths=None):
         """Recover one complete recorded operation."""
+        entry = self._recovery.entry(entry_id)
+        if entry.operation is RecoveryOperation.IMAGE_PROCESSING:
+            selected_keys = (
+                None
+                if selected_paths is None
+                else {
+                    self._resource_key(path)
+                    for path in selected_paths
+                }
+            )
+            resources = tuple(
+                resource
+                for resource in entry.payload
+                if selected_keys is None
+                or self._resource_key(resource.original_path)
+                in selected_keys
+            )
+            if (
+                selected_keys is not None
+                and len(resources) != len(selected_keys)
+            ):
+                raise FileRecoveryError(
+                    "the recovery selection is not part of this operation"
+                )
+            return self._recovery.recover_subset(
+                entry_id,
+                resources,
+                self._recover_image_processing,
+            )
         return self._recovery.recover(entry_id, self._recover_entry)
 
     def replace_workspace(self, workspace):
@@ -109,6 +155,9 @@ class FileOperationTransaction:
 
     def replace_trash_adapter(self, trash_adapter):
         self._trash = trash_adapter
+        self._image_replacements = RecoverableImageReplacementTransaction(
+            trash_adapter
+        )
 
     def _file_service(self):
         return AnnotationFileService(
@@ -219,6 +268,28 @@ class FileOperationTransaction:
             return self._recover_review(entry)
         raise FileRecoveryError(
             "unsupported recovery operation: %s" % entry.operation
+        )
+
+    def _recover_image_processing(self, entry, resources):
+        try:
+            result = self._image_replacements.recover(resources)
+        except RecoverableImageReplacementError as error:
+            if error.retry_resources:
+                replacements = {
+                    self._resource_key(resource.original_path): resource
+                    for resource in error.retry_resources
+                }
+                entry.payload = tuple(
+                    replacements.get(
+                        self._resource_key(resource.original_path),
+                        resource,
+                    )
+                    for resource in entry.payload
+                )
+            raise FileRecoveryConflict(str(error)) from error
+        return FileRecoveryOutcome(
+            entry,
+            restored_paths=result.restored_paths,
         )
 
     def _recover_trashed(self, entry):

@@ -185,14 +185,41 @@ class SystemTrashAdapter:
         return False
 
     def preflight(self, paths):
-        if platform.system() != "Windows":
-            return
-        try:
-            from labelimg.windows_trash import probe_recycle_support
-            for path in dict.fromkeys(
+        paths = tuple(
+            dict.fromkeys(
                 os.path.abspath(os.fspath(path)) for path in paths
+            )
+        )
+        try:
+            if platform.system() == "Windows":
+                from labelimg.windows_trash import probe_recycle_support
+                for path in paths:
+                    probe_recycle_support(path)
+                return
+            for directory in dict.fromkeys(
+                os.path.dirname(path) for path in paths
             ):
-                probe_recycle_support(path)
+                descriptor, probe = tempfile.mkstemp(
+                    prefix=".labelimg-trash-probe-",
+                    dir=directory,
+                )
+                os.close(descriptor)
+                identity = None
+                try:
+                    identity = self.move(probe)
+                    if (
+                        identity is None
+                        or not identity.actionable
+                        or not self.exists(identity)
+                    ):
+                        raise FileOperationError(
+                            "The system trash did not return a restorable "
+                            "identity for the probe."
+                        )
+                    self.restore(identity, probe)
+                finally:
+                    if os.path.exists(probe):
+                        os.remove(probe)
         except Exception as error:
             raise FileOperationError(
                 "Recycle Bin preflight failed before any file was changed: %s"

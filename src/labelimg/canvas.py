@@ -1469,6 +1469,11 @@ class Canvas(QWidget):
         self.visible.clear()
         self.repaint()
 
+    def replace_pixmap(self, pixmap):
+        """Refresh only image pixels while preserving annotation view state."""
+        self.pixmap = pixmap
+        self.repaint()
+
     def load_shapes(self, shapes):
         self.shapes = list(shapes)
         for shape in self.shapes:

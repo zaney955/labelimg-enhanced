@@ -22,9 +22,12 @@ def main() -> int:
     test_files = sorted((repository_root / "tests").glob("test_*.py"))
     environment = os.environ.copy()
     environment.setdefault("QT_QPA_PLATFORM", "offscreen")
-    test_config_dir = repository_root / ".test-state" / "test-config"
+    test_config_dir = Path(environment.get(
+        "LABELIMG_CONFIG_DIR",
+        repository_root / ".test-state" / "test-config",
+    ))
     test_config_dir.mkdir(parents=True, exist_ok=True)
-    environment.setdefault("LABELIMG_CONFIG_DIR", str(test_config_dir))
+    environment["LABELIMG_CONFIG_DIR"] = str(test_config_dir)
     if arguments.installed:
         environment.pop("PYTHONPATH", None)
     else:

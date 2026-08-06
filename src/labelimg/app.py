@@ -99,6 +99,7 @@ from labelimg.file_operation_transaction import (
     FileOperationTransaction,
     FileRecoveryBlocked,
 )
+from labelimg.file_recovery import RecoveryOperation
 from labelimg.label_group_list import LabelGroupListWidget
 
 __appname__ = 'labelImg'
@@ -734,6 +735,33 @@ class MainWindow(QMainWindow, WindowMixin):
         )
         file_list_layout = QVBoxLayout()
         file_list_layout.setContentsMargins(0, 0, 0, 0)
+        self.annotation_directory_bar = QWidget()
+        annotation_directory_layout = QHBoxLayout(
+            self.annotation_directory_bar
+        )
+        annotation_directory_layout.setContentsMargins(6, 4, 4, 4)
+        annotation_directory_layout.setSpacing(4)
+        self.annotation_directory_label = QLabel()
+        self.annotation_directory_label.setTextInteractionFlags(
+            Qt.TextSelectableByMouse
+        )
+        self.annotation_directory_label.setSizePolicy(
+            QSizePolicy.Ignored,
+            QSizePolicy.Preferred,
+        )
+        self.annotation_directory_button = QToolButton()
+        self.annotation_directory_button.setAutoRaise(True)
+        self.annotation_directory_button.setToolButtonStyle(
+            Qt.ToolButtonIconOnly
+        )
+        annotation_directory_layout.addWidget(
+            self.annotation_directory_label,
+            1,
+        )
+        annotation_directory_layout.addWidget(
+            self.annotation_directory_button,
+        )
+        file_list_layout.addWidget(self.annotation_directory_bar)
         self.file_list_controls = FileListControlBar(
             settings.get(SETTING_FILE_LIST_SORT_KEY, 'name'),
             settings.get(SETTING_FILE_LIST_SORT_DESCENDING, False),
@@ -866,16 +894,23 @@ class MainWindow(QMainWindow, WindowMixin):
                       'Ctrl+Q', 'quit', get_str('quitApp'))
 
         open = action(get_str('openFile'), self.open_file,
-                      'Ctrl+O', 'open', get_str('openFileDetail'))
+                      'Ctrl+O', 'open-file', get_str('openFileDetail'))
 
         open_dir = action(get_str('openDir'), self.open_dir_dialog,
-                          'Ctrl+u', 'open', get_str('openDir'))
+                          'Ctrl+Shift+O', 'open-image-directory',
+                          get_str('openDirDetail'))
 
         change_save_dir = action(get_str('changeSaveDir'), self.change_save_dir_dialog,
-                                 'Ctrl+r', 'open', get_str('changeSavedAnnotationDir'))
+                                 None, 'annotation-directory',
+                                 get_str('changeSavedAnnotationDir'))
+        self.annotation_directory_button.setDefaultAction(change_save_dir)
 
         open_annotation = action(get_str('openAnnotation'), self.open_annotation_dialog,
-                                 'Ctrl+Shift+O', 'open', get_str('openAnnotationDetail'))
+                                 None, 'replace-annotation',
+                                 get_str('openAnnotationDetail'))
+        open_file_menu = QMenu(self)
+        open_file_menu.addAction(open)
+        open_dir._toolbar_menu = open_file_menu
         copy_annotations = action(tr('action.copyLabels'), self.copy_current_bounding_boxes, 'Ctrl+C',
                                   'copy', tr('action.copyLabelsTip'),
                                   enabled=False)
@@ -933,6 +968,18 @@ class MainWindow(QMainWindow, WindowMixin):
         )
         recent_file_operations.triggered.connect(
             self.open_file_recovery_center
+        )
+        remove_colored_frames = action(
+            tr('imageTools.action.removeFrames'),
+            self.open_remove_colored_frames,
+            tip=tr('imageTools.action.removeFramesTip'),
+            enabled=False,
+        )
+        undo_image_processing = action(
+            tr('imageTools.action.undoCommitted'),
+            self.undo_last_image_processing,
+            tip=tr('imageTools.action.undoCommittedTip'),
+            enabled=False,
         )
 
         reset_all = action(get_str('resetAll'), self.reset_all, None, 'resetall', get_str('resetAllDetail'))
@@ -1041,11 +1088,15 @@ class MainWindow(QMainWindow, WindowMixin):
 
         # Store actions for further handling.
         self.actions = Struct(save=save, save_format=save_format, saveAs=save_as, open=open, close=close, resetAll=reset_all, deleteImg=delete_image,
+                              openDir=open_dir, changeSaveDir=change_save_dir,
+                              replaceAnnotation=open_annotation,
                               verify=verify, question=question,
                               openNext=open_next_image, openPrev=open_prev_image,
                               undoAnnotation=undo_annotation,
                               redoAnnotation=redo_annotation,
                               recentFileOperations=recent_file_operations,
+                              removeColoredFrames=remove_colored_frames,
+                              undoImageProcessing=undo_image_processing,
                               lineColor=color1, create=create, delete=delete, edit=edit, copy=copy,
                               copyAnnotations=copy_annotations, pasteAnnotations=paste_annotations,
                               createMode=create_mode, editMode=edit_mode, advancedMode=advanced_mode,
@@ -1064,16 +1115,42 @@ class MainWindow(QMainWindow, WindowMixin):
                               advancedContext=(create_mode, edit_mode, edit, copy,
                                                delete, shape_line_color, shape_fill_color),
                               onLoadActive=(
-                                  close, create, create_mode, edit_mode),
+                                  close, create, create_mode, edit_mode,
+                                  remove_colored_frames),
                               onShapesPresent=(save_as, hide_all, show_all))
 
         self.menus = Struct(
             file=self.menu(get_str('menu_file')),
             edit=self.menu(get_str('menu_edit')),
+            image=self.menu(tr('menu_image')),
             view=self.menu(get_str('menu_view')),
             help=self.menu(get_str('menu_help')),
             recentFiles=QMenu(get_str('menu_openRecent')),
             labelList=label_menu)
+        self.menus.annotationDirectory = QMenu(
+            tr('annotationDirectory.menu'),
+            self,
+        )
+        annotation_directory_current = QAction(
+            tr('annotationDirectory.currentImage'),
+            self,
+        )
+        annotation_directory_current.setEnabled(False)
+        use_image_directory = action(
+            tr('annotationDirectory.useImage'),
+            self.use_image_directory_for_annotations,
+        )
+        add_actions(
+            self.menus.annotationDirectory,
+            (
+                annotation_directory_current,
+                None,
+                change_save_dir,
+                use_image_directory,
+            ),
+        )
+        self.actions.annotationDirectoryCurrent = annotation_directory_current
+        self.actions.useImageDirectory = use_image_directory
 
         self.menus.language = QMenu(tr('language.menu'), self)
         self.language_action_group = QActionGroup(self.menus.language)
@@ -1114,9 +1191,16 @@ class MainWindow(QMainWindow, WindowMixin):
         self.display_label_option.triggered.connect(self.toggle_paint_labels_option)
 
         add_actions(self.menus.file,
-                    (open, open_dir, change_save_dir, open_annotation, copy_annotations, paste_annotations,
-                     copy_prev_bounding, self.menus.recentFiles, save, save_format, save_as, close,
-                     reset_all, delete_image, recent_file_operations, quit))
+                    (open_dir, open, self.menus.recentFiles, None,
+                     self.menus.annotationDirectory, None,
+                     open_annotation, save, save_as, save_format, close, None,
+                     copy_annotations, paste_annotations, copy_prev_bounding,
+                     delete_image, recent_file_operations, reset_all, None, quit))
+        add_actions(self.menus.image, (
+            remove_colored_frames,
+            None,
+            undo_image_processing,
+        ))
         add_actions(self.menus.help, (help_default, show_info, show_shortcut))
         add_actions(self.menus.view, (
             self.menus.language,
@@ -1130,6 +1214,7 @@ class MainWindow(QMainWindow, WindowMixin):
             fit_window, fit_width))
 
         self.menus.file.aboutToShow.connect(self.update_file_menu)
+        self.menus.image.aboutToShow.connect(self.update_image_menu)
         self._history_shortcuts = AnnotationHistoryShortcutFilter(
             self,
             self.undo_annotation,
@@ -1155,20 +1240,21 @@ class MainWindow(QMainWindow, WindowMixin):
 
         self.tools = self.toolbar(tr('toolbar.tools'))
         self.actions.beginner = (
-            open, open_dir, change_save_dir, open_next_image, open_prev_image, verify, question, save, save_format, None, create, copy, delete, None,
+            open_dir, open_next_image, open_prev_image, verify, question, save, save_format, None, create, copy, delete, None,
             zoom_in, zoom, zoom_out, fit_window, fit_width)
 
         self.actions.advanced = (
-            open, open_dir, change_save_dir, open_next_image, open_prev_image, save, save_format, None,
+            open_dir, open_next_image, open_prev_image, save, save_format, None,
             create_mode, edit_mode, None,
             hide_all, show_all)
 
         self._i18n_action_specs = {
             quit: ('quit', 'quitApp'),
             open: ('openFile', 'openFileDetail'),
-            open_dir: ('openDir', 'openDir'),
+            open_dir: ('openDir', 'openDirDetail'),
             change_save_dir: ('changeSaveDir', 'changeSavedAnnotationDir'),
             open_annotation: ('openAnnotation', 'openAnnotationDetail'),
+            use_image_directory: ('annotationDirectory.useImage', None),
             copy_annotations: ('action.copyLabels', 'action.copyLabelsTip'),
             paste_annotations: ('action.pasteLabels', 'action.pasteLabelsTip'),
             copy_prev_bounding: ('copyPrevBounding', 'copyPrevBounding'),
@@ -1182,6 +1268,14 @@ class MainWindow(QMainWindow, WindowMixin):
             close: ('closeCur', 'closeCurDetail'),
             delete_image: ('deleteImg', 'deleteImgDetail'),
             recent_file_operations: ('action.recentOperations', None),
+            remove_colored_frames: (
+                'imageTools.action.removeFrames',
+                'imageTools.action.removeFramesTip',
+            ),
+            undo_image_processing: (
+                'imageTools.action.undoCommitted',
+                'imageTools.action.undoCommittedTip',
+            ),
             reset_all: ('resetAll', 'resetAllDetail'),
             color1: ('boxLineColor', 'boxLineColorDetail'),
             create_mode: ('crtBox', 'crtBoxDetail'),
@@ -1262,6 +1356,7 @@ class MainWindow(QMainWindow, WindowMixin):
             self.load_candidate_labels_from_dir(
                 ustr(self.default_save_dir)
             )
+        self._sync_annotation_directory_ui()
 
         self.restoreState(settings.get(SETTING_WIN_STATE, QByteArray()))
         Shape.line_color = self.line_color = QColor(settings.get(SETTING_LINE_COLOR, DEFAULT_LINE_COLOR))
@@ -1351,9 +1446,14 @@ class MainWindow(QMainWindow, WindowMixin):
         self.file_dock.setWindowTitle(tr('fileList'))
         self.menus.file.setTitle(tr('menu_file'))
         self.menus.edit.setTitle(tr('menu_edit'))
+        self.menus.image.setTitle(tr('menu_image'))
         self.menus.view.setTitle(tr('menu_view'))
         self.menus.help.setTitle(tr('menu_help'))
         self.menus.recentFiles.setTitle(tr('menu_openRecent'))
+        self.menus.annotationDirectory.setTitle(
+            tr('annotationDirectory.menu')
+        )
+        self._sync_annotation_directory_ui()
         self.menus.language.setTitle(tr('language.menu'))
         self.tools.setWindowTitle(tr('toolbar.tools'))
         self.zoom_widget.setWhatsThis(tr(
@@ -2048,6 +2148,112 @@ class MainWindow(QMainWindow, WindowMixin):
             action.triggered.connect(partial(self.load_recent, f))
             menu.addAction(action)
 
+    def update_image_menu(self):
+        self.actions.removeColoredFrames.setEnabled(bool(self.file_path))
+        self.actions.undoImageProcessing.setEnabled(
+            self._latest_image_processing_recovery() is not None
+        )
+
+    def open_remove_colored_frames(self, _checked=False):
+        if not self.file_path:
+            self.status(tr('imageTools.noImage'))
+            return
+        if (
+            self.annotation_editing.pending
+            or self.annotation_editing.edit_open
+        ):
+            self.status(tr('imageTools.pendingAnnotation'))
+            return
+
+        from labelimg.image_tools.dialog import ImageToolsDialog
+
+        dialog = ImageToolsDialog(
+            self.file_path,
+            tuple(self.selected_file_paths()),
+            commit=self.file_operations.execute_image_processing,
+            parent=self,
+        )
+        if dialog.exec_() != QDialog.Accepted or dialog.outcome is None:
+            return
+        resources = tuple(dialog.outcome.file_result.resources)
+        processed_paths = tuple(
+            resource.original_path for resource in resources
+        )
+        self._refresh_current_image_pixels(processed_paths)
+        self.actions.undoImageProcessing.setEnabled(True)
+        self.status(tr('imageTools.completed', count=len(processed_paths)))
+
+    def undo_last_image_processing(self, _checked=False):
+        entry = self._latest_image_processing_recovery()
+        if entry is None:
+            self.status(tr('imageTools.recovery.none'))
+            self.actions.undoImageProcessing.setEnabled(False)
+            return
+        self._confirm_file_recovery(entry.entry_id)
+        self.update_image_menu()
+
+    def _latest_image_processing_recovery(self):
+        return next(
+            (
+                entry
+                for entry in self.file_operations.recovery_entries
+                if entry.operation is RecoveryOperation.IMAGE_PROCESSING
+                and entry.recoverable
+            ),
+            None,
+        )
+
+    def _choose_image_recovery_paths(self, entry):
+        resources = tuple(entry.payload)
+        if len(resources) == 1:
+            answer = localized_question(
+                self,
+                tr('imageTools.recovery.title'),
+                tr('imageTools.recovery.confirm', count=1),
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if answer != QMessageBox.Yes:
+                return None
+            return (resources[0].original_path,)
+
+        from labelimg.image_tools.recovery_dialog import (
+            ImageRecoverySelectionDialog,
+        )
+
+        selection = ImageRecoverySelectionDialog(resources, self)
+        if selection.exec_() != QDialog.Accepted:
+            return None
+        return selection.selected_paths
+
+    def _refresh_current_image_pixels(self, changed_paths):
+        if not self.file_path:
+            return False
+        changed = {
+            os.path.normcase(os.path.abspath(path))
+            for path in changed_paths
+        }
+        current = os.path.normcase(os.path.abspath(self.file_path))
+        if current not in changed:
+            return False
+
+        image_data = read(self.file_path, None)
+        image = (
+            image_data
+            if isinstance(image_data, QImage)
+            else QImage.fromData(image_data)
+        )
+        if image.isNull():
+            self.status(
+                tr('status.errorReading', detail=self.file_path)
+            )
+            return False
+        self.image_data = image_data
+        self.image = image
+        self.canvas.replace_pixmap(QPixmap.fromImage(image))
+        self.paint_canvas()
+        return True
+
     def open_file_recovery_center(self, _checked=False):
         dialog = QDialog(self)
         dialog.setWindowTitle(tr('recovery.title'))
@@ -2112,22 +2318,33 @@ class MainWindow(QMainWindow, WindowMixin):
             for item in self.file_operations.recovery_entries
             if item.entry_id == entry_id
         )
-        answer = localized_question(
-            self,
-            tr('recovery.confirmTitle'),
-            tr(
-                'recovery.confirm',
-                operation=tr('recovery.operation.%s' % entry.operation),
-                count=entry.target_count,
-            ),
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        if answer != QMessageBox.Yes:
-            return
+        selected_paths = None
+        if entry.operation is RecoveryOperation.IMAGE_PROCESSING:
+            selected_paths = self._choose_image_recovery_paths(entry)
+            if selected_paths is None:
+                return
+        else:
+            answer = localized_question(
+                self,
+                tr('recovery.confirmTitle'),
+                tr(
+                    'recovery.confirm',
+                    operation=tr(
+                        'recovery.operation.%s' % entry.operation
+                    ),
+                    count=entry.target_count,
+                ),
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if answer != QMessageBox.Yes:
+                return
         selected_before = tuple(self.selected_file_paths())
         try:
-            outcome = self.file_operations.recover(entry_id)
+            outcome = self.file_operations.recover(
+                entry_id,
+                selected_paths=selected_paths,
+            )
         except FileRecoveryBlocked as error:
             localized_warning(
                 self,
@@ -2173,8 +2390,10 @@ class MainWindow(QMainWindow, WindowMixin):
                 item = self.file_list_widget.item(row)
                 if item.data(Qt.UserRole) in selected_after:
                     item.setSelected(True)
-        self.rescan_annotation_workspace()
+        if entry.operation is not RecoveryOperation.IMAGE_PROCESSING:
+            self.rescan_annotation_workspace()
         self.refresh_file_list_statuses()
+        self._refresh_current_image_pixels(restored_images)
         if self.file_path is None and restored_images:
             self.load_file(restored_images[0])
         elif (
@@ -4310,6 +4529,103 @@ class MainWindow(QMainWindow, WindowMixin):
         self.refresh_candidate_labels()
         return len(candidate_labels)
 
+    def _sync_annotation_directory_ui(self):
+        if not hasattr(self, 'annotation_directory_label'):
+            return
+        custom_dir = ustr(self.default_save_dir or '')
+        if custom_dir:
+            name = os.path.basename(os.path.normpath(custom_dir)) or custom_dir
+            status_text = tr(
+                'annotationDirectory.statusCustom',
+                name=name,
+            )
+            current_text = tr(
+                'annotationDirectory.currentCustom',
+                name=name,
+            )
+            tooltip = os.path.abspath(custom_dir)
+        else:
+            status_text = tr('annotationDirectory.statusImage')
+            current_text = tr('annotationDirectory.currentImage')
+            image_directory = (
+                getattr(self, 'dir_name', None)
+                or (
+                    os.path.dirname(getattr(self, 'file_path', ''))
+                    if getattr(self, 'file_path', '')
+                    else ''
+                )
+            )
+            tooltip = (
+                os.path.abspath(image_directory)
+                if image_directory
+                else tr('annotationDirectory.imageTooltip')
+            )
+        self.annotation_directory_label.setText(status_text)
+        self.annotation_directory_label.setToolTip(tooltip)
+        if hasattr(self, 'actions') and hasattr(
+            self.actions,
+            'annotationDirectoryCurrent',
+        ):
+            self.actions.annotationDirectoryCurrent.setText(current_text)
+            self.actions.useImageDirectory.setEnabled(bool(custom_dir))
+
+    def _switch_annotation_directory(self, directory):
+        if not self.may_continue():
+            return False
+        directory = os.path.abspath(directory) if directory else None
+        scan_directory = (
+            directory
+            or self.dir_name
+            or (os.path.dirname(self.file_path) if self.file_path else None)
+        )
+        replacement = AnnotationWorkspace(save_dir=directory)
+        try:
+            if scan_directory and os.path.isdir(scan_directory):
+                replacement.scan(scan_directory)
+            loaded = (
+                replacement.load_for_image(
+                    self.file_path,
+                    self.image_data,
+                )
+                if self.file_path
+                else None
+            )
+        except Exception as error:
+            self.error_message(
+                tr('error.changeAnnotationDir'),
+                '<p>%s</p>' % error,
+            )
+            return False
+        self.annotation_persistence.clear_conflicts(
+            tuple(self.annotation_persistence.conflicts)
+        )
+        self.annotation_persistence.replace_workspace(replacement)
+        self.annotation_workspace = replacement
+        self.review_state_transaction.replace_workspace(replacement)
+        self.file_operations.replace_workspace(replacement)
+        self._default_save_dir = directory
+        for label in replacement.candidate_labels:
+            if label not in self.label_hist:
+                self.label_hist.append(label)
+        self.annotation_editing.clear_workspace()
+        self.annotation_scene.clear_workspace()
+        self.file_operations.clear_recovery()
+        if self.file_path:
+            self.clear_current_labels()
+            if loaded is not None:
+                self.set_format(
+                    document_format_name(loaded.annotation_format)
+                )
+                self.load_annotation_document(loaded.document)
+            else:
+                self.canvas.verified = False
+                self.canvas.questioned = False
+            self._activate_annotation_history()
+        self.refresh_candidate_labels()
+        self.refresh_file_list_statuses()
+        self._sync_annotation_directory_ui()
+        return True
+
     def change_save_dir_dialog(self, _value=False):
         if self.default_save_dir is not None:
             path = ustr(self.default_save_dir)
@@ -4327,65 +4643,28 @@ class MainWindow(QMainWindow, WindowMixin):
                 and os.path.abspath(self.default_save_dir) == dir_path
             ):
                 return
-            if not self.may_continue():
-                return
-            replacement = AnnotationWorkspace(save_dir=dir_path)
-            try:
-                replacement.scan(dir_path)
-                loaded = (
-                    replacement.load_for_image(
-                        self.file_path,
-                        self.image_data,
-                    )
-                    if self.file_path
-                    else None
-                )
-            except Exception as error:
-                self.error_message(
-                    tr('error.changeAnnotationDir'),
-                    '<p>%s</p>' % error,
-                )
-                return
-            self.annotation_persistence.clear_conflicts(
-                tuple(self.annotation_persistence.conflicts)
-            )
-            self.annotation_persistence.replace_workspace(replacement)
-            self.annotation_workspace = replacement
-            self.review_state_transaction.replace_workspace(replacement)
-            self.file_operations.replace_workspace(replacement)
-            self._default_save_dir = dir_path
-            for label in replacement.candidate_labels:
-                if label not in self.label_hist:
-                    self.label_hist.append(label)
-            self.annotation_editing.clear_workspace()
-            self.annotation_scene.clear_workspace()
-            self.file_operations.clear_recovery()
-            if self.file_path:
-                self.clear_current_labels()
-                if loaded is not None:
-                    self.set_format(
-                        document_format_name(
-                            loaded.annotation_format
-                        )
-                    )
-                    self.load_annotation_document(loaded.document)
-                else:
-                    self.canvas.verified = False
-                    self.canvas.questioned = False
-                self._activate_annotation_history()
-            self.refresh_candidate_labels()
-            self.refresh_file_list_statuses()
+            if self._switch_annotation_directory(dir_path):
+                self.statusBar().showMessage(tr(
+                    'status.saveDirectoryChanged',
+                    path=self.default_save_dir,
+                ))
+                self.statusBar().show()
 
-        self.statusBar().showMessage(tr(
-            'status.saveDirectoryChanged',
-            path=self.default_save_dir,
-        ))
-        self.statusBar().show()
+    def use_image_directory_for_annotations(self, _value=False):
+        if not self.default_save_dir:
+            return
+        if self._switch_annotation_directory(None):
+            self.statusBar().showMessage(
+                tr('status.annotationDirectoryUsesImage')
+            )
+            self.statusBar().show()
 
     def open_annotation_dialog(self, _value=False):
         if self.file_path is None:
             self.statusBar().showMessage(tr('status.selectImage'))
             self.statusBar().show()
+            return
+        if not self.may_continue():
             return
 
         path = os.path.dirname(ustr(self.file_path))\
@@ -4444,6 +4723,7 @@ class MainWindow(QMainWindow, WindowMixin):
             self.file_list_controls.clear_filters(emit=False)
         self.last_open_dir = dir_path
         self.dir_name = dir_path
+        self._sync_annotation_directory_ui()
         self.file_path = None
         self.populate_file_list(self.scan_all_images(dir_path))
 
