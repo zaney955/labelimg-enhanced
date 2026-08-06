@@ -45,9 +45,11 @@ class LabelGroupListWidget(QAbstractScrollArea):
     row_height = 32
     marker_width = 3
     row_inset = 1
-    label_min_width = 64
-    label_max_width = 120
-    label_width_ratio = 0.35
+    label_min_width = 36
+    label_max_width = 240
+    label_width_ratio = 0.45
+    label_left_margin = 6
+    label_button_gap = 6
     count_area_width = 34
     visibility_area_width = 26
     arrow_area_width = 16
@@ -79,6 +81,7 @@ class LabelGroupListWidget(QAbstractScrollArea):
         self._press = None
         self._dragging_strip = False
         self._context_target = None
+        self._label_width_cache = {}
         self.setFocusPolicy(Qt.StrongFocus)
         self.setMouseTracking(True)
         self.viewport().setMouseTracking(True)
@@ -111,6 +114,7 @@ class LabelGroupListWidget(QAbstractScrollArea):
             for group in groups
             for shape in group.shapes
         }
+        self._invalidate_label_width()
         self._visible_shapes = set(
             shapes if visible_shapes is None else visible_shapes
         )
@@ -193,7 +197,10 @@ class LabelGroupListWidget(QAbstractScrollArea):
         if text == self._filter_text:
             return
         self._filter_text = text
+        self._invalidate_label_width()
         self.verticalScrollBar().setValue(0)
+        for group in self._filtered_groups():
+            self._clamp_group_scroll(group)
         self._update_scroll_range()
         self._emit_summary()
         self.viewport().update()
@@ -441,9 +448,18 @@ class LabelGroupListWidget(QAbstractScrollArea):
         text = painter.fontMetrics().elidedText(
             group.label,
             Qt.ElideRight,
-            max(0, layout["label"].width() - 8),
+            max(0, layout["label"].width() - self.label_button_gap),
         )
-        painter.drawText(layout["label"].adjusted(5, 0, -3, 0), Qt.AlignVCenter, text)
+        painter.drawText(
+            layout["label"].adjusted(
+                0,
+                0,
+                -self.label_button_gap,
+                0,
+            ),
+            Qt.AlignVCenter,
+            text,
+        )
 
         self._paint_strip(painter, group, layout, foreground)
         self._paint_count(painter, group, layout["count"], foreground)
@@ -508,7 +524,7 @@ class LabelGroupListWidget(QAbstractScrollArea):
             painter.restore()
         painter.restore()
 
-        if layout["overflow"]:
+        if layout["show_arrows"]:
             self._paint_arrow(painter, group, layout["left_arrow"], -1, row_foreground)
             self._paint_arrow(painter, group, layout["right_arrow"], 1, row_foreground)
 
@@ -919,9 +935,20 @@ class LabelGroupListWidget(QAbstractScrollArea):
 
     # Layout and helpers ----------------------------------------------
     def resizeEvent(self, event):
+        self._invalidate_label_width()
         self._clamp_all_group_scrolls()
         self._update_scroll_range()
         super(LabelGroupListWidget, self).resizeEvent(event)
+
+    def changeEvent(self, event):
+        if (
+            event.type() == QEvent.FontChange
+            and hasattr(self, "_label_width_cache")
+        ):
+            self._invalidate_label_width()
+            self._clamp_all_group_scrolls()
+            self.viewport().update()
+        super(LabelGroupListWidget, self).changeEvent(event)
 
     def _filtered_groups(self):
         if not self._filter_text:
@@ -944,14 +971,13 @@ class LabelGroupListWidget(QAbstractScrollArea):
 
     def _layout(self, group, row_rect):
         available = max(0, row_rect.width())
-        fixed_right = self.count_area_width + self.visibility_area_width
-        maximum_label = min(self.label_max_width, int(available * self.label_width_ratio))
-        label_width = max(
-            min(self.label_min_width, max(34, available - fixed_right - self.chip_size - 12)),
-            maximum_label,
+        label_width = self._shared_label_width(available)
+        label_rect = QRect(
+            row_rect.left() + self.label_left_margin,
+            row_rect.top(),
+            label_width,
+            row_rect.height(),
         )
-        label_width = min(label_width, max(34, available - fixed_right - self.chip_size - 12))
-        label_rect = QRect(row_rect.left() + 6, row_rect.top(), label_width, row_rect.height())
         visibility = QRect(
             row_rect.right() - self.visibility_area_width + 1,
             row_rect.top(),
@@ -971,7 +997,12 @@ class LabelGroupListWidget(QAbstractScrollArea):
             row_rect.height(),
         )
         overflow = self._group_content_width(group) > max(0, strip.width())
-        if overflow:
+        show_arrows = (
+            overflow
+            and strip.width()
+            >= self.chip_size + (2 * self.arrow_area_width)
+        )
+        if show_arrows:
             left_arrow = QRect(strip.left(), strip.top(), self.arrow_area_width, strip.height())
             right_arrow = QRect(strip.right() - self.arrow_area_width + 1, strip.top(), self.arrow_area_width, strip.height())
             buttons = strip.adjusted(self.arrow_area_width, 0, -self.arrow_area_width, 0)
@@ -989,7 +1020,47 @@ class LabelGroupListWidget(QAbstractScrollArea):
             "count": count,
             "visibility": visibility,
             "overflow": overflow,
+            "show_arrows": show_arrows,
         }
+
+    def _shared_label_width(self, available):
+        available = max(0, int(available))
+        cached = self._label_width_cache.get(available)
+        if cached is not None:
+            return cached
+
+        metrics = self.fontMetrics()
+        measure = getattr(metrics, "horizontalAdvance", metrics.width)
+        widest = max(
+            [measure(group.label) for group in self._filtered_groups()]
+            or [0]
+        )
+        desired = max(
+            self.label_min_width,
+            widest + self.label_button_gap,
+        )
+        fixed_right = self.count_area_width + self.visibility_area_width
+        button_reserve_limit = max(
+            0,
+            available
+            - fixed_right
+            - self.label_left_margin
+            - self.chip_size,
+        )
+        maximum = max(
+            0,
+            min(
+                self.label_max_width,
+                int(available * self.label_width_ratio),
+                button_reserve_limit,
+            ),
+        )
+        width = min(desired, maximum)
+        self._label_width_cache[available] = width
+        return width
+
+    def _invalidate_label_width(self):
+        self._label_width_cache.clear()
 
     def _chip_rect(self, group, index, layout):
         buttons = layout["buttons"]
@@ -1036,9 +1107,9 @@ class LabelGroupListWidget(QAbstractScrollArea):
             return "visibility", group.label, group
         if layout["count"].contains(point):
             return "count", group.label, group
-        if layout["overflow"] and layout["left_arrow"].contains(point):
+        if layout["show_arrows"] and layout["left_arrow"].contains(point):
             return "left_arrow", group.label, group
-        if layout["overflow"] and layout["right_arrow"].contains(point):
+        if layout["show_arrows"] and layout["right_arrow"].contains(point):
             return "right_arrow", group.label, group
         if layout["buttons"].contains(point):
             for index, shape in enumerate(group.shapes):

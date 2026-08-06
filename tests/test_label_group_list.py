@@ -392,6 +392,107 @@ class LabelGroupListWidgetTest(unittest.TestCase):
         self.assertGreater(self.widget.group_scroll("car"), 0)
         self.assertTrue(self.widget.instance_rect(shapes[-1]).isValid())
 
+    def test_visible_groups_share_a_content_fitted_label_column(self):
+        first = rectangle("P_LS_JM", 10)
+        second = rectangle("PD_LSQS", 30)
+        self.set_scene([first, second])
+
+        first_label = self.widget.group_body_rect("P_LS_JM")
+        second_label = self.widget.group_body_rect("PD_LSQS")
+        first_button = self.widget.instance_rect(first)
+        second_button = self.widget.instance_rect(second)
+        measure = getattr(
+            self.widget.fontMetrics(),
+            "horizontalAdvance",
+            self.widget.fontMetrics().width,
+        )
+        desired = max(
+            self.widget.label_min_width,
+            max(measure("P_LS_JM"), measure("PD_LSQS"))
+            + self.widget.label_button_gap,
+        )
+        available = self.widget.viewport().width() - 1
+        maximum = min(
+            self.widget.label_max_width,
+            int(available * self.widget.label_width_ratio),
+            available
+            - self.widget.count_area_width
+            - self.widget.visibility_area_width
+            - self.widget.label_left_margin
+            - self.widget.chip_size,
+        )
+        expected = min(desired, maximum)
+
+        self.assertEqual(first_label.width(), expected)
+        self.assertEqual(second_label.width(), expected)
+        self.assertEqual(first_button.left(), second_button.left())
+
+    def test_long_label_can_use_45_percent_up_to_240_pixels(self):
+        shape = rectangle("x" * 200, 10)
+        self.widget.resize(360, 180)
+        self.set_scene([shape])
+        available = self.widget.viewport().width() - 1
+
+        self.assertEqual(
+            self.widget.group_body_rect(shape.label).width(),
+            int(available * 0.45),
+        )
+
+        self.widget.resize(700, 180)
+        self.app.processEvents()
+
+        self.assertEqual(
+            self.widget.group_body_rect(shape.label).width(),
+            240,
+        )
+        self.assertLess(
+            self.widget.instance_rect(shape).right(),
+            self.widget.count_rect_for_label(shape.label).left(),
+        )
+
+    def test_filter_recomputes_label_column_from_visible_groups(self):
+        short = rectangle("car", 10)
+        long = rectangle("extraordinarily_long_class_name", 30)
+        self.set_scene([short, long])
+        before = self.widget.group_body_rect("car").width()
+        before_button = self.widget.instance_rect(short).left()
+
+        self.widget.set_filter_text("car")
+
+        after = self.widget.group_body_rect("car").width()
+        after_button = self.widget.instance_rect(short).left()
+        self.assertLess(after, before)
+        self.assertLess(after_button, before_button)
+
+    def test_filter_keeps_hidden_group_horizontal_position(self):
+        car = rectangle("car", 10)
+        long_group = [
+            rectangle("extraordinarily_long_class_name", 30 + index * 20)
+            for index in range(20)
+        ]
+        self.set_scene([car] + long_group)
+        self.widget.ensure_shape_visible(long_group[-1])
+        before = self.widget.group_scroll("extraordinarily_long_class_name")
+
+        self.widget.set_filter_text("car")
+
+        self.assertEqual(
+            self.widget.group_scroll("extraordinarily_long_class_name"),
+            before,
+        )
+
+    def test_narrow_layout_keeps_one_complete_button_before_fixed_columns(self):
+        self.widget.resize(130, 180)
+        shapes = [rectangle("long_class_name", index * 20) for index in range(8)]
+        self.set_scene(shapes)
+
+        first_button = self.widget.instance_rect(shapes[0])
+        count = self.widget.count_rect_for_label("long_class_name")
+
+        self.assertEqual(first_button.width(), self.widget.chip_size)
+        self.assertGreaterEqual(first_button.left(), 0)
+        self.assertLess(first_button.right(), count.left())
+
     def test_filter_reports_visible_totals_and_preserves_selection(self):
         car = rectangle("car", 10)
         person = rectangle("person", 30)
