@@ -40,6 +40,30 @@ _Avoid_: Current directory, every image, inferred batch
 A built-in LabelImg operation that transforms an image through an image processing session. A pixel-only image tool leaves annotation documents unchanged, while a geometry-changing image tool transforms the shared annotation coordinate space in the same recoverable operation.
 _Avoid_: Annotation tool, external script, optional plugin
 
+**Image tool entry point**:
+One place from which an image tool is started: the Image menu is the complete capability catalog, while the main toolbar exposes only frequent shortcuts and delegates interaction to either the shared workspace or a tool-specific Canvas mode.
+_Avoid_: Image tool implementation, toolbar-only capability, duplicate workflow
+
+**Quick image transform**:
+A current-image-only 90-degree rotation, 180-degree rotation, or flip that commits the transformed image and annotations immediately as one recoverable operation without opening a preview workspace or confirmation dialog.
+_Avoid_: Batch transform, uncommitted preview, non-recoverable one-click edit
+
+**Image quality check**:
+An analysis-only inspection that records quality findings for images in the annotation workspace without changing their files or annotations.
+_Avoid_: Automatic repair, image filter, annotation validation
+
+**Image quality finding**:
+A derived, filterable description of one detected image-quality problem, bound to the inspected file content rather than stored as annotation review state.
+_Avoid_: Review state, annotation error, permanent file property
+
+**Image quality result cache**:
+Application-owned storage for image quality findings keyed by the inspected file path, content fingerprint, and check policy; it never adds files to an image or annotation directory.
+_Avoid_: Annotation document, dataset sidecar, authoritative quality record
+
+**Specialized image repair**:
+An image tool justified by representative problem samples and explicit acceptance criteria, rather than a general-purpose editing effect added speculatively.
+_Avoid_: Generic filter, unvalidated enhancement, feature checklist item
+
 **Geometry-changing image tool**:
 An image tool, such as crop, that changes image bounds or dimensions and therefore treats the image and its annotation document as one atomic, recoverable unit.
 _Avoid_: Pixel-only filter, independent annotation edit, image-only replacement

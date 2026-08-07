@@ -1,175 +1,78 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg"
-     width="1024" height="1024" viewBox="26 24 972 972"
-     fill="none">
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="95.75 103.14 832.5 832.5">
   <defs>
-    <!-- Teal glass: translucent center, richer cyan-green perimeter -->
-    <linearGradient id="outerGlass" x1="154" y1="92" x2="864" y2="948" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#D9F7F7" stop-opacity="0.62"/>
-      <stop offset="0.30" stop-color="#A9E1E2" stop-opacity="0.58"/>
-      <stop offset="0.66" stop-color="#5AB8B9" stop-opacity="0.66"/>
-      <stop offset="1" stop-color="#147E80" stop-opacity="0.80"/>
+    <linearGradient id="panel" x1="226" y1="214" x2="805" y2="821" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#D9F4F8"/>
+      <stop offset=".48" stop-color="#B8E4ED"/>
+      <stop offset="1" stop-color="#80C4D2"/>
     </linearGradient>
-
-    <radialGradient id="outerHighlight" cx="0" cy="0" r="1"
-                    gradientUnits="userSpaceOnUse"
-                    gradientTransform="translate(300 208) rotate(43) scale(720 590)">
-      <stop offset="0" stop-color="#D8F7F7" stop-opacity="0.24"/>
-      <stop offset="0.44" stop-color="#9ED9DA" stop-opacity="0.06"/>
-      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
-    </radialGradient>
-
-    <radialGradient id="glassDepth" cx="0" cy="0" r="1"
-                    gradientUnits="userSpaceOnUse"
-                    gradientTransform="translate(475 428) rotate(58) scale(642 668)">
-      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0"/>
-      <stop offset="0.52" stop-color="#55B3B4" stop-opacity="0"/>
-      <stop offset="0.76" stop-color="#147D7E" stop-opacity="0.12"/>
-      <stop offset="1" stop-color="#075759" stop-opacity="0.40"/>
-    </radialGradient>
-
-    <!-- Clear inner image pane -->
-    <linearGradient id="innerPanel" x1="226" y1="214" x2="805" y2="821" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#CDEDEE" stop-opacity="0.42"/>
-      <stop offset="0.48" stop-color="#8FD0D1" stop-opacity="0.30"/>
-      <stop offset="1" stop-color="#429A9C" stop-opacity="0.22"/>
+    <linearGradient id="panelRim" x1="220" y1="212" x2="810" y2="830" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#C9EEEE"/>
+      <stop offset=".48" stop-color="#79C9C9"/>
+      <stop offset="1" stop-color="#0C7172"/>
     </linearGradient>
-
-    <linearGradient id="innerStroke" x1="220" y1="212" x2="810" y2="830" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#C9EEEE" stop-opacity="0.88"/>
-      <stop offset="0.48" stop-color="#79C9C9" stop-opacity="0.82"/>
-      <stop offset="1" stop-color="#0C7172" stop-opacity="0.94"/>
-    </linearGradient>
-
-    <!-- Stronger subject separation -->
     <linearGradient id="mountainBack" x1="236" y1="450" x2="684" y2="814" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#65D6D1"/>
       <stop offset="1" stop-color="#269F9B"/>
     </linearGradient>
-
     <linearGradient id="mountainFront" x1="431" y1="540" x2="822" y2="817" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#40BBB7"/>
       <stop offset="1" stop-color="#137D7A"/>
     </linearGradient>
-
-    <linearGradient id="bracketFill" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.76"/>
-      <stop offset="0.50" stop-color="#F3FFFF" stop-opacity="0.58"/>
-      <stop offset="1" stop-color="#CBE9E9" stop-opacity="0.42"/>
+    <linearGradient id="bracket" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset=".5" stop-color="#F3FFFF"/>
+      <stop offset="1" stop-color="#CBE9E9"/>
     </linearGradient>
-
     <linearGradient id="bracketRim" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.92"/>
-      <stop offset="0.48" stop-color="#E8FFFF" stop-opacity="0.72"/>
-      <stop offset="1" stop-color="#B7DCDD" stop-opacity="0.56"/>
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset=".48" stop-color="#E8FFFF"/>
+      <stop offset="1" stop-color="#B7DCDD"/>
     </linearGradient>
-
-    <filter id="innerPanelShadow" x="-25%" y="-25%" width="150%" height="150%">
-      <feDropShadow dx="0" dy="15" stdDeviation="17" flood-color="#167E7D" flood-opacity="0.25"/>
+    <filter id="panelShadow" x="-25%" y="-25%" width="150%" height="150%">
+      <feDropShadow dx="0" dy="15" stdDeviation="17" flood-color="#167E7D" flood-opacity=".22"/>
     </filter>
-
     <filter id="bracketShadow" x="-35%" y="-35%" width="170%" height="170%">
-      <feDropShadow dx="0" dy="12" stdDeviation="10" flood-color="#126E6D" flood-opacity="0.38"/>
+      <feDropShadow dx="0" dy="12" stdDeviation="10" flood-color="#126E6D" flood-opacity=".18"/>
     </filter>
-
     <filter id="guideShadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#177B79" flood-opacity="0.30"/>
+      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#177B79" flood-opacity=".24"/>
     </filter>
-
     <clipPath id="panelClip">
       <rect x="190" y="205" width="644" height="602" rx="64"/>
     </clipPath>
-    <!-- Hard boundary: absolutely nothing may render outside this rounded square -->
-    <clipPath id="outerClip">
-      <rect x="26" y="24" width="972" height="972" rx="205"/>
-    </clipPath>
   </defs>
 
-  <!-- Everything is clipped to the rounded-square boundary; canvas outside stays transparent -->
-  <g clip-path="url(#outerClip)">
-  <g>
-    <rect x="26" y="24" width="972" height="972" rx="205" fill="url(#outerGlass)"/>
-    <rect x="26" y="24" width="972" height="972" rx="205" fill="url(#outerHighlight)"/>
-    <rect x="26" y="24" width="972" height="972" rx="205" fill="url(#glassDepth)"/>
-    <rect x="28.5" y="26.5" width="967" height="967" rx="202.5"
-          stroke="#258F90" stroke-opacity="0.88" stroke-width="5"/>
-    <rect x="45" y="43" width="934" height="934" rx="188"
-          stroke="#F0FFFF" stroke-opacity="0.82" stroke-width="5"/>
-  </g>
+  <g transform="translate(512 506) scale(1.12) translate(-512 -506)">
+      <!-- C: central image panel -->
+      <g filter="url(#panelShadow)">
+        <rect x="190" y="205" width="644" height="602" rx="64" fill="url(#panel)"/>
+        <rect x="193" y="208" width="638" height="596" rx="61" fill="none" stroke="url(#panelRim)" stroke-width="10"/>
+      </g>
 
-  <!-- Inner image pane -->
-  <g filter="url(#innerPanelShadow)">
-    <rect x="190" y="205" width="644" height="602" rx="64" fill="url(#innerPanel)"/>
-    <rect x="193" y="208" width="638" height="596" rx="61"
-          stroke="url(#innerStroke)" stroke-width="10"/>
-  </g>
+      <!-- D and E: image subject and composition grid -->
+      <g clip-path="url(#panelClip)">
+        <circle cx="608" cy="395" r="69" fill="#FFF3C7" stroke="#E2C982" stroke-width="4"/>
+        <path d="M196 603 339 447c14-15 34-15 49-1l250 257v104H196Z" fill="url(#mountainBack)"/>
+        <path d="M425 807 639 552c14-17 37-18 53-4l149 136v123Z" fill="url(#mountainFront)"/>
+        <path d="m342 447 112 116-81 96-105-111Z" fill="#78DCD8"/>
+        <path d="m640 553 85 77-119 142-81-97Z" fill="#43BEB9"/>
+        <path d="m196 603 143-156 34 35-130 177Z" fill="#72D8D3"/>
+        <g fill="none" stroke="#FFFFFF" stroke-width="9" stroke-linecap="round" filter="url(#guideShadow)">
+          <path d="M112 514h801" stroke-dasharray="28 24"/>
+          <path d="M414 172v684" stroke-dasharray="30 26"/>
+          <path d="M643 172v684" stroke-dasharray="30 26"/>
+        </g>
+      </g>
 
-  <g clip-path="url(#panelClip)">
-    <!-- Restrained teal refraction, without a white halo -->
-    <path d="M217 243 C354 213 531 214 681 253 C502 261 360 299 232 366 Z"
-          fill="#70C4C5" fill-opacity="0.06"/>
-
-    <!-- Sun remains luminous but no longer overwhelms the subject -->
-    <circle cx="608" cy="395" r="69" fill="#D9F2F2" fill-opacity="0.62"/>
-    <circle cx="608" cy="395" r="69" stroke="#78C4C5" stroke-opacity="0.50" stroke-width="4"/>
-
-    <!-- Rear mountain -->
-    <path d="M196 603
-             L339 447
-             C353 432 373 432 388 446
-             L638 703
-             L638 807
-             L196 807 Z"
-          fill="url(#mountainBack)" opacity="0.98"/>
-
-    <!-- Front mountain -->
-    <path d="M425 807
-             L639 552
-             C653 535 676 534 692 548
-             L841 684
-             L841 807 Z"
-          fill="url(#mountainFront)" opacity="0.99"/>
-
-    <!-- Facets strengthen dimensional clarity -->
-    <path d="M342 447 L454 563 L373 659 L268 548 Z"
-          fill="#A0E9E6" fill-opacity="0.30"/>
-    <path d="M640 553 L725 630 L606 772 L525 675 Z"
-          fill="#72D7D2" fill-opacity="0.28"/>
-    <path d="M196 603 L339 447 L373 482 L243 659 Z"
-          fill="#C2F2F0" fill-opacity="0.16"/>
-
-    <!-- Crop/grid guides: crisp with a restrained green depth edge -->
-    <g stroke="#FFFFFF" stroke-opacity="0.96" stroke-width="9" stroke-linecap="round"
-       filter="url(#guideShadow)">
-      <path d="M112 514 H913" stroke-dasharray="28 24"/>
-      <path d="M414 172 V856" stroke-dasharray="30 26"/>
-      <path d="M643 172 V856" stroke-dasharray="30 26"/>
-    </g>
-  </g>
-
-  <!-- Crop markers share identical geometry and meet the image bounds exactly:
-       left=190, right=834, top=205, bottom=807 -->
-  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
-    <!-- Thin luminous rim defines the polished glass edge -->
-    <g stroke="url(#bracketRim)" stroke-width="54" filter="url(#bracketShadow)">
-      <path d="M290 205 H190 V305"/>
-      <path d="M734 205 H834 V305"/>
-      <path d="M190 707 V807 H290"/>
-      <path d="M734 807 H834 V707"/>
-    </g>
-    <!-- Translucent white core lets the teal scene remain visible through the markers -->
-    <g stroke="url(#bracketFill)" stroke-width="46">
-      <path d="M290 205 H190 V305"/>
-      <path d="M734 205 H834 V305"/>
-      <path d="M190 707 V807 H290"/>
-      <path d="M734 807 H834 V707"/>
-    </g>
-  </g>
-
-  <!-- Low-brightness edge refractions remain entirely inside the hard outer clip -->
-  <path d="M190 52 C100 78 56 144 48 236"
-        stroke="#B3E3E3" stroke-opacity="0.48" stroke-width="8" stroke-linecap="round"/>
-  <path d="M808 965 C891 936 947 873 970 790"
-        stroke="#68CECD" stroke-opacity="0.48" stroke-width="7" stroke-linecap="round"/>
+      <!-- F: opaque crop brackets -->
+      <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+        <g stroke="url(#bracketRim)" stroke-width="54" filter="url(#bracketShadow)">
+          <path d="M290 205H190v100M734 205h100v100M190 707v100h100M734 807h100V707"/>
+        </g>
+        <g stroke="url(#bracket)" stroke-width="46">
+          <path d="M290 205H190v100M734 205h100v100M190 707v100h100M734 807h100V707"/>
+        </g>
+      </g>
   </g>
 </svg>

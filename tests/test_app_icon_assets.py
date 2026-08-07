@@ -46,7 +46,7 @@ class TestAppIconAssets(unittest.TestCase):
         svg_root = ElementTree.parse(ICON_DIRECTORY / "app.svg").getroot()
         self.assertEqual(svg_root.get("width"), "1024")
         self.assertEqual(svg_root.get("height"), "1024")
-        self.assertEqual(svg_root.get("viewBox"), "26 24 972 972")
+        self.assertEqual(svg_root.get("viewBox"), "95.75 103.14 832.5 832.5")
         self.assertIsNone(svg_root.get("preserveAspectRatio"))
 
     def test_compiled_qt_icon_renders_at_windows_sizes(self):
