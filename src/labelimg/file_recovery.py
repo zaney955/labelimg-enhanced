@@ -166,12 +166,14 @@ class FileRecoveryCenter:
         self._prepend(entry)
         return entry
 
-    def record_image_processing(self, resources):
+    def record_image_processing(self, resources, *, target_count=None):
         resources = tuple(resources)
         return self.record_trash_operation(
             RecoveryOperation.IMAGE_PROCESSING,
             resources,
-            target_count=len(resources),
+            target_count=(
+                len(resources) if target_count is None else int(target_count)
+            ),
         )
 
     def record_grouped_image_processing(self, groups):

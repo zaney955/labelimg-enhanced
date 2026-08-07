@@ -22,6 +22,8 @@
 <file alias="annotation-directory">resources/icons/annotation-directory.svg</file>
 <file alias="replace-annotation">resources/icons/replace-annotation.svg</file>
 <file alias="crop">resources/icons/crop.svg</file>
+<file alias="rotate-clockwise">resources/icons/rotate-clockwise.svg</file>
+<file alias="flip-horizontal">resources/icons/flip-horizontal.svg</file>
 <file alias="save">resources/icons/save.png</file>
 <file alias="format_voc">resources/icons/format_voc.png</file>
 <file alias="format_yolo">resources/icons/format_yolo.png</file>

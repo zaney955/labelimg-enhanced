@@ -34,7 +34,7 @@ Every session begins with an explicit target set. The current Canvas image is al
 
 The target list remains visible in the workspace. Results are prepared in the background, each image can be inspected, and any image can be excluded before commit. Images with no selected repair candidates are automatically excluded and retain their exact original bytes.
 
-Planned rotation, flip, and resize operations use the same explicit current-image or selected-images target rule. A selected geometry batch preflights every image and associated annotation resource, then commits the complete target set atomically; any failure leaves the whole batch unchanged. Crop remains current-image-only.
+Rotation, flip, and resize operations use the same explicit current-image or selected-images target rule. A selected geometry batch preflights every image and associated annotation resource, then commits the complete target set atomically; any failure leaves the whole batch unchanged. Crop remains current-image-only.
 
 ## Workspace and history
 
@@ -44,7 +44,7 @@ Multiple pixel-tool steps may be composed before one workspace commit. The works
 
 Settings return to safe defaults whenever the workspace opens. They are not persisted across invocations, workspaces, or launches.
 
-## Planned geometry transforms
+## Geometry transforms
 
 Image → Transform Image… provides the preview workspace for rotation, flip, and proportional resize. It supports the current image or explicitly selected images and requires an explicit Apply action. Specific menu commands may enter that shared workspace with their corresponding operation preselected.
 
@@ -52,15 +52,15 @@ Rotation and flip additionally provide quick transforms for the current image. R
 
 Quick transforms have no keyboard shortcuts. They are invoked only through the Image menu or the Rotate and Flip toolbar split buttons, avoiding additional Canvas single-key commands. If the current annotation document has committed but unsaved changes, the existing Save, Discard, or Cancel flow resolves them before transformation; the tool never saves them implicitly. Cancel leaves the image unchanged.
 
-## Planned resize
+## Resize
 
 Resize performs proportional resampling only. Aspect ratio is locked, and the user may enter a target width, target height, or percentage; changing any one derives the others. An automatic interpolation policy chooses an appropriate resampler for reduction or enlargement. Enlargement is allowed only after an explicit warning that it adds no source detail. Forced stretching and Letterbox padding are excluded because they belong to training or export preprocessing rather than in-place annotation-source preparation.
 
-## Planned pixel correction
+## Pixel correction
 
 Image → Adjust Image… opens one shared modal workspace for brightness, contrast, advanced Gamma, automatic contrast, and grayscale conversion. The current image is the safe default and explicitly selected images are an optional batch target. Corrections can be composed, previewed, temporarily undone or redone, and committed once through the existing recoverable pixel-only replacement path. No correction receives an independent toolbar button, and every invocation starts from safe control defaults.
 
-## Planned image quality checking
+## Image quality checking
 
 Image → Check Image Quality… explicitly offers the current image, selected images, or every image in the current annotation workspace; the workspace-wide scope is the default. Checking runs in the background, is cancellable, and reports findings by problem type and severity without changing images or annotations.
 
@@ -72,7 +72,7 @@ Every check starts with a visible Standard policy. Advanced controls may overrid
 
 The file list shows quality badges and supports finding and severity filters. An on-demand non-modal Image Quality panel summarizes counts, lists details, and navigates to affected images without permanently occupying the single-image annotation workbench.
 
-The first quality engine is deterministic, explainable, and local; it neither downloads nor loads an AI model. Every finding reports the measured value, effective threshold, and reason. Readability comes from actual decoding, low resolution from image dimensions, aspect anomalies from both absolute extremes and workspace-distribution outliers, blur from a resolution-normalized sharpness metric, and excessive darkness or exposure from luminance-distribution proportions. Standard thresholds are calibrated against test samples during implementation rather than becoming hidden product assumptions.
+The first quality engine is deterministic, explainable, and local; it neither downloads nor loads an AI model. Every finding reports the measured value, effective threshold, and reason. Readability comes from actual decoding, low resolution from image dimensions, aspect anomalies from both absolute extremes and workspace-distribution outliers, blur from Laplacian variance, and excessive darkness or exposure from mean luminance. The Standard policy exposes its thresholds in the check dialog instead of treating them as hidden product assumptions.
 
 The Image menu and Image Quality panel can recheck the current image, selected images, or current workspace and can clear quality findings. A changed file or changed check policy immediately becomes Unchecked instead of displaying a stale finding. Clearing results removes only the application-owned cache and never changes image or annotation files.
 

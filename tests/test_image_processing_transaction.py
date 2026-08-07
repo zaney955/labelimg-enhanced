@@ -212,6 +212,69 @@ class ImageProcessingFileTransactionTest(unittest.TestCase):
         self.assertEqual(restored[0]["annotations"], [{"label": "old"}])
         self.assertEqual(restored[1]["annotations"], [{"label": "later"}])
 
+    def test_batch_merges_shared_create_ml_and_recovers_records_independently(self):
+        first = self.create("first.png", b"first-original")
+        second = self.create("second.png", b"second-original")
+        original_records = [
+            {"image": "first.png", "annotations": [{"label": "old-1"}]},
+            {"image": "second.png", "annotations": [{"label": "old-2"}]},
+        ]
+        annotation = self.create(
+            "annotations.json", json.dumps(original_records).encode("utf8")
+        )
+
+        def changed(index, label):
+            records = json.loads(json.dumps(original_records))
+            records[index]["annotations"] = [{"label": label}]
+            return json.dumps(records).encode("utf8")
+
+        fingerprint = fingerprint_path(annotation)
+        outcome = self.transaction.execute_grouped_image_processing_batch((
+            (
+                first,
+                (
+                    PreparedImageReplacement(
+                        first, fingerprint_path(first), b"first-processed"
+                    ),
+                    PreparedImageReplacement(
+                        annotation, fingerprint, changed(0, "new-1")
+                    ),
+                ),
+                (annotation,),
+            ),
+            (
+                second,
+                (
+                    PreparedImageReplacement(
+                        second, fingerprint_path(second), b"second-processed"
+                    ),
+                    PreparedImageReplacement(
+                        annotation, fingerprint, changed(1, "new-2")
+                    ),
+                ),
+                (annotation,),
+            ),
+        ))
+
+        with open(annotation, "r", encoding="utf8") as source:
+            processed = json.load(source)
+        self.assertEqual(processed[0]["annotations"], [{"label": "new-1"}])
+        self.assertEqual(processed[1]["annotations"], [{"label": "new-2"}])
+
+        self.transaction.recover(
+            outcome.recovery_entry.entry_id,
+            selected_paths=(first,),
+        )
+        with open(annotation, "r", encoding="utf8") as source:
+            partly_restored = json.load(source)
+        self.assertEqual(partly_restored[0]["annotations"], [{"label": "old-1"}])
+        self.assertEqual(partly_restored[1]["annotations"], [{"label": "new-2"}])
+
+        self.transaction.recover(outcome.recovery_entry.entry_id)
+        with open(annotation, "r", encoding="utf8") as source:
+            restored = json.load(source)
+        self.assertEqual(restored, original_records)
+
 
 if __name__ == "__main__":
     unittest.main()

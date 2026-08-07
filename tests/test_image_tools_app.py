@@ -10,7 +10,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt5.QtCore import QEvent, QPoint, Qt
 from PyQt5.QtGui import QColor, QCursor, QImage, QKeySequence, QPixmap
 from PyQt5.QtTest import QSignalSpy, QTest
-from PyQt5.QtWidgets import QApplication, QDialog, QMessageBox
+from PyQt5.QtWidgets import QApplication, QDialog, QMessageBox, QToolButton
 
 from labelimg.app import MainWindow
 from labelimg.annotation_document import (
@@ -23,7 +23,14 @@ from labelimg.file_recovery import (
     TrashIdentity,
 )
 from labelimg.file_operation_transaction import FileRecoveryBlocked
+from labelimg.file_list import FILE_QUALITY_FINDINGS_ROLE
 from labelimg.image_tools.crop import CropRegion
+from labelimg.image_tools.adjustment import ImageAdjustmentOptions
+from labelimg.image_tools.adjustment_dialog import ImageAdjustmentRequest
+from labelimg.image_tools.geometry_dialog import GeometryTransformRequest
+from labelimg.image_tools.geometry_transform import GeometryOperation
+from labelimg.image_tools.quality import ImageQualityPolicy
+from labelimg.image_tools.quality_ui import ImageQualityRequest
 from labelimg.i18n import ENGLISH, SIMPLIFIED_CHINESE, set_language
 from labelimg.shape import Shape
 
@@ -69,12 +76,32 @@ class ImageToolsAppTest(unittest.TestCase):
             actions,
             [
                 self.window.actions.cropImage,
-                self.window.actions.removeColoredFrames,
-                actions[2],
+                self.window.menus.geometry.menuAction(),
+                self.window.actions.transformImage,
+                self.window.actions.adjustImage,
+                self.window.actions.checkImageQuality,
+                self.window.menus.specializedRepair.menuAction(),
+                actions[6],
                 self.window.actions.undoImageProcessing,
             ],
         )
-        self.assertTrue(actions[2].isSeparator())
+        self.assertTrue(actions[6].isSeparator())
+        self.assertEqual(
+            self.window.menus.specializedRepair.actions(),
+            [self.window.actions.removeColoredFrames],
+        )
+        self.assertEqual(
+            self.window.menus.geometry.actions(),
+            [
+                self.window.actions.rotateClockwise,
+                self.window.actions.rotateCounterclockwise,
+                self.window.actions.rotate180,
+                self.window.menus.geometry.actions()[3],
+                self.window.actions.flipHorizontal,
+                self.window.actions.flipVertical,
+            ],
+        )
+        self.assertTrue(self.window.menus.geometry.actions()[3].isSeparator())
         self.assertEqual(
             self.window.actions.cropImage.text(),
             "Crop…",
@@ -219,6 +246,202 @@ class ImageToolsAppTest(unittest.TestCase):
         self.window.file_list_widget.setFocus()
         QTest.keyClick(self.window.file_list_widget, Qt.Key_C)
         self.assertFalse(self.window._crop_active)
+
+    def test_quick_rotation_commits_current_image_without_a_shortcut(self):
+        rectangular_path = os.path.join(self.temporary.name, "rectangular.png")
+        image = QImage(60, 40, QImage.Format_RGB32)
+        image.fill(QColor("white"))
+        self.assertTrue(image.save(rectangular_path))
+        self.assertTrue(self.window.load_file(rectangular_path))
+        trash_dir = os.path.join(self.temporary.name, "trash-quick-rotate")
+        os.makedirs(trash_dir)
+        self.window.system_trash = _FakeTrash(trash_dir)
+
+        self.assertTrue(self.window.actions.rotateClockwise.shortcut().isEmpty())
+        with patch("labelimg.app.localized_warning") as warning:
+            self.window.actions.rotateClockwise.trigger()
+        self.assertFalse(warning.called, warning.call_args)
+
+        transformed = QImage(rectangular_path)
+        self.assertEqual(
+            (transformed.width(), transformed.height()),
+            (40, 60),
+        )
+        self.assertEqual(
+            (self.window.image.width(), self.window.image.height()),
+            (40, 60),
+        )
+        entry = self.window._latest_image_processing_recovery()
+        self.assertEqual(entry.target_count, 1)
+        self.assertEqual(entry.payload[0].image_path, rectangular_path)
+
+    def test_toolbar_exposes_rotate_and_flip_split_buttons(self):
+        buttons = self.window.tools.findChildren(QToolButton)
+        rotate = next(
+            button for button in buttons
+            if button.defaultAction() is self.window.actions.rotateClockwise
+        )
+        flip = next(
+            button for button in buttons
+            if button.defaultAction() is self.window.actions.flipHorizontal
+        )
+
+        self.assertEqual(rotate.popupMode(), QToolButton.MenuButtonPopup)
+        self.assertEqual(
+            rotate.menu().actions(),
+            [
+                self.window.actions.rotateCounterclockwise,
+                self.window.actions.rotate180,
+            ],
+        )
+        self.assertEqual(flip.popupMode(), QToolButton.MenuButtonPopup)
+        self.assertEqual(
+            flip.menu().actions(),
+            [self.window.actions.flipVertical],
+        )
+
+    def test_transform_workspace_command_applies_accepted_current_request(self):
+        rectangular_path = os.path.join(self.temporary.name, "workspace-rect.png")
+        image = QImage(80, 40, QImage.Format_RGB32)
+        image.fill(QColor("white"))
+        self.assertTrue(image.save(rectangular_path))
+        self.assertTrue(self.window.load_file(rectangular_path))
+        trash_dir = os.path.join(self.temporary.name, "trash-transform-workspace")
+        os.makedirs(trash_dir)
+        self.window.system_trash = _FakeTrash(trash_dir)
+        fake_dialog = SimpleNamespace(
+            exec_=lambda: QDialog.Accepted,
+            request=GeometryTransformRequest(
+                paths=(rectangular_path,),
+                operation=GeometryOperation.ROTATE_COUNTERCLOCKWISE,
+            ),
+        )
+
+        with patch(
+            "labelimg.image_tools.geometry_dialog.GeometryTransformDialog",
+            return_value=fake_dialog,
+        ), patch("labelimg.app.localized_warning") as warning:
+            self.window.actions.transformImage.trigger()
+
+        self.assertFalse(warning.called, warning.call_args)
+        transformed = QImage(rectangular_path)
+        self.assertEqual(
+            (transformed.width(), transformed.height()),
+            (40, 80),
+        )
+
+    def test_transform_workspace_atomically_applies_selected_resize_batch(self):
+        first = os.path.join(self.temporary.name, "batch-first.png")
+        second = os.path.join(self.temporary.name, "batch-second.png")
+        for path, size in ((first, (80, 40)), (second, (60, 30))):
+            image = QImage(size[0], size[1], QImage.Format_RGB32)
+            image.fill(QColor("white"))
+            self.assertTrue(image.save(path))
+        self.assertTrue(self.window.load_file(first))
+        trash_dir = os.path.join(self.temporary.name, "trash-transform-batch")
+        os.makedirs(trash_dir)
+        self.window.system_trash = _FakeTrash(trash_dir)
+        fake_dialog = SimpleNamespace(
+            exec_=lambda: QDialog.Accepted,
+            request=GeometryTransformRequest(
+                paths=(first, second),
+                operation=GeometryOperation.RESIZE,
+                resize_percent=50,
+            ),
+        )
+
+        with patch.object(
+            self.window,
+            "selected_file_paths",
+            return_value=[first, second],
+        ), patch(
+            "labelimg.image_tools.geometry_dialog.GeometryTransformDialog",
+            return_value=fake_dialog,
+        ), patch("labelimg.app.localized_warning") as warning:
+            self.window.actions.transformImage.trigger()
+
+        self.assertFalse(warning.called, warning.call_args)
+        first_result = QImage(first)
+        second_result = QImage(second)
+        self.assertEqual((first_result.width(), first_result.height()), (40, 20))
+        self.assertEqual((second_result.width(), second_result.height()), (30, 15))
+        entry = self.window._latest_image_processing_recovery()
+        self.assertEqual(entry.target_count, 2)
+        self.assertEqual(
+            tuple(group.image_path for group in entry.payload),
+            (first, second),
+        )
+
+    def test_adjust_image_command_commits_selected_pixel_batch(self):
+        second = os.path.join(self.temporary.name, "adjust-second.png")
+        image = QImage(40, 40, QImage.Format_RGB32)
+        image.fill(QColor(20, 40, 60))
+        self.assertTrue(image.save(second))
+        trash_dir = os.path.join(self.temporary.name, "trash-adjust-batch")
+        os.makedirs(trash_dir)
+        self.window.system_trash = _FakeTrash(trash_dir)
+        request = ImageAdjustmentRequest(
+            paths=(self.image_path, second),
+            options=ImageAdjustmentOptions(brightness=-20),
+        )
+        fake_dialog = SimpleNamespace(
+            exec_=lambda: QDialog.Accepted,
+            request=request,
+        )
+
+        with patch.object(
+            self.window,
+            "selected_file_paths",
+            return_value=[self.image_path, second],
+        ), patch(
+            "labelimg.image_tools.adjustment_dialog.ImageAdjustmentDialog",
+            return_value=fake_dialog,
+        ), patch("labelimg.app.localized_warning") as warning:
+            self.window.actions.adjustImage.trigger()
+
+        self.assertFalse(warning.called, warning.call_args)
+        entry = self.window._latest_image_processing_recovery()
+        self.assertEqual(entry.target_count, 2)
+        self.assertEqual(
+            {resource.original_path for resource in entry.payload},
+            {self.image_path, second},
+        )
+
+    def test_quality_command_populates_badge_cache_and_nonmodal_panel(self):
+        self.window.populate_file_list((self.image_path,))
+        request = ImageQualityRequest(
+            (self.image_path,),
+            ImageQualityPolicy.standard(),
+        )
+        fake_dialog = SimpleNamespace(
+            exec_=lambda: QDialog.Accepted,
+            request=request,
+        )
+
+        with patch(
+            "labelimg.image_tools.quality_ui.ImageQualityDialog",
+            return_value=fake_dialog,
+        ):
+            self.window.actions.checkImageQuality.trigger()
+
+        for _ in range(200):
+            if self.window.image_quality_panel.result_paths:
+                break
+            QTest.qWait(10)
+
+        item = self.window.file_list_widget.item(0)
+        self.assertTrue(item.data(FILE_QUALITY_FINDINGS_ROLE))
+        self.assertEqual(
+            self.window.image_quality_panel.result_paths,
+            (self.image_path,),
+        )
+        self.assertFalse(self.window.image_quality_dock.isHidden())
+        self.assertIsNotNone(
+            self.window.image_quality_cache.get(
+                self.image_path,
+                request.policy,
+            )
+        )
 
     def test_crop_action_immediately_owns_and_restores_cursor(self):
         self.window.show()

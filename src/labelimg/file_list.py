@@ -55,6 +55,7 @@ FILE_ANNOTATION_STATE_ROLE = Qt.UserRole + 2
 PRESERVED_SELECTION_APPEARANCE_ROLE = Qt.UserRole + 3
 FILE_PERSISTENCE_FLAGS_ROLE = Qt.UserRole + 4
 FILE_REVIEW_STATE_ROLE = Qt.UserRole + 5
+FILE_QUALITY_FINDINGS_ROLE = Qt.UserRole + 6
 
 INVALID_FILENAME_CHARACTERS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 WINDOWS_RESERVED_NAMES = {
@@ -65,6 +66,14 @@ WINDOWS_RESERVED_NAMES = {
     *(f"COM{index}" for index in range(1, 10)),
     *(f"LPT{index}" for index in range(1, 10)),
 }
+
+
+def _quality_value(finding, field):
+    if isinstance(finding, dict):
+        return finding.get(field)
+    if hasattr(finding, field):
+        return getattr(finding, field)
+    return finding if field == "code" else None
 
 
 def portable_logical_compare(left_name, right_name):
@@ -153,6 +162,7 @@ class FileListViewState(object):
             or self.annotation_filter != "all"
             or self.review_filter != "all"
             or self.alert_filter != "all"
+            or self.quality_filter != "all"
         )
 
     def set_filter(
@@ -161,17 +171,20 @@ class FileListViewState(object):
         annotation="all",
         review="all",
         alert="all",
+        quality="all",
     ):
         self.text_filter = str(text).strip()
         self.annotation_filter = annotation
         self.review_filter = review
         self.alert_filter = alert
+        self.quality_filter = quality
 
     def reset_filter(self):
         self.text_filter = ""
         self.annotation_filter = "all"
         self.review_filter = "all"
         self.alert_filter = "all"
+        self.quality_filter = "all"
 
     def ordered_paths(
         self,
@@ -220,6 +233,7 @@ class FileListViewState(object):
         annotation_state_for,
         review_state_for,
         persistence_flags_for,
+        quality_findings_for=lambda _path: (),
     ):
         if self.text_filter:
             parts = _relative_path_parts(path, root)
@@ -242,6 +256,23 @@ class FileListViewState(object):
             return False
         if self.alert_filter == "none" and flags:
             return False
+        quality = tuple(quality_findings_for(path) or ())
+        if self.quality_filter == "issues" and not quality:
+            return False
+        if self.quality_filter == "passed" and quality:
+            return False
+        if self.quality_filter in ("error", "warning") and not any(
+            _quality_value(item, "severity") == self.quality_filter
+            for item in quality
+        ):
+            return False
+        if self.quality_filter not in (
+            "all", "issues", "passed", "error", "warning"
+        ) and not any(
+            _quality_value(item, "code") == self.quality_filter
+            for item in quality
+        ):
+            return False
         return True
 
     def visible_paths(
@@ -251,6 +282,7 @@ class FileListViewState(object):
         annotation_state_for,
         review_state_for,
         persistence_flags_for,
+        quality_findings_for=lambda _path: (),
     ):
         return [
             path
@@ -261,6 +293,7 @@ class FileListViewState(object):
                 annotation_state_for,
                 review_state_for,
                 persistence_flags_for,
+                quality_findings_for,
             )
         ]
 
@@ -361,7 +394,7 @@ class FileListControlButton(QToolButton):
 
 
 class FileListFilterPanel(QFrame):
-    filterChanged = pyqtSignal(str, str, str, str)
+    filterChanged = pyqtSignal(str, str, str, str, str)
     clearRequested = pyqtSignal()
 
     def __init__(self, parent=None):
@@ -401,12 +434,28 @@ class FileListFilterPanel(QFrame):
             ("fileFilter.none", "none"),
             ("fileFilter.any", "any"),
         ))
+        self.quality_combo = QComboBox()
+        self._add_options(self.quality_combo, (
+            ("common.all", "all"),
+            ("fileFilter.qualityIssues", "issues"),
+            ("fileFilter.qualityPassed", "passed"),
+            ("fileFilter.qualityError", "error"),
+            ("fileFilter.qualityWarning", "warning"),
+            ("quality.unreadable", "unreadable"),
+            ("quality.lowResolution", "low_resolution"),
+            ("quality.aspectAnomaly", "aspect_anomaly"),
+            ("quality.blur", "blur"),
+            ("quality.dark", "dark"),
+            ("quality.overexposed", "overexposed"),
+        ))
         self.annotation_label = QLabel()
         self.review_label = QLabel()
         self.alert_label = QLabel()
+        self.quality_label = QLabel()
         form.addRow(self.annotation_label, self.annotation_combo)
         form.addRow(self.review_label, self.review_combo)
         form.addRow(self.alert_label, self.alert_combo)
+        form.addRow(self.quality_label, self.quality_combo)
         self.form = form
         layout.addLayout(form)
         self.clear_button = QPushButton()
@@ -415,6 +464,7 @@ class FileListFilterPanel(QFrame):
         self.annotation_combo.currentIndexChanged.connect(self._emit_filter)
         self.review_combo.currentIndexChanged.connect(self._emit_filter)
         self.alert_combo.currentIndexChanged.connect(self._emit_filter)
+        self.quality_combo.currentIndexChanged.connect(self._emit_filter)
         self.clear_button.clicked.connect(self.clearRequested)
         language_changed.connect(self.retranslate_ui)
         self.retranslate_ui()
@@ -431,11 +481,13 @@ class FileListFilterPanel(QFrame):
         self.annotation_label.setText(tr("fileFilter.annotation"))
         self.review_label.setText(tr("fileFilter.review"))
         self.alert_label.setText(tr("fileFilter.persistence"))
+        self.quality_label.setText(tr("fileFilter.quality"))
         self.clear_button.setText(tr("fileFilter.clearAll"))
         for combo in (
             self.annotation_combo,
             self.review_combo,
             self.alert_combo,
+            self.quality_combo,
         ):
             for index in range(combo.count()):
                 combo.setItemText(index, tr(combo.itemData(index, Qt.UserRole + 1)))
@@ -446,20 +498,23 @@ class FileListFilterPanel(QFrame):
             self.annotation_combo.currentData(),
             self.review_combo.currentData(),
             self.alert_combo.currentData(),
+            self.quality_combo.currentData(),
         )
 
-    def set_filter(self, text, annotation, review, alert):
+    def set_filter(self, text, annotation, review, alert, quality="all"):
         blockers = [
             QSignalBlocker(self.text_edit),
             QSignalBlocker(self.annotation_combo),
             QSignalBlocker(self.review_combo),
             QSignalBlocker(self.alert_combo),
+            QSignalBlocker(self.quality_combo),
         ]
         self.text_edit.setText(text)
         for combo, value in (
             (self.annotation_combo, annotation),
             (self.review_combo, review),
             (self.alert_combo, alert),
+            (self.quality_combo, quality),
         ):
             index = combo.findData(value)
             combo.setCurrentIndex(max(0, index))
@@ -638,19 +693,21 @@ class FileListControlBar(QWidget):
             )
         )
 
-    def _set_filter(self, text, annotation, review, alert):
+    def _set_filter(self, text, annotation, review, alert, quality="all"):
         before = (
             self.state.text_filter,
             self.state.annotation_filter,
             self.state.review_filter,
             self.state.alert_filter,
+            self.state.quality_filter,
         )
-        self.state.set_filter(text, annotation, review, alert)
+        self.state.set_filter(text, annotation, review, alert, quality)
         after = (
             self.state.text_filter,
             self.state.annotation_filter,
             self.state.review_filter,
             self.state.alert_filter,
+            self.state.quality_filter,
         )
         self._update_filter_presentation()
         if before != after:
@@ -659,7 +716,7 @@ class FileListControlBar(QWidget):
     def clear_filters(self, _checked=False, emit=True):
         changed = self.state.filter_active
         self.state.reset_filter()
-        self.filter_panel.set_filter("", "all", "all", "all")
+        self.filter_panel.set_filter("", "all", "all", "all", "all")
         self._update_filter_presentation()
         if changed and emit:
             self.viewChanged.emit()
@@ -691,6 +748,20 @@ class FileListControlBar(QWidget):
             "any": "fileFilter.any",
         }[self.state.alert_filter])
         labels[-1] = tr("fileFilter.alertValue", value=tr(labels[-1]))
+        labels.append({
+            "all": "common.all",
+            "issues": "fileFilter.qualityIssues",
+            "passed": "fileFilter.qualityPassed",
+            "error": "fileFilter.qualityError",
+            "warning": "fileFilter.qualityWarning",
+            "unreadable": "quality.unreadable",
+            "low_resolution": "quality.lowResolution",
+            "aspect_anomaly": "quality.aspectAnomaly",
+            "blur": "quality.blur",
+            "dark": "quality.dark",
+            "overexposed": "quality.overexposed",
+        }[self.state.quality_filter])
+        labels[-1] = tr("fileFilter.qualityValue", value=tr(labels[-1]))
         self.filter_button.setToolTip(
             tr("fileFilter.tooltip", details=" · ".join(labels))
         )
@@ -838,6 +909,11 @@ class FileListWidget(QListWidget):
                 tr(labels[flag])
                 for flag in item.data(FILE_PERSISTENCE_FLAGS_ROLE) or ()
                 if flag in labels
+            )
+        if layout["quality"].contains(point):
+            return "\n".join(
+                str(_quality_value(value, "explanation") or value)
+                for value in item.data(FILE_QUALITY_FINDINGS_ROLE) or ()
             )
         if layout["name"].contains(point):
             return str(item.data(Qt.UserRole) or item.text())
@@ -1094,6 +1170,11 @@ class FileListItemDelegate(QStyledItemDelegate):
             layout["alert"],
             index.data(FILE_PERSISTENCE_FLAGS_ROLE) or (),
         )
+        self._paint_quality_indicator(
+            painter,
+            layout["quality"],
+            index.data(FILE_QUALITY_FINDINGS_ROLE) or (),
+        )
 
         if focused:
             painter.save()
@@ -1142,8 +1223,14 @@ class FileListItemDelegate(QStyledItemDelegate):
             cls.alert_column_width,
             row_rect.height(),
         )
+        quality = QRect(
+            alert.left() - cls.alert_column_width,
+            row_rect.top(),
+            cls.alert_column_width,
+            row_rect.height(),
+        )
         name_left = separator_x + 1 + cls.status_name_gap
-        name_right = alert.left() - cls.name_alert_gap - 1
+        name_right = quality.left() - cls.name_alert_gap - 1
         name = QRect(
             name_left,
             row_rect.top(),
@@ -1156,8 +1243,26 @@ class FileListItemDelegate(QStyledItemDelegate):
             "review": review,
             "separator_x": separator_x,
             "name": name,
+            "quality": quality,
             "alert": alert,
         }
+
+    @classmethod
+    def _paint_quality_indicator(cls, painter, column, findings):
+        if not findings:
+            return
+        painter.save()
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(cls.questioned_color)
+        center = column.center()
+        painter.drawEllipse(center, 5, 5)
+        painter.setPen(QColor("white"))
+        font = painter.font()
+        font.setBold(True)
+        font.setPixelSize(9)
+        painter.setFont(font)
+        painter.drawText(column, Qt.AlignCenter, "!")
+        painter.restore()
 
     @classmethod
     def highest_alert(cls, flags):

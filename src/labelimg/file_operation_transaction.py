@@ -112,10 +112,13 @@ class FileOperationTransaction:
     def record_review(self, changes):
         return self._recovery.record_review(changes)
 
-    def execute_image_processing(self, replacements):
+    def execute_image_processing(self, replacements, *, target_count=None):
         """Atomically install prepared images and record their originals."""
         result = self._image_replacements.commit(replacements)
-        entry = self._recovery.record_image_processing(result.resources)
+        entry = self._recovery.record_image_processing(
+            result.resources,
+            target_count=target_count,
+        )
         return FileOperationOutcome(
             RecoveryOperation.IMAGE_PROCESSING,
             file_result=result,
@@ -151,6 +154,100 @@ class FileOperationTransaction:
             ),
         )
         entry = self._recovery.record_grouped_image_processing((group,))
+        return FileOperationOutcome(
+            RecoveryOperation.IMAGE_PROCESSING,
+            file_result=result,
+            recovery_entry=entry,
+        )
+
+    def execute_grouped_image_processing_batch(self, groups):
+        """Commit multiple image/annotation groups in one atomic batch."""
+        groups = tuple(groups)
+        if not groups:
+            raise FileOperationError("an image-processing batch cannot be empty")
+        replacements_by_key = {}
+        mergeable_keys = set()
+        group_specs = []
+        for image_path, replacements, mergeable_paths in groups:
+            replacements = tuple(replacements)
+            group_mergeable_keys = {
+                self._resource_key(path) for path in mergeable_paths
+            }
+            keys = []
+            for replacement in replacements:
+                key = self._resource_key(replacement.path)
+                prior = replacements_by_key.get(key)
+                if prior is not None:
+                    if (
+                        prior.expected_fingerprint
+                        != replacement.expected_fingerprint
+                    ):
+                        raise FileOperationError(
+                            "one batch prepared conflicting fingerprints for %s"
+                            % replacement.path
+                        )
+                    if prior.content != replacement.content:
+                        if (
+                            key not in group_mergeable_keys
+                            or key not in mergeable_keys
+                        ):
+                            raise FileOperationError(
+                                "one batch prepared conflicting replacements for %s"
+                                % replacement.path
+                            )
+                        replacement = replace(
+                            prior,
+                            content=_merge_create_ml_processed_record(
+                                replacement.path,
+                                image_path,
+                                prior.content,
+                                replacement.content,
+                            ),
+                        )
+                replacements_by_key[key] = replacement
+                if key in group_mergeable_keys:
+                    mergeable_keys.add(key)
+                keys.append(key)
+            group_specs.append((
+                os.path.abspath(os.fspath(image_path)),
+                tuple(keys),
+                tuple(mergeable_paths),
+            ))
+
+        replacements = tuple(replacements_by_key.values())
+        originals = {
+            key: _read_bytes(replacement.path)
+            for key, replacement in replacements_by_key.items()
+        }
+        result = self._image_replacements.commit(replacements)
+        resources = {
+            self._resource_key(resource.original_path): resource
+            for resource in result.resources
+        }
+        recovery_groups = []
+        for image_path, keys, mergeable_paths in group_specs:
+            recovery_groups.append(ImageProcessingRecoveryGroup(
+                image_path,
+                tuple(resources[key] for key in keys),
+                original_contents=tuple(
+                    (replacements_by_key[key].path, originals[key])
+                    for key in keys
+                ),
+                processed_contents=tuple(
+                    (
+                        replacements_by_key[key].path,
+                        replacements_by_key[key].content,
+                    )
+                    for key in keys
+                ),
+                mergeable_create_ml_paths=tuple(
+                    os.path.abspath(os.fspath(path))
+                    for path in mergeable_paths
+                ),
+            ))
+        entry = self._recovery.record_grouped_image_processing(
+            tuple(recovery_groups)
+        )
         return FileOperationOutcome(
             RecoveryOperation.IMAGE_PROCESSING,
             file_result=result,
@@ -366,8 +463,9 @@ class FileOperationTransaction:
 
     def _recover_grouped_image_processing(self, entry, groups):
         self._verify_geometry_recovery_histories(groups)
-        replacements = []
-        restored_paths = []
+        pending = {}
+        source_paths = {}
+        source_fingerprints = {}
         for group in groups:
             originals = {
                 self._resource_key(path): content
@@ -384,29 +482,35 @@ class FileOperationTransaction:
             for resource in group.resources:
                 path = resource.original_path
                 key = self._resource_key(path)
-                current_fingerprint = fingerprint_path(path)
-                if current_fingerprint == resource.post_fingerprint:
-                    content = originals[key]
-                elif key in mergeable:
+                if key not in source_fingerprints:
+                    source_fingerprints[key] = fingerprint_path(path)
+                    source_paths[key] = path
+                current_fingerprint = source_fingerprints[key]
+                if key in mergeable:
                     content = _restore_create_ml_record(
                         path,
                         group.image_path,
                         originals[key],
                         processed[key],
-                        _read_bytes(path),
+                        pending.get(key, _read_bytes(path)),
                     )
+                elif current_fingerprint == resource.post_fingerprint:
+                    content = originals[key]
                 else:
                     raise FileRecoveryConflict(
                         "%s no longer matches the processed result" % path
                     )
-                replacements.append(PreparedImageReplacement(
-                    path,
-                    current_fingerprint,
-                    content,
-                ))
-                restored_paths.append(path)
+                pending[key] = content
+        replacements = tuple(
+            PreparedImageReplacement(
+                source_paths[key],
+                source_fingerprints[key],
+                content,
+            )
+            for key, content in pending.items()
+        )
         try:
-            self._image_replacements.commit(tuple(replacements))
+            self._image_replacements.commit(replacements)
         except RecoverableImageReplacementError as error:
             raise FileRecoveryConflict(str(error)) from error
         # A geometry-changing recovery establishes a different image
@@ -420,7 +524,9 @@ class FileOperationTransaction:
             )
         return FileRecoveryOutcome(
             entry,
-            restored_paths=tuple(restored_paths),
+            restored_paths=tuple(
+                source_paths[key] for key in pending
+            ),
             reload_images=tuple(group.image_path for group in groups),
         )
 
@@ -679,6 +785,49 @@ def _restore_create_ml_record(
     current[current_index] = original[original_index]
     return json.dumps(
         current,
+        ensure_ascii=False,
+        indent=2,
+    ).encode("utf8")
+
+
+def _merge_create_ml_processed_record(
+    collection_path,
+    image_path,
+    accumulated_content,
+    next_content,
+):
+    """Merge one prepared record into the batch's accumulated collection."""
+    try:
+        accumulated = json.loads(accumulated_content.decode("utf8"))
+        next_payload = json.loads(next_content.decode("utf8"))
+    except (UnicodeError, ValueError, TypeError) as error:
+        raise FileOperationError(
+            "CreateML collection is not valid: %s" % collection_path
+        ) from error
+
+    def matching(payload):
+        if not isinstance(payload, list):
+            raise FileOperationError(
+                "CreateML collection root is not a list: %s"
+                % collection_path
+            )
+        matches = [
+            index for index, item in enumerate(payload)
+            if isinstance(item, dict)
+            and isinstance(item.get("image"), str)
+            and CreateMLRecordIdentity(
+                collection_path, item["image"]
+            ).matches(image_path)
+        ]
+        if len(matches) != 1:
+            raise FileOperationError(
+                "CreateML record identity is ambiguous: %s" % image_path
+            )
+        return matches[0]
+
+    accumulated[matching(accumulated)] = next_payload[matching(next_payload)]
+    return json.dumps(
+        accumulated,
         ensure_ascii=False,
         indent=2,
     ).encode("utf8")
