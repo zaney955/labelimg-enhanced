@@ -33,7 +33,7 @@ class TestAppIconAssets(unittest.TestCase):
     def setUpClass(cls):
         cls.application = QGuiApplication.instance() or QGuiApplication([])
 
-    def test_qt_resource_uses_square_stretched_svg(self):
+    def test_qt_resource_uses_square_svg(self):
         resource_tree = ElementTree.parse(REPOSITORY_ROOT / "resources.qrc")
         app_resources = [
             element
@@ -44,10 +44,10 @@ class TestAppIconAssets(unittest.TestCase):
         self.assertEqual(app_resources[0].text, "resources/icons/app.svg")
 
         svg_root = ElementTree.parse(ICON_DIRECTORY / "app.svg").getroot()
-        self.assertEqual(svg_root.get("width"), "468")
-        self.assertEqual(svg_root.get("height"), "468")
-        self.assertEqual(svg_root.get("viewBox"), "0 0 468 445")
-        self.assertEqual(svg_root.get("preserveAspectRatio"), "none")
+        self.assertEqual(svg_root.get("width"), "1024")
+        self.assertEqual(svg_root.get("height"), "1024")
+        self.assertEqual(svg_root.get("viewBox"), "26 24 972 972")
+        self.assertIsNone(svg_root.get("preserveAspectRatio"))
 
     def test_compiled_qt_icon_renders_at_windows_sizes(self):
         icon = QIcon(":/app")

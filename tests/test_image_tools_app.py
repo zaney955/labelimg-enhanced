@@ -7,8 +7,8 @@ from unittest.mock import patch, PropertyMock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt5.QtCore import QEvent, Qt
-from PyQt5.QtGui import QColor, QImage, QKeySequence, QPixmap
+from PyQt5.QtCore import QEvent, QPoint, Qt
+from PyQt5.QtGui import QColor, QCursor, QImage, QKeySequence, QPixmap
 from PyQt5.QtTest import QSignalSpy, QTest
 from PyQt5.QtWidgets import QApplication, QDialog, QMessageBox
 
@@ -219,6 +219,57 @@ class ImageToolsAppTest(unittest.TestCase):
         self.window.file_list_widget.setFocus()
         QTest.keyClick(self.window.file_list_widget, Qt.Key_C)
         self.assertFalse(self.window._crop_active)
+
+    def test_crop_action_immediately_owns_and_restores_cursor(self):
+        self.window.show()
+        self.app.processEvents()
+        while QApplication.overrideCursor() is not None:
+            QApplication.restoreOverrideCursor()
+        QApplication.setOverrideCursor(QCursor(Qt.OpenHandCursor))
+        try:
+            self.window.actions.cropImage.trigger()
+            self.app.processEvents()
+
+            self.assertEqual(
+                QApplication.overrideCursor().shape(),
+                Qt.CrossCursor,
+            )
+            self.window.cancel_crop()
+            self.assertEqual(
+                QApplication.overrideCursor().shape(),
+                Qt.OpenHandCursor,
+            )
+        finally:
+            while QApplication.overrideCursor() is not None:
+                QApplication.restoreOverrideCursor()
+
+    def test_crop_controls_do_not_relayout_the_canvas(self):
+        self.window.resize(900, 640)
+        self.window.show()
+        self.app.processEvents()
+        before = (
+            self.window.canvas.mapToGlobal(QPoint(0, 0)),
+            self.window.scroll_area.viewport().geometry(),
+            self.window.scroll_area.viewport().size(),
+        )
+
+        self.window.actions.cropImage.trigger()
+        self.app.processEvents()
+        active = (
+            self.window.canvas.mapToGlobal(QPoint(0, 0)),
+            self.window.scroll_area.viewport().geometry(),
+            self.window.scroll_area.viewport().size(),
+        )
+        self.window.cancel_crop()
+        self.app.processEvents()
+        finished = (
+            self.window.canvas.mapToGlobal(QPoint(0, 0)),
+            self.window.scroll_area.viewport().geometry(),
+            self.window.scroll_area.viewport().size(),
+        )
+
+        self.assertEqual(active, before)
+        self.assertEqual(finished, before)
 
     def test_enter_in_numeric_crop_field_does_not_apply(self):
         self.window.enter_crop_mode()

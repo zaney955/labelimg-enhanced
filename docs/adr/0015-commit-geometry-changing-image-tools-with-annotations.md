@@ -1,3 +1,5 @@
 # Commit geometry-changing image tools with annotations
 
 An image tool that changes image bounds or dimensions also changes the coordinate space of its annotations. Such a tool must therefore commit and recover the image and its associated annotation resources as one atomic unit, instead of placing coordinate changes in annotation Undo or permitting image-only recovery; this prevents either history from restoring only half of a valid image-annotation pair.
+
+That atomic boundary includes live application state rather than ending at persistent file replacement. Before an operation reports success or restores editing, the Canvas, annotation and label projections, active in-memory document, clean baseline, annotation histories, workspace caches, and resource fingerprints must synchronously represent the resulting or restored dimensions; geometry-dependent state for non-current images must be rebased or discarded before reuse. Failure to establish that single coordinate space fails the operation or keeps editing blocked, rather than exposing mixed dimensions or relying on a later reload, save, or navigation to repair them.

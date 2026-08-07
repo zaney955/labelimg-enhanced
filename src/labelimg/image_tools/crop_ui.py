@@ -2,14 +2,25 @@
 
 from __future__ import annotations
 
-from PyQt5.QtCore import QEvent, QPointF, QRect, QRectF, Qt, pyqtSignal
-from PyQt5.QtGui import QColor, QPainter, QPen
+from PyQt5.QtCore import (
+    QEvent,
+    QPoint,
+    QPointF,
+    QRect,
+    QRectF,
+    Qt,
+    pyqtSignal,
+)
+from PyQt5.QtGui import QColor, QCursor, QPainter, QPen
 from PyQt5.QtWidgets import (
+    QApplication,
     QComboBox,
+    QFrame,
+    QHBoxLayout,
     QLabel,
+    QLayout,
     QPushButton,
     QSpinBox,
-    QToolBar,
     QWidget,
 )
 
@@ -19,11 +30,13 @@ from labelimg.image_tools.crop_geometry import CropRegion
 
 class CropOverlay(QWidget):
     regionChanged = pyqtSignal(object)
+    pointerPositionChanged = pyqtSignal(object)
     historyChanged = pyqtSignal(bool, bool)
     applyRequested = pyqtSignal()
     cancelRequested = pyqtSignal()
 
     HANDLE_SIZE = 9
+    EDGE_HIT_TOLERANCE = 6
     HANDLE_NAMES = ("nw", "n", "ne", "e", "se", "s", "sw", "w")
 
     def __init__(self, canvas):
@@ -38,6 +51,8 @@ class CropOverlay(QWidget):
         self._drag_anchor = None
         self._drag_region = None
         self._gesture_before = None
+        self._cursor_override_owned = False
+        self._previous_cursor_shape = None
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.StrongFocus)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
@@ -87,6 +102,10 @@ class CropOverlay(QWidget):
         }
 
     def begin(self, image_size):
+        previous_cursor = QApplication.overrideCursor()
+        self._previous_cursor_shape = (
+            previous_cursor.shape() if previous_cursor is not None else None
+        )
         self._image_size = tuple(map(int, image_size))
         self._region = None
         self._ratio = None
@@ -96,6 +115,11 @@ class CropOverlay(QWidget):
         self.show()
         self.raise_()
         self.setFocus(Qt.ShortcutFocusReason)
+        if not self._cursor_override_owned:
+            QApplication.setOverrideCursor(QCursor(Qt.CrossCursor))
+            self._cursor_override_owned = True
+        else:
+            QApplication.changeOverrideCursor(QCursor(Qt.CrossCursor))
         self._emit_history()
         self.update()
 
@@ -104,6 +128,16 @@ class CropOverlay(QWidget):
         self._drag_anchor = None
         self._drag_region = None
         self.hide()
+        if self._cursor_override_owned:
+            QApplication.restoreOverrideCursor()
+            self._cursor_override_owned = False
+        if self._previous_cursor_shape is not None:
+            previous_cursor = QCursor(self._previous_cursor_shape)
+            if QApplication.overrideCursor() is None:
+                QApplication.setOverrideCursor(previous_cursor)
+            else:
+                QApplication.changeOverrideCursor(previous_cursor)
+        self._previous_cursor_shape = None
 
     def set_ratio(self, ratio):
         self._ratio = tuple(ratio) if ratio else None
@@ -197,14 +231,7 @@ class CropOverlay(QWidget):
         if event.button() != Qt.LeftButton:
             return super().mousePressEvent(event)
         image_point = self._image_point(event.pos())
-        handle = next(
-            (
-                name
-                for name, rect in self.handle_rects.items()
-                if rect.contains(event.pos())
-            ),
-            None,
-        )
+        handle = self._hit_target(event.pos())
         self._gesture_before = self._region
         self._drag_anchor = image_point
         self._drag_region = self._region
@@ -219,6 +246,10 @@ class CropOverlay(QWidget):
 
     def mouseMoveEvent(self, event):
         image_point = self._image_point(event.pos())
+        if self._region is None:
+            pointer_position = self._pointer_image_position(event.pos())
+            if pointer_position is not None:
+                self.pointerPositionChanged.emit(pointer_position)
         if self._drag_mode is None:
             self._update_cursor(event.pos(), image_point)
             return
@@ -311,6 +342,13 @@ class CropOverlay(QWidget):
             min(max(int(round(point.y())), 0), height),
         )
 
+    def _pointer_image_position(self, widget_point):
+        point = self.canvas.transform_pos(widget_point)
+        width, height = self._image_size
+        if not (0 <= point.x() < width and 0 <= point.y() < height):
+            return None
+        return int(point.x()), int(point.y())
+
     def _widget_point(self, x, y):
         point = (
             QPointF(x, y) + self.canvas.offset_to_center()
@@ -352,14 +390,7 @@ class CropOverlay(QWidget):
         self.historyChanged.emit(self.can_undo, self.can_redo)
 
     def _update_cursor(self, widget_point, image_point):
-        handle = next(
-            (
-                name
-                for name, rect in self.handle_rects.items()
-                if rect.contains(widget_point)
-            ),
-            None,
-        )
+        handle = self._hit_target(widget_point)
         cursors = {
             "n": Qt.SizeVerCursor,
             "s": Qt.SizeVerCursor,
@@ -371,28 +402,82 @@ class CropOverlay(QWidget):
             "sw": Qt.SizeBDiagCursor,
         }
         if handle is not None:
-            self.setCursor(cursors[handle])
+            self._set_cursor(cursors[handle])
         elif self._region is not None and _contains(self._region, image_point):
-            self.setCursor(Qt.SizeAllCursor)
+            self._set_cursor(Qt.SizeAllCursor)
         else:
-            self.setCursor(Qt.CrossCursor)
+            self._set_cursor(Qt.CrossCursor)
+
+    def _set_cursor(self, shape):
+        cursor = QCursor(shape)
+        self.setCursor(cursor)
+        if self._cursor_override_owned:
+            QApplication.changeOverrideCursor(cursor)
+
+    def _hit_target(self, widget_point):
+        if self._region is None:
+            return None
+        rect = self._widget_region(self._region)
+        x = widget_point.x()
+        y = widget_point.y()
+        tolerance = self.EDGE_HIT_TOLERANCE
+        near_left = abs(x - rect.left()) <= tolerance
+        near_right = abs(x - rect.right()) <= tolerance
+        near_top = abs(y - rect.top()) <= tolerance
+        near_bottom = abs(y - rect.bottom()) <= tolerance
+        within_x = rect.left() - tolerance <= x <= rect.right() + tolerance
+        within_y = rect.top() - tolerance <= y <= rect.bottom() + tolerance
+
+        # Corners win over edges, and edges win over moving the interior.
+        if near_left and near_top:
+            return "nw"
+        if near_right and near_top:
+            return "ne"
+        if near_right and near_bottom:
+            return "se"
+        if near_left and near_bottom:
+            return "sw"
+        if near_top and within_x:
+            return "n"
+        if near_right and within_y:
+            return "e"
+        if near_bottom and within_x:
+            return "s"
+        if near_left and within_y:
+            return "w"
+        return None
 
 
-class CropControlBar(QToolBar):
-    """Transient, focus-safe controls projected from one crop overlay."""
+class CropControlBar(QFrame):
+    """Transient floating controls projected from one crop overlay."""
 
     def __init__(self, overlay, parent=None):
-        super().__init__(tr("crop.controls"), parent)
+        super().__init__(parent)
         self.overlay = overlay
         self._image_size = (0, 0)
         self._syncing = False
+        self._drag_offset = None
+        self._user_moved = False
         self.setObjectName("cropControlBar")
-        self.setMovable(False)
-        self.setFloatable(False)
+        self.setFrameShape(QFrame.StyledPanel)
+        self.setAutoFillBackground(True)
+        self.setStyleSheet(
+            "#cropControlBar { background: palette(window); "
+            "border: 1px solid palette(mid); border-radius: 4px; }"
+        )
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(7, 5, 7, 5)
+        layout.setSpacing(5)
+        layout.setSizeConstraint(QLayout.SetFixedSize)
+
+        self.drag_handle = QLabel("⋮⋮", self)
+        self.drag_handle.setCursor(Qt.SizeAllCursor)
+        self.drag_handle.installEventFilter(self)
+        layout.addWidget(self.drag_handle)
 
         self.labels = {}
         self.labels["ratio"] = QLabel(tr("crop.ratio"), self)
-        self.addWidget(self.labels["ratio"])
+        layout.addWidget(self.labels["ratio"])
         self.ratio_combo = QComboBox(self)
         self._ratio_items = (
             ("crop.ratio.free", None),
@@ -403,8 +488,8 @@ class CropControlBar(QToolBar):
         )
         for message_id, value in self._ratio_items:
             self.ratio_combo.addItem(tr(message_id), value)
-        self.addWidget(self.ratio_combo)
-        self.addSeparator()
+        layout.addWidget(self.ratio_combo)
+        layout.addWidget(self._separator())
 
         self.spins = {}
         for key, message_id in (
@@ -414,10 +499,9 @@ class CropControlBar(QToolBar):
             ("height", "crop.height"),
         ):
             self.labels[key] = QLabel(tr(message_id), self)
-            self.addWidget(self.labels[key])
             spin = QSpinBox(self)
             spin.setKeyboardTracking(False)
-            spin.setMinimum(0 if key in ("x", "y") else 1)
+            spin.setMinimum(0)
             spin.setEnabled(False)
             spin.setFixedWidth(82)
             spin.valueChanged.connect(self._values_changed)
@@ -427,19 +511,23 @@ class CropControlBar(QToolBar):
                 )
             )
             self.spins[key] = spin
-            self.addWidget(spin)
+            layout.addWidget(self.labels[key])
+            layout.addWidget(spin)
 
-        self.addSeparator()
+        layout.addWidget(self._separator())
         self.apply_button = QPushButton(tr("crop.apply"), self)
         self.cancel_button = QPushButton(tr("common.cancel"), self)
         self.apply_button.setEnabled(False)
         self.apply_button.clicked.connect(overlay.applyRequested.emit)
         self.cancel_button.clicked.connect(overlay.cancelRequested.emit)
-        self.addWidget(self.apply_button)
-        self.addWidget(self.cancel_button)
+        layout.addWidget(self.apply_button)
+        layout.addWidget(self.cancel_button)
 
         self.ratio_combo.currentIndexChanged.connect(self._ratio_changed)
         overlay.regionChanged.connect(self._region_changed)
+        overlay.pointerPositionChanged.connect(self._pointer_position_changed)
+        if parent is not None:
+            parent.installEventFilter(self)
         self.hide()
 
     def begin(self, image_size):
@@ -447,11 +535,15 @@ class CropControlBar(QToolBar):
         width, height = self._image_size
         self.spins["x"].setRange(0, max(0, width - 1))
         self.spins["y"].setRange(0, max(0, height - 1))
-        self.spins["width"].setRange(1, max(1, width))
-        self.spins["height"].setRange(1, max(1, height))
+        self.spins["width"].setRange(0, max(1, width))
+        self.spins["height"].setRange(0, max(1, height))
         self.ratio_combo.setCurrentIndex(0)
         self._region_changed(None)
+        self._user_moved = False
+        self.adjustSize()
+        self._place_initial()
         self.show()
+        self.raise_()
 
     def finish(self):
         self.hide()
@@ -472,6 +564,12 @@ class CropControlBar(QToolBar):
             self.ratio_combo.setItemText(index, tr(message_id))
         self.apply_button.setText(tr("crop.apply"))
         self.cancel_button.setText(tr("common.cancel"))
+        self.adjustSize()
+        if self.isVisible():
+            if self._user_moved:
+                self._clamp_position()
+            else:
+                self._place_initial()
 
     def _ratio_changed(self):
         value = self.ratio_combo.currentData()
@@ -483,16 +581,33 @@ class CropControlBar(QToolBar):
         self._syncing = True
         try:
             enabled = region is not None
-            for spin in self.spins.values():
-                spin.setEnabled(enabled)
+            self.spins["x"].setEnabled(True)
+            self.spins["y"].setEnabled(True)
+            self.spins["x"].setReadOnly(not enabled)
+            self.spins["y"].setReadOnly(not enabled)
+            self.spins["width"].setEnabled(enabled)
+            self.spins["height"].setEnabled(enabled)
             if enabled:
                 self.spins["x"].setValue(region.x)
                 self.spins["y"].setValue(region.y)
                 self.spins["width"].setValue(region.width)
                 self.spins["height"].setValue(region.height)
+            else:
+                for key in ("x", "y", "width", "height"):
+                    self.spins[key].setValue(0)
             self.apply_button.setEnabled(
                 enabled and not region.is_full_image(self._image_size)
             )
+        finally:
+            self._syncing = False
+
+    def _pointer_position_changed(self, point):
+        if self.overlay.region is not None:
+            return
+        self._syncing = True
+        try:
+            self.spins["x"].setValue(point[0])
+            self.spins["y"].setValue(point[1])
         finally:
             self._syncing = False
 
@@ -518,6 +633,100 @@ class CropControlBar(QToolBar):
                     round(width * ratio_height / ratio_width),
                 )
         self.overlay.set_region(CropRegion(x, y, width, height))
+
+    def eventFilter(self, watched, event):
+        if watched is self.parentWidget() and event.type() == QEvent.Resize:
+            if self.isVisible():
+                if self._user_moved:
+                    self._clamp_position()
+                else:
+                    self._place_initial()
+        elif watched is self.drag_handle:
+            if (
+                event.type() == QEvent.MouseButtonPress
+                and event.button() == Qt.LeftButton
+            ):
+                self._begin_drag(event.globalPos())
+                return True
+            if (
+                event.type() == QEvent.MouseMove
+                and self._drag_offset is not None
+            ):
+                self._continue_drag(event.globalPos())
+                return True
+            if (
+                event.type() == QEvent.MouseButtonRelease
+                and event.button() == Qt.LeftButton
+            ):
+                self._drag_offset = None
+                return True
+        return super().eventFilter(watched, event)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._begin_drag(event.globalPos())
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._drag_offset is not None:
+            self._continue_drag(event.globalPos())
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton and self._drag_offset is not None:
+            self._drag_offset = None
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def _separator(self):
+        separator = QFrame(self)
+        separator.setFrameShape(QFrame.VLine)
+        separator.setFrameShadow(QFrame.Sunken)
+        return separator
+
+    def _begin_drag(self, global_position):
+        self._drag_offset = global_position - self.mapToGlobal(QPoint())
+
+    def _continue_drag(self, global_position):
+        parent = self.parentWidget()
+        if parent is None:
+            return
+        self._user_moved = True
+        requested = parent.mapFromGlobal(global_position - self._drag_offset)
+        self.move(self._bounded_position(requested))
+
+    def _place_initial(self):
+        parent = self.parentWidget()
+        if parent is None:
+            return
+        self.move(self._bounded_position(QPoint(
+            (parent.width() - self.width()) // 2,
+            8,
+        )))
+
+    def _clamp_position(self):
+        if self.parentWidget() is not None:
+            self.move(self._bounded_position(self.pos()))
+
+    def _bounded_position(self, position):
+        parent = self.parentWidget()
+        if parent is None:
+            return position
+        return QPoint(
+            min(
+                max(position.x(), 0),
+                max(0, parent.width() - self.width()),
+            ),
+            min(
+                max(position.y(), 0),
+                max(0, parent.height() - self.height()),
+            ),
+        )
 
 
 def _contains(region, point):
