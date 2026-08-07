@@ -14,6 +14,8 @@ LabelImg Enhanced is an independently maintained bounding-box annotation tool de
 - Ordinary click, Ctrl toggle selection, right-click, and dragging share one deterministic overlap target resolver and never cycle targets.
 - Label and file lists provide Windows File Explorer-style multi-selection.
 - Independent `Unreviewed / Needs Review / Verified` image review states.
+- The Image menu provides quick current-image rotation/flipping, proportional batch resize, brightness/contrast/Gamma/auto-contrast/grayscale adjustment, and recoverable atomic image-plus-annotation geometry updates.
+- Local image-quality checks report corrupt content, low resolution, aspect anomalies, blur, darkness, and overexposure through independent badges, finding/severity filters, and a nonmodal details panel without modifying images.
 - File filtering and sorting by annotation, review, and persistence state while hidden selections remain retained.
 - Per-image Undo/Redo, real-time autosave, external-conflict handling, and recoverable file operations.
 - Candidate labels are derived only from saved Pascal VOC, YOLO, or CreateML documents in the current annotation directory.

@@ -351,15 +351,17 @@ class FileListSelectionTest(unittest.TestCase):
             selected.pixelColor(210, 2),
         )
 
-    def test_file_list_uses_fixed_status_name_and_alert_columns(self):
+    def test_file_list_uses_fixed_status_name_quality_and_alert_columns(self):
         layout = FileListItemDelegate.row_layout(QRect(0, 0, 220, 30))
 
         self.assertEqual(layout["annotation"].width(), 20)
         self.assertEqual(layout["review"].width(), 20)
+        self.assertEqual(layout["quality"].width(), 20)
         self.assertEqual(layout["alert"].width(), 20)
         self.assertLess(layout["annotation"].right(), layout["review"].left())
         self.assertLess(layout["review"].right(), layout["name"].left())
-        self.assertLess(layout["name"].right(), layout["alert"].left())
+        self.assertLess(layout["name"].right(), layout["quality"].left())
+        self.assertLess(layout["quality"].right(), layout["alert"].left())
 
     def test_delegate_paints_independent_annotation_and_review_icons(self):
         item = self.window.file_list_widget.item(1)

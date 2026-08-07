@@ -8,7 +8,7 @@ import os
 
 import cv2
 import numpy as np
-from PIL import Image, JpegImagePlugin, PngImagePlugin
+from PIL import Image, ImageOps, JpegImagePlugin, PngImagePlugin
 
 
 class UnsupportedImageFile(ValueError):
@@ -62,7 +62,6 @@ class ImageFileCodec:
                     raise UnsupportedImageFile(
                         "only 8-bit L, RGB, and RGBA images are supported"
                     )
-                pixels = _pil_to_processing_array(image)
                 exif = image.getexif().tobytes()
                 icc_profile = image.info.get("icc_profile")
                 dpi = image.info.get("dpi")
@@ -86,6 +85,9 @@ class ImageFileCodec:
                     if image.format == "JPEG"
                     else None
                 )
+                processing_image = ImageOps.exif_transpose(image)
+                pixels = _pil_to_processing_array(processing_image)
+                processing_mode = processing_image.mode
         except UnsupportedImageFile:
             raise
         except Exception as error:
@@ -93,7 +95,7 @@ class ImageFileCodec:
         return LoadedImage(
             path=path,
             format=expected_format,
-            mode=image.mode,
+            mode=processing_mode,
             pixels=pixels,
             exif=exif,
             icc_profile=icc_profile,
@@ -134,6 +136,10 @@ class ImageFileCodec:
             for tag in (257, 40963):
                 if tag in exif:
                     exif[tag] = height
+            # Processing arrays are always in display orientation, so the
+            # encoded image must not ask readers to rotate those pixels again.
+            if 274 in exif:
+                exif[274] = 1
             arguments["exif"] = exif.tobytes()
         if loaded.icc_profile:
             arguments["icc_profile"] = loaded.icc_profile

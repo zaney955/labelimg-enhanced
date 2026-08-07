@@ -145,6 +145,41 @@ class FileListViewStateTest(unittest.TestCase):
         self.assertEqual(self.visible(state), self.paths)
         self.assertFalse(state.filter_active)
 
+    def test_quality_filter_is_independent_from_persistence_alerts(self):
+        state = FileListViewState()
+        state.set_filter(quality="issues")
+        issues = {self.paths[0]: ("blur",), self.paths[2]: ("dark",)}
+
+        visible = state.visible_paths(
+            self.paths,
+            self.root,
+            annotation_state_for=self.annotation.get,
+            review_state_for=self.review.get,
+            persistence_flags_for=self.flags.get,
+            quality_findings_for=lambda path: issues.get(path, ()),
+        )
+
+        self.assertEqual(visible, [self.paths[0], self.paths[2]])
+        self.assertEqual(state.alert_filter, "all")
+        self.assertEqual(state.quality_filter, "issues")
+
+        state.set_filter(quality="warning")
+        structured = {
+            self.paths[1]: ({"code": "blur", "severity": "warning"},),
+            self.paths[3]: ({"code": "unreadable", "severity": "error"},),
+        }
+        self.assertEqual(
+            state.visible_paths(
+                self.paths,
+                self.root,
+                annotation_state_for=self.annotation.get,
+                review_state_for=self.review.get,
+                persistence_flags_for=self.flags.get,
+                quality_findings_for=lambda path: structured.get(path, ()),
+            ),
+            [self.paths[1]],
+        )
+
 
 class FileListControlsTest(unittest.TestCase):
     @classmethod

@@ -70,6 +70,22 @@ class ImageFileCodecTest(unittest.TestCase):
         self.assertEqual(output.info.get("dataset"), "acceptance")
         self.assertTrue(np.array_equal(np.asarray(output)[:, :, 3], pixels[:, :, 3]))
 
+    def test_exif_orientation_is_baked_into_pixels_and_normalized(self):
+        path = self.path("oriented.jpg")
+        pixels = np.zeros((20, 30, 3), dtype=np.uint8)
+        pixels[:5, :5] = (255, 0, 0)
+        exif = Image.Exif()
+        exif[274] = 6
+        Image.fromarray(pixels, "RGB").save(path, exif=exif)
+
+        loaded = self.codec.load(path)
+        encoded = self.codec.encode(loaded, loaded.pixels)
+
+        self.assertEqual(loaded.size, (20, 30))
+        with Image.open(io.BytesIO(encoded)) as output:
+            self.assertEqual(output.size, (20, 30))
+            self.assertEqual(output.getexif().get(274), 1)
+
     def test_bmp_round_trip_keeps_bmp_format_and_dimensions(self):
         path = self.path("source.bmp")
         Image.new("RGB", (31, 27), "white").save(path)
