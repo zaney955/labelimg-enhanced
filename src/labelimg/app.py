@@ -10,6 +10,7 @@ import subprocess
 import shutil
 import webbrowser as wb
 
+from dataclasses import replace
 from functools import cmp_to_key, partial
 
 try:
@@ -73,6 +74,7 @@ from labelimg.annotation_review import ReviewStateTransaction
 from labelimg.annotation_persistence import AnnotationSaveCoordinator
 from labelimg.annotation_storage import (
     AnnotationStorageConflict,
+    fingerprint_image,
     fingerprint_path,
 )
 from labelimg.toolBar import ToolBar
@@ -813,6 +815,7 @@ class MainWindow(QMainWindow, WindowMixin):
         self.color_dialog = ColorDialog(parent=self)
 
         self.canvas = Canvas(parent=self)
+        self.canvas.installEventFilter(self)
         self.canvas.zoomRequest.connect(self.zoom_request)
         self.canvas.set_drawing_shape_to_square(settings.get(SETTING_DRAW_SQUARE, False))
 
@@ -887,6 +890,19 @@ class MainWindow(QMainWindow, WindowMixin):
 
         self.dock_features = QDockWidget.DockWidgetClosable | QDockWidget.DockWidgetFloatable
         self.dock.setFeatures(self.dock.features() ^ self.dock_features)
+
+        from labelimg.image_tools.crop_ui import (
+            CropControlBar,
+            CropOverlay,
+        )
+        self.crop_overlay = CropOverlay(self.canvas)
+        self.crop_controls = CropControlBar(self.crop_overlay, self)
+        self.addToolBar(Qt.TopToolBarArea, self.crop_controls)
+        self.crop_overlay.applyRequested.connect(self.apply_crop)
+        self.crop_overlay.cancelRequested.connect(self.cancel_crop)
+        self._crop_active = False
+        self._crop_action_states = {}
+        self._crop_previous_canvas_mode = None
 
         # Actions
         action = partial(new_action, self)
@@ -975,6 +991,17 @@ class MainWindow(QMainWindow, WindowMixin):
             tip=tr('imageTools.action.removeFramesTip'),
             enabled=False,
         )
+        crop_image = action(
+            tr('crop.action'),
+            self.enter_crop_mode,
+            'C',
+            'crop',
+            tr('crop.actionTip'),
+            enabled=False,
+            checkable=True,
+        )
+        crop_image.setShortcutContext(Qt.WidgetShortcut)
+        self.canvas.addAction(crop_image)
         undo_image_processing = action(
             tr('imageTools.action.undoCommitted'),
             self.undo_last_image_processing,
@@ -1096,6 +1123,7 @@ class MainWindow(QMainWindow, WindowMixin):
                               redoAnnotation=redo_annotation,
                               recentFileOperations=recent_file_operations,
                               removeColoredFrames=remove_colored_frames,
+                              cropImage=crop_image,
                               undoImageProcessing=undo_image_processing,
                               lineColor=color1, create=create, delete=delete, edit=edit, copy=copy,
                               copyAnnotations=copy_annotations, pasteAnnotations=paste_annotations,
@@ -1116,7 +1144,7 @@ class MainWindow(QMainWindow, WindowMixin):
                                                delete, shape_line_color, shape_fill_color),
                               onLoadActive=(
                                   close, create, create_mode, edit_mode,
-                                  remove_colored_frames),
+                                  remove_colored_frames, crop_image),
                               onShapesPresent=(save_as, hide_all, show_all))
 
         self.menus = Struct(
@@ -1197,6 +1225,7 @@ class MainWindow(QMainWindow, WindowMixin):
                      copy_annotations, paste_annotations, copy_prev_bounding,
                      delete_image, recent_file_operations, reset_all, None, quit))
         add_actions(self.menus.image, (
+            crop_image,
             remove_colored_frames,
             None,
             undo_image_processing,
@@ -1220,6 +1249,7 @@ class MainWindow(QMainWindow, WindowMixin):
             self.undo_annotation,
             self.redo_annotation,
             self.file_list_widget,
+            scoped_history_active=lambda: self._crop_active,
         )
         QApplication.instance().installEventFilter(
             self._history_shortcuts.qobject
@@ -1240,12 +1270,12 @@ class MainWindow(QMainWindow, WindowMixin):
 
         self.tools = self.toolbar(tr('toolbar.tools'))
         self.actions.beginner = (
-            open_dir, open_next_image, open_prev_image, verify, question, save, save_format, None, create, copy, delete, None,
+            open_dir, open_next_image, open_prev_image, verify, question, save, save_format, None, create, copy, delete, crop_image, None,
             zoom_in, zoom, zoom_out, fit_window, fit_width)
 
         self.actions.advanced = (
             open_dir, open_next_image, open_prev_image, save, save_format, None,
-            create_mode, edit_mode, None,
+            create_mode, edit_mode, crop_image, None,
             hide_all, show_all)
 
         self._i18n_action_specs = {
@@ -1272,6 +1302,7 @@ class MainWindow(QMainWindow, WindowMixin):
                 'imageTools.action.removeFrames',
                 'imageTools.action.removeFramesTip',
             ),
+            crop_image: ('crop.action', 'crop.actionTip'),
             undo_image_processing: (
                 'imageTools.action.undoCommitted',
                 'imageTools.action.undoCommittedTip',
@@ -1456,6 +1487,7 @@ class MainWindow(QMainWindow, WindowMixin):
         self._sync_annotation_directory_ui()
         self.menus.language.setTitle(tr('language.menu'))
         self.tools.setWindowTitle(tr('toolbar.tools'))
+        self.crop_controls.retranslate()
         self.zoom_widget.setWhatsThis(tr(
             'zoom.help',
             keyboard=format_shortcut("Ctrl+[-+]"),
@@ -1488,6 +1520,18 @@ class MainWindow(QMainWindow, WindowMixin):
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_Control:
             self.canvas.set_multi_selection_mode(True)
+
+    def eventFilter(self, watched, event):
+        if (
+            watched is getattr(self, 'canvas', None)
+            and event.type() == QEvent.KeyPress
+            and event.key() == Qt.Key_C
+            and event.modifiers() == Qt.NoModifier
+        ):
+            self.enter_crop_mode()
+            event.accept()
+            return True
+        return super(MainWindow, self).eventFilter(watched, event)
 
     # Support Functions #
     def set_format(self, save_format):
@@ -1956,6 +2000,9 @@ class MainWindow(QMainWindow, WindowMixin):
         return '%s\t%s' % (text, shortcut)
 
     def undo_annotation(self, _checked=False):
+        if self._crop_active:
+            self.crop_overlay.undo()
+            return
         if self.annotation_editing.view is None:
             return
         try:
@@ -1970,6 +2017,9 @@ class MainWindow(QMainWindow, WindowMixin):
         self.status(result.message)
 
     def redo_annotation(self, _checked=False):
+        if self._crop_active:
+            self.crop_overlay.redo()
+            return
         if self.annotation_editing.view is None:
             return
         try:
@@ -2150,9 +2200,263 @@ class MainWindow(QMainWindow, WindowMixin):
 
     def update_image_menu(self):
         self.actions.removeColoredFrames.setEnabled(bool(self.file_path))
+        self.actions.cropImage.setEnabled(
+            bool(self.file_path) and not self._crop_active
+        )
+        if self._crop_active:
+            self.actions.cropImage.setEnabled(True)
         self.actions.undoImageProcessing.setEnabled(
             self._latest_image_processing_recovery() is not None
         )
+
+    def enter_crop_mode(self, _checked=False):
+        if self._crop_active:
+            blocker = QSignalBlocker(self.actions.cropImage)
+            self.actions.cropImage.setChecked(True)
+            del blocker
+            return True
+        if not self.file_path:
+            self.status(tr('imageTools.noImage'))
+            return False
+        if (
+            self.annotation_editing.pending
+            or self.annotation_editing.edit_open
+        ):
+            self.status(tr('imageTools.pendingAnnotation'))
+            return False
+
+        current_path = self.file_path
+        has_unsaved_annotations = bool(
+            self.annotation_persistence.conflicts
+            or self.annotation_editing.dirty_views()
+        )
+        if has_unsaved_annotations:
+            if not self.may_continue():
+                blocker = QSignalBlocker(self.actions.cropImage)
+                self.actions.cropImage.setChecked(False)
+                del blocker
+                return False
+            # Discard removes the history view; saving can also change the
+            # serialized document. Reload once so crop always starts from the
+            # committed image/annotation pair.
+            if not self.load_file(current_path):
+                return False
+
+        self._crop_active = True
+        self._crop_previous_canvas_mode = self.canvas.editing()
+        guarded = (
+            self.actions.create,
+            self.actions.createMode,
+            self.actions.editMode,
+            self.actions.delete,
+            self.actions.copy,
+            self.actions.copyAnnotations,
+            self.actions.pasteAnnotations,
+            self.actions.undoAnnotation,
+            self.actions.redoAnnotation,
+            self.actions.removeColoredFrames,
+        )
+        self._crop_action_states = {
+            action: action.isEnabled() for action in guarded
+        }
+        for action in guarded:
+            action.setEnabled(False)
+        blocker = QSignalBlocker(self.actions.cropImage)
+        self.actions.cropImage.setChecked(True)
+        del blocker
+        image_size = (self.image.width(), self.image.height())
+        self.crop_controls.begin(image_size)
+        self.crop_overlay.begin(image_size)
+        self.status(tr('crop.noRegion'))
+        return True
+
+    def cancel_crop(self):
+        if not self._crop_active:
+            return True
+        self._finish_crop_mode()
+        return True
+
+    def apply_crop(self):
+        if not self._crop_active:
+            return False
+        region = self.crop_overlay.region
+        image_size = (self.image.width(), self.image.height())
+        if region is None or region.is_full_image(image_size):
+            self.status(tr('crop.noRegion'))
+            return False
+
+        try:
+            from labelimg.image_tools.crop import ImageCropProcessor
+            from labelimg.image_tools.crop_annotation import (
+                prepare_crop_annotations,
+            )
+
+            view = self.annotation_editing.view
+            prepared = ImageCropProcessor().prepare(
+                self.file_path,
+                region,
+                view.snapshot,
+            )
+            if prepared.clipped_count or prepared.removed_count:
+                answer = localized_question(
+                    self,
+                    tr('crop.confirmTitle'),
+                    tr(
+                        'crop.confirmImpact',
+                        clipped=prepared.clipped_count,
+                        removed=prepared.removed_count,
+                    ),
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No,
+                )
+                if answer != QMessageBox.Yes:
+                    return False
+
+            annotation_preparation = None
+            annotation_target = view.current_target
+            if annotation_target and os.path.isfile(annotation_target):
+                annotation_preparation = prepare_crop_annotations(
+                    prepared.snapshot,
+                    prepared.image_replacement.content,
+                    annotation_target,
+                    class_names=self.annotation_workspace.yolo_vocabulary,
+                    create_ml_record_name=(
+                        self.annotation_document.create_ml_record_name
+                        if self.annotation_document is not None
+                        else None
+                    ),
+                )
+            replacements = (prepared.image_replacement,) + (
+                annotation_preparation.replacements
+                if annotation_preparation is not None
+                else ()
+            )
+            old_scroll = {
+                orientation: bar.value()
+                for orientation, bar in self.scroll_bars.items()
+            }
+            zoom = self.zoom_widget.value()
+            self.file_operations.execute_grouped_image_processing(
+                self.file_path,
+                replacements,
+                mergeable_create_ml_paths=(
+                    (annotation_target,)
+                    if (
+                        annotation_preparation is not None
+                        and AnnotationFormat.from_path(annotation_target)
+                        is AnnotationFormat.CREATE_ML
+                    )
+                    else ()
+                ),
+            )
+        except Exception as error:
+            localized_warning(
+                self,
+                tr('crop.failedTitle'),
+                tr('crop.failed', error=error),
+            )
+            self.crop_overlay.setFocus(Qt.OtherFocusReason)
+            return False
+
+        self.image_data = prepared.image_replacement.content
+        self.image = QImage.fromData(self.image_data)
+        self.canvas.replace_pixmap(QPixmap.fromImage(self.image))
+        projected = replace(
+            prepared.snapshot,
+            image_fingerprint=fingerprint_image(
+                self.file_path,
+                prepared.snapshot.image_size,
+            ),
+        )
+        self.annotation_scene.project(self._history_projection_request(
+            projected,
+            direction='crop',
+            preserve_selection=True,
+        ))
+        if annotation_preparation is not None:
+            self.annotation_document = annotation_preparation.document
+        baseline = (
+            self._annotation_baseline(annotation_target)
+            if annotation_target
+            else None
+        )
+        self.annotation_editing.rebase_image(
+            self.file_path,
+            projected,
+            baseline=baseline,
+        )
+        self.annotation_editing.select_image(self.file_path)
+        if baseline is not None:
+            self.annotation_persistence.propagate_resource_fingerprints(
+                baseline[1]
+            )
+        self.zoom_widget.setValue(zoom)
+        self.paint_canvas()
+        QApplication.processEvents()
+        scale = 0.01 * zoom
+        self.scroll_bars[Qt.Horizontal].setValue(
+            max(0, round(
+                old_scroll[Qt.Horizontal] - region.x * scale
+            ))
+        )
+        self.scroll_bars[Qt.Vertical].setValue(
+            max(0, round(
+                old_scroll[Qt.Vertical] - region.y * scale
+            ))
+        )
+        self._finish_crop_mode()
+        self.rescan_annotation_workspace()
+        self.update_file_list_item_status(self.file_path)
+        self.actions.undoImageProcessing.setEnabled(True)
+        self._sync_annotation_history_ui()
+        self.status(tr('crop.completed'))
+        return True
+
+    def _finish_crop_mode(self):
+        self.crop_overlay.finish()
+        self.crop_controls.finish()
+        self._crop_active = False
+        blocker = QSignalBlocker(self.actions.cropImage)
+        self.actions.cropImage.setChecked(False)
+        del blocker
+        for action, enabled in self._crop_action_states.items():
+            action.setEnabled(enabled)
+        self._crop_action_states = {}
+        if self._crop_previous_canvas_mode is not None:
+            self.canvas.set_editing(self._crop_previous_canvas_mode)
+        self._crop_previous_canvas_mode = None
+        self.canvas.setFocus(Qt.OtherFocusReason)
+        self.update_image_menu()
+
+    def _resolve_crop_before_leave(self):
+        if not self._crop_active:
+            return True
+        region = self.crop_overlay.region
+        if region is None or region.is_full_image(
+            (self.image.width(), self.image.height())
+        ):
+            return self.cancel_crop()
+        prompt = QMessageBox(self)
+        prompt.setIcon(QMessageBox.Question)
+        prompt.setWindowTitle(tr('crop.leaveTitle'))
+        prompt.setText(tr('crop.leavePrompt'))
+        apply_button = prompt.addButton(
+            tr('crop.leaveApply'), QMessageBox.AcceptRole
+        )
+        discard_button = prompt.addButton(
+            tr('crop.leaveDiscard'), QMessageBox.DestructiveRole
+        )
+        cancel_button = prompt.addButton(
+            tr('common.cancel'), QMessageBox.RejectRole
+        )
+        prompt.setDefaultButton(cancel_button)
+        prompt.exec_()
+        clicked = prompt.clickedButton()
+        if clicked is apply_button:
+            return self.apply_crop()
+        if clicked is discard_button:
+            return self.cancel_crop()
+        return False
 
     def open_remove_colored_frames(self, _checked=False):
         if not self.file_path:
@@ -2390,10 +2694,35 @@ class MainWindow(QMainWindow, WindowMixin):
                 item = self.file_list_widget.item(row)
                 if item.data(Qt.UserRole) in selected_after:
                     item.setSelected(True)
-        if entry.operation is not RecoveryOperation.IMAGE_PROCESSING:
+        geometry_images = tuple(
+            getattr(outcome, 'reload_images', ())
+        )
+        if geometry_images:
+            self.annotation_persistence.propagate_resource_fingerprints(
+                tuple(
+                    (path, fingerprint_path(path))
+                    for path in outcome.restored_paths
+                )
+            )
+        if (
+            entry.operation is not RecoveryOperation.IMAGE_PROCESSING
+            or geometry_images
+        ):
             self.rescan_annotation_workspace()
         self.refresh_file_list_statuses()
-        self._refresh_current_image_pixels(restored_images)
+        current_key = (
+            os.path.normcase(os.path.abspath(self.file_path))
+            if self.file_path
+            else None
+        )
+        geometry_keys = {
+            os.path.normcase(os.path.abspath(path))
+            for path in geometry_images
+        }
+        if current_key in geometry_keys:
+            self.load_file(self.file_path)
+        else:
+            self._refresh_current_image_pixels(restored_images)
         if self.file_path is None and restored_images:
             self.load_file(restored_images[0])
         elif (
@@ -4991,6 +5320,8 @@ class MainWindow(QMainWindow, WindowMixin):
         )
 
     def may_continue(self):
+        if not self._resolve_crop_before_leave():
+            return False
         if (
             self.annotation_editing.pending
             or self.annotation_editing.edit_open

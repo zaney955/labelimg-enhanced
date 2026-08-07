@@ -103,27 +103,38 @@ class ImageFileCodec:
             jpeg_subsampling=subsampling,
         )
 
-    def encode(self, loaded, pixels):
+    def encode(self, loaded, pixels, *, output_size=None):
         pixels = np.asarray(pixels)
         if pixels.dtype != np.uint8:
             raise UnsupportedImageFile("processed pixels must remain 8-bit")
-        if pixels.shape[:2] != loaded.pixels.shape[:2]:
+        expected_size = loaded.size if output_size is None else tuple(output_size)
+        actual_size = (pixels.shape[1], pixels.shape[0])
+        if actual_size != expected_size:
             raise UnsupportedImageFile(
-                "processed pixels must retain the source dimensions"
+                "processed pixels do not match the expected output dimensions"
             )
         image = _processing_array_to_pil(pixels, loaded.mode)
         output = io.BytesIO()
-        arguments = self._save_arguments(loaded)
+        arguments = self._save_arguments(loaded, expected_size)
         image.save(output, format=loaded.format, **arguments)
         content = output.getvalue()
-        self._validate_encoded(loaded, content)
+        self._validate_encoded(loaded, content, expected_size)
         return content
 
     @staticmethod
-    def _save_arguments(loaded):
+    def _save_arguments(loaded, output_size):
         arguments = {}
         if loaded.exif:
-            arguments["exif"] = loaded.exif
+            exif = Image.Exif()
+            exif.load(loaded.exif)
+            width, height = output_size
+            for tag in (256, 40962):
+                if tag in exif:
+                    exif[tag] = width
+            for tag in (257, 40963):
+                if tag in exif:
+                    exif[tag] = height
+            arguments["exif"] = exif.tobytes()
         if loaded.icc_profile:
             arguments["icc_profile"] = loaded.icc_profile
         if loaded.dpi:
@@ -143,7 +154,7 @@ class ImageFileCodec:
         return arguments
 
     @staticmethod
-    def _validate_encoded(loaded, content):
+    def _validate_encoded(loaded, content, expected_size):
         try:
             with Image.open(io.BytesIO(content)) as image:
                 image.load()
@@ -151,7 +162,7 @@ class ImageFileCodec:
                     raise UnsupportedImageFile(
                         "encoded result changed image format"
                     )
-                if image.size != loaded.size:
+                if image.size != expected_size:
                     raise UnsupportedImageFile(
                         "encoded result changed image dimensions"
                     )

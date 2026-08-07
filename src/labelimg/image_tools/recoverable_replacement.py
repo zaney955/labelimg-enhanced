@@ -23,8 +23,8 @@ class PreparedImageReplacement:
             "path",
             os.path.abspath(os.fspath(self.path)),
         )
-        if not isinstance(self.content, bytes) or not self.content:
-            raise ValueError("replacement content must be non-empty bytes")
+        if not isinstance(self.content, bytes):
+            raise ValueError("replacement content must be bytes")
 
 
 @dataclass(frozen=True)
