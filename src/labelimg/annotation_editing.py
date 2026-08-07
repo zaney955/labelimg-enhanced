@@ -673,7 +673,14 @@ def _shape_from_box_state(state, prior_shape, default_paint_labels):
 class AnnotationHistoryShortcutFilter:
     """Route history shortcuts without preempting native text Undo/Redo."""
 
-    def __init__(self, window, undo, redo, file_list):
+    def __init__(
+        self,
+        window,
+        undo,
+        redo,
+        file_list,
+        scoped_history_active=None,
+    ):
         from PyQt5.QtCore import QObject
 
         class _Filter(QObject):
@@ -685,6 +692,9 @@ class AnnotationHistoryShortcutFilter:
         self._undo = undo
         self._redo = redo
         self._file_list = file_list
+        self._scoped_history_active = (
+            scoped_history_active or (lambda: False)
+        )
 
     @property
     def qobject(self):
@@ -723,6 +733,14 @@ class AnnotationHistoryShortcutFilter:
             return False
         if QApplication.activeModalWidget() is not None:
             return False
+
+        if self._scoped_history_active():
+            event.accept()
+            if event.type() == QEvent.ShortcutOverride:
+                return True
+            if not event.isAutoRepeat():
+                (self._redo if redo else self._undo)()
+            return True
 
         focus = QApplication.focusWidget()
         if _is_descendant(focus, self._file_list):

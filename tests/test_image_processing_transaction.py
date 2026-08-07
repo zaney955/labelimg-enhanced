@@ -1,4 +1,5 @@
 import os
+import json
 import shutil
 import tempfile
 import unittest
@@ -132,6 +133,84 @@ class ImageProcessingFileTransactionTest(unittest.TestCase):
 
         self.assertEqual(replacement_trash.counter, 1)
         self.assertEqual(self.trash.counter, 0)
+
+    def test_geometry_processing_recovers_image_and_annotation_as_one_group(self):
+        image = self.create("image.png", b"image-original")
+        annotation = self.create("image.xml", b"annotation-original")
+        outcome = self.transaction.execute_grouped_image_processing(
+            image,
+            (
+                PreparedImageReplacement(
+                    image,
+                    fingerprint_path(image),
+                    b"image-cropped",
+                ),
+                PreparedImageReplacement(
+                    annotation,
+                    fingerprint_path(annotation),
+                    b"annotation-cropped",
+                ),
+            ),
+        )
+
+        self.assertEqual(outcome.recovery_entry.target_count, 1)
+        self.assertEqual(
+            outcome.recovery_entry.payload[0].image_path,
+            image,
+        )
+        recovery = self.transaction.recover(
+            outcome.recovery_entry.entry_id,
+            selected_paths=(image,),
+        )
+
+        self.assertEqual(self.read(image), b"image-original")
+        self.assertEqual(self.read(annotation), b"annotation-original")
+        self.assertEqual(recovery.reload_images, (image,))
+        self.assertEqual(
+            set(recovery.restored_paths),
+            {image, annotation},
+        )
+
+    def test_shared_create_ml_recovery_preserves_unrelated_later_changes(self):
+        image = self.create("first.png", b"image-original")
+        annotation = self.create(
+            "annotations.json",
+            json.dumps([
+                {"image": "first.png", "annotations": [{"label": "old"}]},
+                {"image": "second.png", "annotations": []},
+            ]).encode("utf8"),
+        )
+        processed = json.dumps([
+            {"image": "first.png", "annotations": [{"label": "cropped"}]},
+            {"image": "second.png", "annotations": []},
+        ]).encode("utf8")
+        outcome = self.transaction.execute_grouped_image_processing(
+            image,
+            (
+                PreparedImageReplacement(
+                    image, fingerprint_path(image), b"image-cropped"
+                ),
+                PreparedImageReplacement(
+                    annotation, fingerprint_path(annotation), processed
+                ),
+            ),
+            mergeable_create_ml_paths=(annotation,),
+        )
+        with open(annotation, "w", encoding="utf8") as output:
+            json.dump([
+                {"image": "first.png", "annotations": [{"label": "cropped"}]},
+                {"image": "second.png", "annotations": [{"label": "later"}]},
+            ], output)
+
+        self.transaction.recover(
+            outcome.recovery_entry.entry_id,
+            selected_paths=(image,),
+        )
+
+        with open(annotation, "r", encoding="utf8") as source:
+            restored = json.load(source)
+        self.assertEqual(restored[0]["annotations"], [{"label": "old"}])
+        self.assertEqual(restored[1]["annotations"], [{"label": "later"}])
 
 
 if __name__ == "__main__":

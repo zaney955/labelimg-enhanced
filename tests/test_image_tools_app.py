@@ -1,4 +1,5 @@
 import os
+import shutil
 import tempfile
 import unittest
 from types import SimpleNamespace
@@ -6,12 +7,23 @@ from unittest.mock import patch, PropertyMock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt5.QtCore import QEvent
-from PyQt5.QtGui import QColor, QImage, QPixmap
-from PyQt5.QtWidgets import QApplication, QDialog
+from PyQt5.QtCore import QEvent, Qt
+from PyQt5.QtGui import QColor, QImage, QKeySequence, QPixmap
+from PyQt5.QtTest import QSignalSpy, QTest
+from PyQt5.QtWidgets import QApplication, QDialog, QMessageBox
 
 from labelimg.app import MainWindow
-from labelimg.file_recovery import RecoveryOperation
+from labelimg.annotation_document import (
+    AnnotationBox,
+    AnnotationDocument,
+    AnnotationFormat,
+)
+from labelimg.file_recovery import (
+    RecoveryOperation,
+    TrashIdentity,
+)
+from labelimg.file_operation_transaction import FileRecoveryBlocked
+from labelimg.image_tools.crop import CropRegion
 from labelimg.i18n import ENGLISH, SIMPLIFIED_CHINESE, set_language
 from labelimg.shape import Shape
 
@@ -56,12 +68,17 @@ class ImageToolsAppTest(unittest.TestCase):
         self.assertEqual(
             actions,
             [
+                self.window.actions.cropImage,
                 self.window.actions.removeColoredFrames,
-                actions[1],
+                actions[2],
                 self.window.actions.undoImageProcessing,
             ],
         )
-        self.assertTrue(actions[1].isSeparator())
+        self.assertTrue(actions[2].isSeparator())
+        self.assertEqual(
+            self.window.actions.cropImage.text(),
+            "Crop…",
+        )
         self.assertEqual(
             self.window.actions.removeColoredFrames.text(),
             "Remove Red/Yellow Frames…",
@@ -84,6 +101,7 @@ class ImageToolsAppTest(unittest.TestCase):
             self.window.actions.removeColoredFrames.text(),
             "去除红框/黄框…",
         )
+        self.assertEqual(self.window.actions.cropImage.text(), "裁剪…")
         self.assertEqual(
             self.window.actions.undoImageProcessing.text(),
             "撤销上次图像处理…",
@@ -178,6 +196,201 @@ class ImageToolsAppTest(unittest.TestCase):
         self.assertIs(latest, image_entry)
         self.assertTrue(self.window.actions.undoImageProcessing.isEnabled())
 
+    def test_crop_action_uses_canvas_scoped_c_and_transient_controls(self):
+        self.assertEqual(
+            self.window.actions.cropImage.shortcut(),
+            QKeySequence("C"),
+        )
+        self.window.show()
+        self.window.canvas.setFocus()
+        QTest.keyClick(self.window.canvas, Qt.Key_C)
+        self.app.processEvents()
+
+        self.assertTrue(self.window._crop_active)
+        self.assertTrue(self.window.actions.cropImage.isChecked())
+        self.assertTrue(self.window.crop_controls.isVisible())
+        self.assertIsNone(self.window.crop_overlay.region)
+
+        # The second C is deliberately idempotent.
+        QTest.keyClick(self.window.crop_overlay, Qt.Key_C)
+        self.assertTrue(self.window._crop_active)
+        self.window.cancel_crop()
+
+        self.window.file_list_widget.setFocus()
+        QTest.keyClick(self.window.file_list_widget, Qt.Key_C)
+        self.assertFalse(self.window._crop_active)
+
+    def test_enter_in_numeric_crop_field_does_not_apply(self):
+        self.window.enter_crop_mode()
+        self.window.crop_overlay.set_region(CropRegion(1, 1, 20, 20))
+        apply_spy = QSignalSpy(self.window.crop_overlay.applyRequested)
+        width = self.window.crop_controls.spins["width"]
+        width.setFocus()
+
+        QTest.keyClick(width, Qt.Key_1)
+        QTest.keyClick(width, Qt.Key_0)
+        QTest.keyClick(width, Qt.Key_Return)
+
+        self.assertEqual(len(apply_spy), 0)
+        self.assertTrue(self.window._crop_active)
+        self.window.cancel_crop()
+
+    def test_crop_history_shortcuts_do_not_enter_annotation_history(self):
+        self.window.show()
+        self.window.enter_crop_mode()
+        first = CropRegion(1, 1, 20, 20)
+        second = CropRegion(2, 3, 18, 17)
+        self.window.crop_overlay.set_region(first)
+        self.window.crop_overlay.set_region(second)
+        width = self.window.crop_controls.spins["width"]
+        width.setFocus()
+        annotation_view = self.window.annotation_editing.view
+
+        QTest.keyClick(width, Qt.Key_Z, Qt.ControlModifier)
+
+        self.assertEqual(self.window.crop_overlay.region, first)
+        self.assertEqual(
+            self.window.annotation_editing.view.revision_id,
+            annotation_view.revision_id,
+        )
+        self.window.cancel_crop()
+
+    def test_crop_commit_records_one_recoverable_image_group(self):
+        trash_dir = os.path.join(self.temporary.name, "trash")
+        os.makedirs(trash_dir)
+        self.window.system_trash = _FakeTrash(trash_dir)
+        self.window.enter_crop_mode()
+        self.window.crop_overlay.set_region(CropRegion(5, 6, 20, 18))
+
+        self.assertTrue(self.window.apply_crop())
+
+        result = QImage(self.image_path)
+        self.assertEqual((result.width(), result.height()), (20, 18))
+        entry = self.window._latest_image_processing_recovery()
+        self.assertEqual(entry.target_count, 1)
+        self.assertEqual(entry.payload[0].image_path, self.image_path)
+        self.assertFalse(self.window._crop_active)
+        self.assertFalse(self.window.annotation_editing.view.can_undo)
+
+    def test_crop_commits_and_recovers_image_with_pascal_annotations(self):
+        annotation_path = os.path.splitext(self.image_path)[0] + ".xml"
+        AnnotationDocument(
+            image_path=self.image_path,
+            image_data=self.window.image_data,
+            boxes=(
+                AnnotationBox(
+                    "clipped",
+                    ((5, 5), (20, 5), (20, 20), (5, 20)),
+                ),
+                AnnotationBox(
+                    "removed",
+                    ((30, 30), (38, 30), (38, 38), (30, 38)),
+                ),
+            ),
+        ).save(annotation_path, AnnotationFormat.PASCAL_VOC)
+        self.window.annotation_workspace.scan(self.temporary.name)
+        view = self.window.annotation_editing.view
+        self.window.annotation_persistence.release(view)
+        self.window.annotation_editing.remove_images((self.image_path,))
+        self.window.annotation_scene.forget_image(self.image_path)
+        self.assertTrue(self.window.load_file(annotation_path))
+        self.assertEqual(len(self.window.canvas.shapes), 2)
+        trash_dir = os.path.join(self.temporary.name, "trash-joint")
+        os.makedirs(trash_dir)
+        self.window.system_trash = _FakeTrash(trash_dir)
+        self.window.enter_crop_mode()
+        self.window.crop_overlay.set_region(CropRegion(10, 10, 20, 20))
+
+        with patch(
+            "labelimg.app.localized_question",
+            return_value=QMessageBox.Yes,
+        ):
+            self.assertTrue(self.window.apply_crop())
+
+        cropped = AnnotationDocument.load(
+            annotation_path,
+            self.image_path,
+            self.window.image_data,
+        )
+        self.assertEqual((self.window.image.width(), self.window.image.height()), (20, 20))
+        self.assertEqual(len(cropped.boxes), 1)
+        self.assertEqual(
+            cropped.boxes[0].points,
+            ((1, 1), (10, 1), (10, 10), (1, 10)),
+        )
+        entry = self.window._latest_image_processing_recovery()
+        self.assertEqual(len(entry.payload[0].resources), 2)
+
+        recovery = self.window.file_operations.recover(
+            entry.entry_id,
+            selected_paths=(self.image_path,),
+        )
+        self.assertEqual(recovery.reload_images, (self.image_path,))
+        restored_image = QImage(self.image_path)
+        restored = AnnotationDocument.load(
+            annotation_path,
+            self.image_path,
+            restored_image,
+        )
+        self.assertEqual((restored_image.width(), restored_image.height()), (40, 40))
+        self.assertEqual(len(restored.boxes), 2)
+
+    def test_drawing_after_crop_recovery_uses_the_restored_geometry_baseline(self):
+        trash_dir = os.path.join(self.temporary.name, "trash-draw-after-recovery")
+        os.makedirs(trash_dir)
+        self.window.system_trash = _FakeTrash(trash_dir)
+        self.window.enter_crop_mode()
+        self.window.crop_overlay.set_region(CropRegion(5, 6, 20, 18))
+        self.assertTrue(self.window.apply_crop())
+        entry = self.window._latest_image_processing_recovery()
+        with patch.object(
+            self.window,
+            "_choose_image_recovery_paths",
+            return_value=(self.image_path,),
+        ):
+            self.window._confirm_file_recovery(entry.entry_id)
+
+        restored = self.window.annotation_scene.capture(self.image_path)
+        self.assertEqual(restored.image_size, (40, 40))
+        self.assertEqual(
+            restored,
+            self.window.annotation_editing.view.snapshot,
+        )
+
+        self.window.create_shape()
+        self.window.canvas.current = Shape()
+        self.window._annotation_drawing_state_changed(True)
+        self.assertTrue(self.window.annotation_editing.pending)
+
+    def test_crop_recovery_blocks_unsaved_annotation_changes(self):
+        trash_dir = os.path.join(self.temporary.name, "trash-dirty-recovery")
+        os.makedirs(trash_dir)
+        self.window.system_trash = _FakeTrash(trash_dir)
+        self.window.enter_crop_mode()
+        self.window.crop_overlay.set_region(CropRegion(5, 6, 20, 18))
+        self.assertTrue(self.window.apply_crop())
+        entry = self.window._latest_image_processing_recovery()
+        self.window.annotation_clipboard = [(
+            "cat",
+            ((1, 1), (5, 1), (5, 5), (1, 5)),
+            None,
+            None,
+            False,
+        )]
+        self.window.paste_copied_bounding_boxes()
+
+        with self.assertRaises(FileRecoveryBlocked):
+            self.window.file_operations.recover(
+                entry.entry_id,
+                selected_paths=(self.image_path,),
+            )
+
+        self.assertEqual(
+            (self.window.image.width(), self.window.image.height()),
+            (20, 18),
+        )
+        self.assertTrue(self.window.annotation_editing.view.dirty)
+
     def test_image_recovery_uses_explicit_subset_without_rescanning_annotations(self):
         entry = SimpleNamespace(
             operation=RecoveryOperation.IMAGE_PROCESSING,
@@ -218,6 +431,31 @@ class ImageToolsAppTest(unittest.TestCase):
             selected_paths=(self.image_path,),
         )
         rescan.assert_not_called()
+
+
+class _FakeTrash:
+    def __init__(self, directory):
+        self.directory = directory
+        self.counter = 0
+
+    def preflight(self, _paths):
+        return None
+
+    def move(self, path):
+        self.counter += 1
+        destination = os.path.join(
+            self.directory, "%d-%s" % (self.counter, os.path.basename(path))
+        )
+        shutil.move(path, destination)
+        return TrashIdentity("path", destination, path)
+
+    @staticmethod
+    def exists(identity):
+        return os.path.exists(identity.token)
+
+    @staticmethod
+    def restore(identity, destination):
+        shutil.move(identity.token, destination)
 
 
 if __name__ == "__main__":

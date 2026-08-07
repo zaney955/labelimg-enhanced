@@ -37,8 +37,12 @@ The images explicitly chosen for one image-tool operation: either the image curr
 _Avoid_: Current directory, every image, inferred batch
 
 **Image tool**:
-A built-in LabelImg operation that transforms image pixels through an image processing session while leaving annotation documents unchanged. Every image tool uses an explicit image tool target set and the shared committed-image recovery model.
+A built-in LabelImg operation that transforms an image through an image processing session. A pixel-only image tool leaves annotation documents unchanged, while a geometry-changing image tool transforms the shared annotation coordinate space in the same recoverable operation.
 _Avoid_: Annotation tool, external script, optional plugin
+
+**Geometry-changing image tool**:
+An image tool, such as crop, that changes image bounds or dimensions and therefore treats the image and its annotation document as one atomic, recoverable unit.
+_Avoid_: Pixel-only filter, independent annotation edit, image-only replacement
 
 **Colored frame overlay**:
 A red or yellow rectangular outline added over image content and selected for removal by an image tool. Solid colored regions and ordinary red or yellow image content are not colored frame overlays.
@@ -52,8 +56,16 @@ _Avoid_: Whole image, every near-gray pixel, implicit grayscale conversion
 The fixed-screen-size numbered ring that identifies one detected image-tool candidate in Original and Result previews without becoming part of the previewed or committed pixels. Its number matches the candidate list; a theme-accent ring means included and a neutral ring means excluded.
 _Avoid_: Colored frame, image annotation, committed overlay, detection rectangle
 
+**Image crop region**:
+The rectangular portion of the current Canvas image selected to become the new image bounds. It changes the coordinate space shared by that image and its annotations and is never applied implicitly to other selected images.
+_Avoid_: Annotation box, file-list selection, implicit batch crop, pixel-only filter
+
+**Image crop mode**:
+The temporary Canvas state in which annotation interaction is suspended while one image crop region is created and adjusted through its own transient history before application or cancellation.
+_Avoid_: Annotation creation mode, committed crop, modal image-tools workspace
+
 **Image processing session**:
-The temporary editing context in which one or more image-tool operations are composed and previewed before they replace image files. It owns its own image-processing Undo and Redo sequence, may coexist with unsaved annotations, and preserves annotation and Canvas view state; it cannot begin while an annotation gesture is pending.
+The temporary editing context in which an image-tool operation is prepared before commit, either in the modal image-tools workspace or a tool-specific Canvas mode. It owns image-processing Undo and Redo; pixel-only tools may coexist with unsaved annotations, while geometry-changing tools first resolve them because their commit includes annotation resources.
 _Avoid_: Annotation session, saved image, mixed history
 
 **Image processing Undo**:
@@ -61,7 +73,7 @@ A request made while an image processing session is active to reverse its most r
 _Avoid_: Annotation Undo, committed-file recovery, global mixed Undo
 
 **Committed image processing**:
-An image-tool result that has replaced one or more source image files while retaining a recoverable original-file record. It is restored through image-processing recovery rather than annotation Undo or image processing Undo; one-click recovery lasts for the current workspace session, after which the original remains available only through the system trash.
+A committed image-tool result that retains a recoverable record for every resource it replaced. Pixel-only processing replaces image files; geometry-changing processing replaces each image and its associated annotation resources as one recovery unit, restored through image-processing recovery rather than annotation Undo.
 _Avoid_: Preview, annotation edit, Ctrl+Z after commit
 
 **Image processing batch commit**:

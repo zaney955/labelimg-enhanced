@@ -47,6 +47,22 @@ class TrashedResource:
 
 
 @dataclass(frozen=True)
+class ImageProcessingRecoveryGroup:
+    """One image and every physical resource that must recover with it."""
+
+    image_path: str
+    resources: tuple[TrashedResource, ...]
+    original_contents: tuple = ()
+    processed_contents: tuple = ()
+    mergeable_create_ml_paths: tuple = ()
+
+    @property
+    def original_path(self):
+        """Compatibility projection used by the image selection dialog."""
+        return self.image_path
+
+
+@dataclass(frozen=True)
 class ReviewRecoveryRecord:
     image_path: str
     prior_verified: bool
@@ -157,6 +173,88 @@ class FileRecoveryCenter:
             resources,
             target_count=len(resources),
         )
+
+    def record_grouped_image_processing(self, groups):
+        groups = tuple(groups)
+        resources = tuple(
+            resource for group in groups for resource in group.resources
+        )
+        if not groups or not resources:
+            return None
+        actionable = all(
+            resource.identity.actionable for resource in resources
+        )
+        entry = FileRecoveryEntry(
+            entry_id=uuid.uuid4().hex,
+            operation=RecoveryOperation.IMAGE_PROCESSING,
+            created_at=datetime.now(timezone.utc),
+            target_count=len(groups),
+            payload=groups,
+            status=(
+                RecoveryStatus.RECOVERABLE
+                if actionable
+                else RecoveryStatus.MANUAL_TRASH
+            ),
+            detail=(
+                ""
+                if actionable
+                else "The system trash did not return a restorable identity."
+            ),
+        )
+        self._prepend(entry)
+        return entry
+
+    def recover_image_groups(self, entry_id, groups, executor):
+        """Recover complete image/resource groups and retain other groups."""
+        entry = self._entry(entry_id)
+        if entry.operation is not RecoveryOperation.IMAGE_PROCESSING:
+            raise FileRecoveryError(
+                "group recovery is available only for image processing"
+            )
+        if not entry.recoverable:
+            raise FileRecoveryError(
+                "file operation is not currently recoverable"
+            )
+        groups = tuple(groups)
+        if not groups:
+            raise FileRecoveryError(
+                "at least one processed image must be selected"
+            )
+        payload_by_path = {
+            _resource_key(group.image_path): group
+            for group in entry.payload
+        }
+        selected_keys = tuple(dict.fromkeys(
+            _resource_key(group.image_path) for group in groups
+        ))
+        if any(key not in payload_by_path for key in selected_keys):
+            raise FileRecoveryError(
+                "the recovery selection is not part of this operation"
+            )
+        selected = tuple(payload_by_path[key] for key in selected_keys)
+        try:
+            result = executor(entry, selected)
+        except FileRecoveryError as error:
+            entry.status = RecoveryStatus.CONFLICT
+            entry.detail = str(error)
+            raise
+        selected_key_set = set(selected_keys)
+        remaining = tuple(
+            group for group in entry.payload
+            if _resource_key(group.image_path) not in selected_key_set
+        )
+        entry.payload = remaining
+        entry.target_count = len(remaining)
+        if remaining:
+            entry.status = RecoveryStatus.RECOVERABLE
+            entry.detail = (
+                "Recovered %d image(s); %d image(s) remain recoverable."
+                % (len(selected), len(remaining))
+            )
+        else:
+            entry.status = RecoveryStatus.RESTORED
+            entry.detail = "Recovered successfully"
+        return result
 
     def recover(self, entry_id, executor):
         """Run one recovery implementation and own its status transition."""

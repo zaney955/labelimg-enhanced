@@ -2,21 +2,35 @@
 
 ## Outcome
 
-LabelImg Enhanced provides a built-in Image menu and one shared modal image-tools workspace. The first tool removes red and yellow rectangular frame overlays; later crop, brightness, and other pixel operations join the same preview, history, commit, and recovery model without moving image editing into the annotation Canvas.
+LabelImg Enhanced provides a built-in Image menu and two explicit image-tool surfaces. Pixel-only operations use the shared modal image-tools workspace; geometry-changing operations may use a dedicated Canvas mode when direct spatial interaction is essential. The first tools remove red and yellow rectangular frame overlays and crop the current image. Both share the same preparation, commit, and recovery principles without mixing committed image processing into annotation Undo.
 
 ## Target selection
 
-Every session begins with an explicit target set. The current Canvas image is always the safe default. When the file list contains multiple selected images, the workspace offers a separate “Selected images (N)” scope that the user must choose explicitly; opening a tool never infers the complete directory as a batch.
+Every session begins with an explicit target set. The current Canvas image is always the safe default. When the file list contains multiple selected images, a batch-capable workspace tool offers a separate “Selected images (N)” scope that the user must choose explicitly; opening a tool never infers the complete directory as a batch. Crop is current-image-only because its region is specific to one image's content and coordinate space.
 
 The target list remains visible in the workspace. Results are prepared in the background, each image can be inspected, and any image can be excluded before commit. Images with no selected repair candidates are automatically excluded and retain their exact original bytes.
 
 ## Workspace and history
 
-The workspace is modal and suspends annotation interaction while open. An unresolved drawing, vertex drag, edge drag, or other pending annotation gesture blocks entry; already committed but unsaved annotations are allowed and remain untouched.
+The pixel-tool workspace is modal and suspends annotation interaction while open. An unresolved drawing, vertex drag, edge drag, or other pending annotation gesture blocks entry; already committed but unsaved annotations are allowed and remain untouched. Crop instead uses a temporary Canvas mode that keeps annotations visible but non-interactive and resolves unsaved annotation changes before entry.
 
 Multiple image-tool steps may be composed before commit. The workspace owns a transient Undo/Redo sequence: Ctrl+Z and Ctrl+Y operate on image-tool steps only while the workspace is active. The main annotation workbench keeps its existing annotation-only Undo/Redo contract.
 
 Settings return to safe defaults whenever the workspace opens. They are not persisted across invocations, workspaces, or launches.
+
+## Crop current image
+
+Image → Crop… and the dedicated toolbar action enter crop mode for the current Canvas image; `C` does the same only while the Canvas owns keyboard interaction. Crop is unavailable without an open image and never adopts the file-list selection as an implicit batch. The action remains visibly checked while active. Pressing `C` again does nothing; `Esc` cancels and Canvas-focused `Enter` applies.
+
+Crop mode suspends annotation editing and displays a dimmed outside region. The user drags on the Canvas to create a crop region, then moves it from the interior or resizes it from four edge and four corner handles. Dragging outside an existing region replaces it. A temporary control bar above the Canvas exposes free, original, 1:1, 4:3, and 16:9 ratios; integer X, Y, width, and height fields; and explicit Apply Crop and Cancel actions. Enter in a numeric field accepts that value and returns focus to the Canvas without applying. Direction keys move the region by one image pixel and Shift plus a direction key moves it by ten.
+
+Free ratio is the default. A locked-ratio corner drag keeps the opposite corner fixed; an edge drag changes the perpendicular dimension around the region center. Width and height inputs update each other while locked. Switching ratios preserves the region center and fits the adjusted region within image bounds. A crop region is always an integer, in-bounds rectangle of at least 1 by 1 pixel. No region and a full-image no-op both disable Apply.
+
+Annotations remain visible but cannot be edited in crop mode. The region previews their resulting geometry: contained boxes translate to the new origin, intersecting boxes clip to the new bounds whenever a positive-area intersection remains, and boxes outside the region disappear. There is no hidden visibility threshold. Applying a crop that clips or removes annotations first reports both counts and asks for confirmation. Crop-region creation and adjustment have their own transient Ctrl+Z and Ctrl+Y/Ctrl+Shift+Z history, which is discarded on cancel and never enters annotation history.
+
+Before crop mode starts, unresolved annotation changes use the existing save, discard, or cancel workflow. Applying crop atomically commits the resized image and transformed annotation resources; after success, those annotations form a new clean baseline and ordinary annotation Undo cannot return to the pre-crop coordinate space. Image-processing recovery restores the original image and annotations together. If the processed image, a dedicated annotation resource, or the affected record in a shared CreateML collection has changed, recovery refuses the complete unit rather than restoring only one side. A shared CreateML document may contain unrelated later edits; recovery restores only the affected image record and preserves those unrelated valid changes.
+
+Crop preserves the zoom factor, translates the viewport by the crop origin, and clamps it to the new image bounds. Selection survives for retained annotation boxes and drops removed boxes. Leaving the image, switching tools, or closing while a crop region has been created offers Apply Crop, Discard Crop, or Cancel; a session with no region exits silently. Crop and pixel-only image tools commit as separate ordered operations rather than composing in one uncommitted session.
 
 ## Remove red and yellow frames
 
@@ -44,9 +58,9 @@ Commit stages every encoded result beside its source, preflights recoverable sys
 
 ## Recovery
 
-Committed image processing does not enter annotation Undo or the workspace's transient image-step history. Image → Undo Last Image Processing… opens the latest committed batch. A single-image batch uses a confirmation; a multi-image batch lists every still-recoverable image and defaults to selecting all.
+Committed image processing does not enter annotation Undo or a tool's transient adjustment history. Image → Undo Last Image Processing… opens the latest committed operation. A single-image operation uses a confirmation; a multi-image batch lists every still-recoverable image and defaults to selecting all. A geometry-changing operation restores each image and its annotations as an indivisible recovery unit.
 
-The user may restore an explicit subset. That selected subset restores atomically after verifying that every processed file still matches its committed fingerprint and every corresponding original remains recoverable. Unselected images keep their processed files and recovery eligibility. Earlier entries remain available through File → Recent File Operations….
+The user may restore an explicit subset. That selected subset restores atomically after verifying that each dedicated processed file still matches its committed fingerprint. For a shared CreateML file, the affected image record must still match the committed result, while unrelated records may have changed and are preserved. Unselected images keep their processed files and recovery eligibility. Earlier entries remain available through File → Recent File Operations….
 
 One-click recovery is scoped to the current image workspace and clears when the workspace changes or the application exits. Originals remain in the system trash for manual recovery afterward. Image-processing recovery never overwrites an externally changed processed file.
 
@@ -65,6 +79,6 @@ Failures identify the affected image and phase without exposing untranslated app
 
 ## Validation
 
-Automated validation covers red, yellow, mixed, no-frame, solid-color negative, per-candidate exclusion, grayscale normalization opt-in, alpha preservation, metadata retention, exact no-op bytes, format rejection, transient Undo/Redo, cancellable preparation, atomic commit rollback, selectable atomic recovery, external-change conflicts, bilingual UI, and preservation of Canvas annotation/view state.
+Automated validation covers red, yellow, mixed, no-frame, solid-color negative, per-candidate exclusion, grayscale normalization opt-in, alpha preservation, metadata retention, exact no-op bytes, format rejection, transient Undo/Redo, cancellable preparation, atomic commit rollback, selectable atomic recovery, external-change conflicts, bilingual UI, and preservation of Canvas annotation/view state. Crop coverage additionally includes integer region geometry, ratio locking, mouse and keyboard adjustment, focus-safe shortcuts, RGB/grayscale/RGBA output, resized metadata, annotation translation/clipping/removal, Pascal VOC/YOLO/CreateML projection, joint rollback and recovery, and post-crop viewport and selection state.
 
 The three JPEG files under `C:\Users\GW-LIYU\Downloads\red_box` are the initial real-data acceptance set for red-frame detection and repair. Yellow, mixed-color, and negative-object evidence is synthetic until representative real files are supplied; validation reports must preserve that distinction.

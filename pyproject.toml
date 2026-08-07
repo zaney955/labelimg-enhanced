@@ -52,4 +52,4 @@ where = ["src"]
 include = ["labelimg*"]
 
 [tool.setuptools.package-data]
-labelimg = ["data/*.txt"]
+labelimg = ["data/*.txt", "data/*.ico"]
