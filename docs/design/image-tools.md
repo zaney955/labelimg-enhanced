@@ -1,14 +1,40 @@
 # Image Tools Workspace
 
+Design status: approved on 2026-08-07. The planned capabilities in this document are not implementation authorization and remain unimplemented until separately approved and validated.
+
 ## Outcome
 
 LabelImg Enhanced provides a built-in Image menu and two explicit image-tool surfaces. Pixel-only operations use the shared modal image-tools workspace; geometry-changing operations may use a dedicated Canvas mode when direct spatial interaction is essential. The first tools remove red and yellow rectangular frame overlays and crop the current image. Both share the same preparation, commit, and recovery principles without mixing committed image processing into annotation Undo.
+
+## Command surfaces
+
+The Image menu is the complete catalog for annotation-preparation image capabilities. The main Tools toolbar is a deliberately smaller set of frequent shortcuts, not a second catalog: a tool remains fully available from the Image menu even when it has no toolbar button. Starting a command delegates its interaction to the shared modal workspace or to a tool-specific Canvas mode according to whether direct spatial manipulation is essential.
+
+Toolbar inclusion is therefore a separate product decision from feature inclusion. A command earns a toolbar shortcut only when it is used frequently on the current image, has a distinct recognizable icon, and does not require the toolbar itself to expose parameters or results. Recovery, batch selection, diagnostics, and infrequent specialist actions remain menu or workspace capabilities.
+
+The planned main-toolbar image entries are Crop plus Rotate and Flip split buttons. Clicking Rotate immediately rotates the current image clockwise 90 degrees; its menu also offers counter-clockwise 90-degree and 180-degree rotation. Clicking Flip immediately flips the current image horizontally; its menu also offers vertical flip. Resize, Adjust Image, Check Image Quality, specialized repair, and recovery remain outside the main toolbar.
+
+## Approved capability boundary
+
+This section records the approved product scope, not the current implementation status. A capability remains planned until its code and validation are complete.
+
+Geometry preparation includes the existing crop plus clockwise and counter-clockwise 90-degree rotation, 180-degree rotation, horizontal and vertical flip, and resize. Every operation transforms annotations with the image and follows the geometry synchronization invariant. Arbitrary-angle rotation is excluded while annotations remain axis-aligned rectangles because its box semantics would be ambiguous.
+
+Pixel correction includes brightness and contrast, Gamma as an advanced control, automatic contrast, and grayscale conversion. These operations use preview and recoverable commit. Saturation, hue, white balance, sharpening, stylistic filters, and beautification are outside the approved scope so the Image menu remains focused on annotation preparation rather than general photo editing.
+
+Image quality checking is one analysis-only capability covering unreadable or corrupt files, low resolution, aspect-ratio anomalies, blur, excessive darkness, and overexposure. Findings appear as file-list state and support filtering; checking never modifies image files automatically. Duplicate and near-duplicate discovery is a dataset-level concern and does not belong in the Image menu.
+
+Specialized repair currently includes red and yellow frame removal. New specialized repairs require representative real samples and explicit acceptance criteria before they enter the capability catalog. Manual region blur or mosaic, watermark removal, background removal, denoising, and super-resolution are not planned speculatively.
+
+The Image menu presents Crop first, followed by a Rotate and Flip submenu containing every quick transform, Transform Image… for previewed or batch geometry work, Adjust Image…, Check Image Quality…, a Specialized Repair submenu containing Remove Red/Yellow Frames…, and Undo Last Image Processing…. This menu remains the complete catalog even when toolbar shortcuts exist.
 
 ## Target selection
 
 Every session begins with an explicit target set. The current Canvas image is always the safe default. When the file list contains multiple selected images, a batch-capable workspace tool offers a separate “Selected images (N)” scope that the user must choose explicitly; opening a tool never infers the complete directory as a batch. Crop is current-image-only because its region is specific to one image's content and coordinate space.
 
 The target list remains visible in the workspace. Results are prepared in the background, each image can be inspected, and any image can be excluded before commit. Images with no selected repair candidates are automatically excluded and retain their exact original bytes.
+
+Planned rotation, flip, and resize operations use the same explicit current-image or selected-images target rule. A selected geometry batch preflights every image and associated annotation resource, then commits the complete target set atomically; any failure leaves the whole batch unchanged. Crop remains current-image-only.
 
 ## Workspace and history
 
@@ -17,6 +43,38 @@ The pixel-tool workspace is modal and suspends annotation interaction while open
 Multiple pixel-tool steps may be composed before one workspace commit. The workspace owns a transient Undo/Redo sequence: Ctrl+Z and Ctrl+Y operate on image-tool steps only while the workspace is active. Geometry-changing Canvas modes keep their own transient adjustment history and commit separately. The main annotation workbench keeps its existing annotation-only Undo/Redo contract.
 
 Settings return to safe defaults whenever the workspace opens. They are not persisted across invocations, workspaces, or launches.
+
+## Planned geometry transforms
+
+Image → Transform Image… provides the preview workspace for rotation, flip, and proportional resize. It supports the current image or explicitly selected images and requires an explicit Apply action. Specific menu commands may enter that shared workspace with their corresponding operation preselected.
+
+Rotation and flip additionally provide quick transforms for the current image. Rotate clockwise 90 degrees, rotate counter-clockwise 90 degrees, rotate 180 degrees, flip horizontally, and flip vertically skip the workspace and confirmation, then immediately transform the image and annotations and commit them atomically. Each invocation creates its own recoverable image-processing entry. Quick transforms are disabled during a pending annotation gesture, unresolved annotation conflict, or active crop session; selected files never become an implicit quick-transform target.
+
+Quick transforms have no keyboard shortcuts. They are invoked only through the Image menu or the Rotate and Flip toolbar split buttons, avoiding additional Canvas single-key commands. If the current annotation document has committed but unsaved changes, the existing Save, Discard, or Cancel flow resolves them before transformation; the tool never saves them implicitly. Cancel leaves the image unchanged.
+
+## Planned resize
+
+Resize performs proportional resampling only. Aspect ratio is locked, and the user may enter a target width, target height, or percentage; changing any one derives the others. An automatic interpolation policy chooses an appropriate resampler for reduction or enlargement. Enlargement is allowed only after an explicit warning that it adds no source detail. Forced stretching and Letterbox padding are excluded because they belong to training or export preprocessing rather than in-place annotation-source preparation.
+
+## Planned pixel correction
+
+Image → Adjust Image… opens one shared modal workspace for brightness, contrast, advanced Gamma, automatic contrast, and grayscale conversion. The current image is the safe default and explicitly selected images are an optional batch target. Corrections can be composed, previewed, temporarily undone or redone, and committed once through the existing recoverable pixel-only replacement path. No correction receives an independent toolbar button, and every invocation starts from safe control defaults.
+
+## Planned image quality checking
+
+Image → Check Image Quality… explicitly offers the current image, selected images, or every image in the current annotation workspace; the workspace-wide scope is the default. Checking runs in the background, is cancellable, and reports findings by problem type and severity without changing images or annotations.
+
+Findings are cached under the application configuration directory and keyed by file path, content fingerprint, and the check policy that produced them. A changed file or changed check policy invalidates the affected cached result. The file list displays and filters those derived findings without conflating them with annotation review state, and no cache or sidecar is written into image or annotation directories.
+
+One image may retain multiple findings. Unreadable or corrupt content is an error; low resolution, aspect-ratio anomalies, blur, excessive darkness, and overexposure are severity-ranked warnings. Findings never change the separate Unreviewed, Review Required, or Verified annotation review state. An unreadable image cannot enter the normal Canvas, while warnings do not block annotation.
+
+Every check starts with a visible Standard policy. Advanced controls may override its thresholds for that scan, and the exact effective policy is stored with the results; an override does not silently become the next scan's default. Named policies are outside the first release.
+
+The file list shows quality badges and supports finding and severity filters. An on-demand non-modal Image Quality panel summarizes counts, lists details, and navigates to affected images without permanently occupying the single-image annotation workbench.
+
+The first quality engine is deterministic, explainable, and local; it neither downloads nor loads an AI model. Every finding reports the measured value, effective threshold, and reason. Readability comes from actual decoding, low resolution from image dimensions, aspect anomalies from both absolute extremes and workspace-distribution outliers, blur from a resolution-normalized sharpness metric, and excessive darkness or exposure from luminance-distribution proportions. Standard thresholds are calibrated against test samples during implementation rather than becoming hidden product assumptions.
+
+The Image menu and Image Quality panel can recheck the current image, selected images, or current workspace and can clear quality findings. A changed file or changed check policy immediately becomes Unchecked instead of displaying a stale finding. Clearing results removes only the application-owned cache and never changes image or annotation files.
 
 ## Geometry synchronization invariant
 
