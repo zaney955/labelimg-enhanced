@@ -44,6 +44,10 @@ _Avoid_: Annotation tool, external script, optional plugin
 An image tool, such as crop, that changes image bounds or dimensions and therefore treats the image and its annotation document as one atomic, recoverable unit.
 _Avoid_: Pixel-only filter, independent annotation edit, image-only replacement
 
+**Image-annotation geometry state**:
+The valid in-memory pairing of an image's current dimensions with its annotation coordinates and every editable annotation projection. A geometry-changing commit or recovery is complete only when the entire state represents one coordinate space; mixed old and new geometry is never an editable state.
+_Avoid_: Image size alone, stale annotation snapshot, eventual geometry synchronization
+
 **Colored frame overlay**:
 A red or yellow rectangular outline added over image content and selected for removal by an image tool. Solid colored regions and ordinary red or yellow image content are not colored frame overlays.
 _Avoid_: Every red pixel, every yellow region, colored object

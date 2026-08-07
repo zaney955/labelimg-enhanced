@@ -896,8 +896,10 @@ class MainWindow(QMainWindow, WindowMixin):
             CropOverlay,
         )
         self.crop_overlay = CropOverlay(self.canvas)
-        self.crop_controls = CropControlBar(self.crop_overlay, self)
-        self.addToolBar(Qt.TopToolBarArea, self.crop_controls)
+        self.crop_controls = CropControlBar(
+            self.crop_overlay,
+            self.scroll_area.viewport(),
+        )
         self.crop_overlay.applyRequested.connect(self.apply_crop)
         self.crop_overlay.cancelRequested.connect(self.cancel_crop)
         self._crop_active = False
@@ -2265,8 +2267,8 @@ class MainWindow(QMainWindow, WindowMixin):
         self.actions.cropImage.setChecked(True)
         del blocker
         image_size = (self.image.width(), self.image.height())
-        self.crop_controls.begin(image_size)
         self.crop_overlay.begin(image_size)
+        self.crop_controls.begin(image_size)
         self.status(tr('crop.noRegion'))
         return True
 
