@@ -16,6 +16,26 @@ _Avoid_: Annotation language, label language, system-locale lock
 Application-authored text visible during operation, including commands, panels, status and guidance, validation, confirmations, recovery, conflicts, and application-owned buttons. It excludes user-authored labels, file names and paths, annotation-format names, and verbatim operating-system diagnostics.
 _Avoid_: User data, translated path, rewritten system error
 
+**Canvas tool rail**:
+The stable application surface containing only tools whose primary purpose is direct interaction with the current Canvas. Workspace entry, image navigation, review classification, saving, annotation-format choice, and view zoom belong to their own contextual surfaces rather than this rail.
+_Avoid_: General command toolbar, workflow toolbar, duplicate menu catalog
+
+**Selection and editing tool**:
+The default Canvas tool that combines annotation selection with direct geometry and property editing. It is one stable tool rather than separate Select and Edit modes, and transient one-shot Canvas work returns to it after completion or cancellation.
+_Avoid_: Separate selection mode, separate editing mode, disabled-button-as-active-state
+
+**Canvas pan mode**:
+The direct Canvas mode in which dragging pans the viewport from any image position without selecting or moving annotation boxes. It remains distinct from selection and annotation creation, while a temporary pan gesture may be used from another Canvas mode.
+_Avoid_: Blank-area-only pan, annotation move, view zoom
+
+**Annotation format selector**:
+The explicit top-level control beside Save that shows the current annotation storage format and lists every available format as a direct choice. Selecting a format replaces the current cycling command and follows the same pending-edit and storage-transition safeguards as any format change.
+_Avoid_: Format cycle button, view-status control, implicit conversion
+
+**Canvas zoom control**:
+The bottom status-bar control for Canvas view scale, combining decrement and increment actions, a continuous slider, and the current percentage as a menu for actual size, fit-to-window, and fit-to-width choices. It changes view state rather than image dimensions or annotation content.
+_Avoid_: Toolbar zoom stack, image resize, annotation-format control
+
 **Image directory**:
 The directory whose supported images form the current image-by-image annotation workspace. Opening another image directory replaces that workspace after unresolved changes are handled.
 _Avoid_: Annotation directory, generic folder, implicit batch target
@@ -41,8 +61,12 @@ A built-in LabelImg operation that transforms an image through an image processi
 _Avoid_: Annotation tool, external script, optional plugin
 
 **Image tool entry point**:
-One place from which an image tool is started: the Image menu is the complete capability catalog, while the main toolbar exposes only frequent shortcuts and delegates interaction to either the shared workspace or a tool-specific Canvas mode.
+One place from which an image tool is started: the Image menu is the complete capability catalog, the Canvas tool rail exposes dedicated direct Canvas modes, and the top image quick-action group exposes only frequent immediate current-image commands.
 _Avoid_: Image tool implementation, toolbar-only capability, duplicate workflow
+
+**Image quick-action group**:
+The top contextual surface for frequent immediate operations on the current image that do not require a direct Canvas mode. Rotate and Flip are separate split commands in this group, while the Image menu remains their complete catalog.
+_Avoid_: Canvas tool rail, complete Image menu, batch tool workspace
 
 **Quick image transform**:
 A current-image-only 90-degree rotation, 180-degree rotation, or flip that commits the transformed image and annotations immediately as one recoverable operation without opening a preview workspace or confirmation dialog.
@@ -499,6 +523,10 @@ _Avoid_: Right-clicked file only, current image
 **Image review state**:
 The mutually exclusive review classification of an image's annotation document: unreviewed, verified, or questioned. A file-selection-context command sets every targeted image to one explicit state instead of toggling each image's prior state.
 _Avoid_: Independent verified and questioned flags, mixed-state toggle
+
+**Current-image review control**:
+The always-visible three-segment control in the top image context that shows and sets exactly one review state for the current image: Unreviewed, Review Required, or Verified. Its placement remains independent of the annotation panel's visibility.
+_Avoid_: Toolbar review buttons, annotation-property control, independent review toggles
 
 **Review-state representation**:
 The format-specific persistence of image review state in the selected active annotation target: the existing Pascal VOC root attribute, one leading YOLO `# labelimg-review:` metadata comment, or per-image `verified` and `questioned` fields in CreateML. Batch review and recovery preserve the active format. A legacy CreateML record without explicit fields remains verified when it contains annotations.

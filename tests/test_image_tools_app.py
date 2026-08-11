@@ -108,7 +108,7 @@ class ImageToolsAppTest(unittest.TestCase):
         )
         self.assertEqual(
             self.window.actions.removeColoredFrames.text(),
-            "Remove Red/Yellow Frames…",
+            "Remove Red/Yellow Borders…",
         )
         self.assertEqual(
             self.window.actions.undoImageProcessing.text(),
@@ -126,7 +126,7 @@ class ImageToolsAppTest(unittest.TestCase):
         self.assertEqual(self.window.menus.image.title(), "图像(&I)")
         self.assertEqual(
             self.window.actions.removeColoredFrames.text(),
-            "去除红框/黄框…",
+            "去除红色/黄色边框…",
         )
         self.assertEqual(self.window.actions.cropImage.text(), "裁剪…")
         self.assertEqual(
@@ -275,8 +275,8 @@ class ImageToolsAppTest(unittest.TestCase):
         self.assertEqual(entry.target_count, 1)
         self.assertEqual(entry.payload[0].image_path, rectangular_path)
 
-    def test_toolbar_exposes_rotate_and_flip_split_buttons(self):
-        buttons = self.window.tools.findChildren(QToolButton)
+    def test_top_bar_exposes_rotate_and_flip_split_buttons(self):
+        buttons = self.window.top_commands.findChildren(QToolButton)
         rotate = next(
             button for button in buttons
             if button.defaultAction() is self.window.actions.rotateClockwise

@@ -50,7 +50,13 @@ from labelimg.i18n import (
     warning as localized_warning,
 )
 from labelimg.canvas import Canvas
-from labelimg.zoomWidget import ZoomWidget
+from labelimg.command_surfaces import (
+    CanvasToolRail,
+    FormatSelector,
+    ReviewControl,
+    TopCommandBar,
+    ZoomControl,
+)
 from labelimg.candidate_label_dialog import CandidateLabelDialog
 from labelimg.colorDialog import ColorDialog
 from labelimg.annotation_document import (
@@ -618,7 +624,6 @@ class MainWindow(QMainWindow, WindowMixin):
         self._autosave_request = False
         self.system_trash = SystemTrashAdapter()
 
-        self._beginner = True
         self.screencast = "https://youtu.be/p0nR2YsCY_U"
 
         # Load predefined classes to the list
@@ -659,9 +664,29 @@ class MainWindow(QMainWindow, WindowMixin):
         self.diffc_button.stateChanged.connect(self.button_state)
         self.edit_button = QToolButton()
         self.edit_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.copy_button = QToolButton()
+        self.copy_button.setObjectName('annotationCopyButton')
+        self.delete_button = QToolButton()
+        self.delete_button.setObjectName('annotationDeleteButton')
+        self.visibility_button = QToolButton()
+        self.visibility_button.setObjectName('annotationVisibilityButton')
+        annotation_header = QWidget()
+        annotation_header_layout = QHBoxLayout(annotation_header)
+        annotation_header_layout.setContentsMargins(4, 2, 4, 2)
+        annotation_header_layout.setSpacing(2)
+        for button in (
+            self.edit_button,
+            self.copy_button,
+            self.delete_button,
+            self.visibility_button,
+        ):
+            button.setAutoRaise(True)
+            button.setIconSize(QSize(20, 20))
+            annotation_header_layout.addWidget(button)
+        annotation_header_layout.addStretch(1)
 
         # Add some of widgets to list_layout
-        list_layout.addWidget(self.edit_button)
+        list_layout.addWidget(annotation_header)
         list_layout.addWidget(self.diffc_button)
         list_layout.addWidget(use_default_label_container)
 
@@ -843,7 +868,7 @@ class MainWindow(QMainWindow, WindowMixin):
         self.image_quality_dock.setObjectName('imageQuality')
         self.image_quality_dock.setWidget(self.image_quality_panel)
 
-        self.zoom_widget = ZoomWidget()
+        self.zoom_widget = ZoomControl()
         self.color_dialog = ColorDialog(parent=self)
 
         self.canvas = Canvas(parent=self)
@@ -985,9 +1010,13 @@ class MainWindow(QMainWindow, WindowMixin):
             tr('action.questionImage'),
             self.question_image,
             'Ctrl+Space',
-            'help',
+            'review-questioned',
             tr('action.questionImageTip'),
         )
+        # Keep review shortcuts active even though review state is presented
+        # by the explicit top segmented control rather than a toolbar action.
+        self.addAction(verify)
+        self.addAction(question)
 
         save = action(get_str('save'), self.save_file,
                       'Ctrl+S', 'save', get_str('saveDetail'), enabled=False)
@@ -1004,7 +1033,7 @@ class MainWindow(QMainWindow, WindowMixin):
                 return '&CreateML', 'format_createml'
 
         save_format = action(get_format_meta(self.annotation_format)[0],
-                             self.change_format, 'Ctrl+',
+                             self.change_format, None,
                              get_format_meta(self.annotation_format)[1],
                              get_str('changeSaveFormat'), enabled=True)
 
@@ -1013,7 +1042,7 @@ class MainWindow(QMainWindow, WindowMixin):
 
         close = action(get_str('closeCur'), self.close_file, 'Ctrl+W', 'close', get_str('closeCurDetail'))
 
-        delete_image = action(get_str('deleteImg'), self.delete_image, 'Ctrl+Delete', 'close', get_str('deleteImgDetail'))
+        delete_image = action(get_str('deleteImg'), self.delete_image, 'Ctrl+Delete', 'delete', get_str('deleteImgDetail'))
         recent_file_operations = QAction(
             tr('action.recentOperations'),
             self,
@@ -1042,7 +1071,7 @@ class MainWindow(QMainWindow, WindowMixin):
             tr('geometry.rotateClockwise'),
             partial(self.quick_transform_current_image, 'rotate-clockwise'),
             icon='rotate-clockwise',
-            tip=tr('geometry.quickTip'),
+            tip=tr('geometry.rotateClockwiseTip'),
             enabled=False,
         )
         rotate_counterclockwise = action(
@@ -1051,26 +1080,26 @@ class MainWindow(QMainWindow, WindowMixin):
                 self.quick_transform_current_image,
                 'rotate-counterclockwise',
             ),
-            tip=tr('geometry.quickTip'),
+            tip=tr('geometry.rotateCounterclockwiseTip'),
             enabled=False,
         )
         rotate_180 = action(
             tr('geometry.rotate180'),
             partial(self.quick_transform_current_image, 'rotate-180'),
-            tip=tr('geometry.quickTip'),
+            tip=tr('geometry.rotate180Tip'),
             enabled=False,
         )
         flip_horizontal = action(
             tr('geometry.flipHorizontal'),
             partial(self.quick_transform_current_image, 'flip-horizontal'),
             icon='flip-horizontal',
-            tip=tr('geometry.quickTip'),
+            tip=tr('geometry.flipHorizontalTip'),
             enabled=False,
         )
         flip_vertical = action(
             tr('geometry.flipVertical'),
             partial(self.quick_transform_current_image, 'flip-vertical'),
-            tip=tr('geometry.quickTip'),
+            tip=tr('geometry.flipVerticalTip'),
             enabled=False,
         )
         transform_image = action(
@@ -1112,22 +1141,24 @@ class MainWindow(QMainWindow, WindowMixin):
         color1 = action(get_str('boxLineColor'), self.choose_color1,
                         'Ctrl+L', 'color_line', get_str('boxLineColorDetail'))
 
-        create_mode = action(get_str('crtBox'), self.set_create_mode,
-                             'w', 'new', get_str('crtBoxDetail'), enabled=False)
-        edit_mode = action(get_str('editBox'), self.set_edit_mode,
-                           'Ctrl+J', 'edit', get_str('editBoxDetail'), enabled=False)
-
+        select_tool = action(
+            tr('tool.select'), self.set_edit_mode,
+            ('V', 'Ctrl+J'), 'select-edit', tr('tool.selectTip'),
+            enabled=False, checkable=True,
+        )
+        pan_tool = action(
+            tr('tool.pan'), self.set_pan_mode,
+            'H', 'pan', tr('tool.panTip'),
+            enabled=False, checkable=True,
+        )
         create = action(get_str('crtBox'), self.create_shape,
-                        'w', 'new', get_str('crtBoxDetail'), enabled=False)
+                        'w', 'new', get_str('crtBoxDetail'), enabled=False,
+                        checkable=True)
         delete = action(get_str('delBox'), self.delete_selected_shape,
                         'Delete', 'delete', get_str('delBoxDetail'), enabled=False)
         copy = action(get_str('dupBox'), self.copy_selected_shape,
                       'Ctrl+D', 'copy', get_str('dupBoxDetail'),
                       enabled=False)
-
-        advanced_mode = action(get_str('advancedMode'), self.toggle_advanced_mode,
-                               'Ctrl+Shift+A', 'expert', get_str('advancedModeDetail'),
-                               checkable=True)
 
         hide_all = action(get_str('hideAllBox'), partial(self.toggle_polygons, False),
                           'Ctrl+H', 'hide', get_str('hideAllBoxDetail'),
@@ -1135,6 +1166,12 @@ class MainWindow(QMainWindow, WindowMixin):
         show_all = action(get_str('showAllBox'), partial(self.toggle_polygons, True),
                           'Ctrl+A', 'hide', get_str('showAllBoxDetail'),
                           enabled=False)
+        toggle_visibility = action(
+            get_str('hideAllBox'), self.toggle_all_annotations,
+            None, 'hide', get_str('hideAllBoxDetail'),
+            enabled=False, checkable=True,
+        )
+        toggle_visibility.setChecked(True)
 
         help_default = action(get_str('tutorialDefault'), self.show_default_tutorial_dialog, None, 'help', get_str('tutorialDetail'))
         show_info = action(get_str('info'), self.show_info_dialog, None, 'help', get_str('info'))
@@ -1185,9 +1222,12 @@ class MainWindow(QMainWindow, WindowMixin):
         redo_annotation.triggered.connect(self.redo_annotation)
 
         edit = action(get_str('editLabel'), self.edit_label,
-                      'Ctrl+E', 'edit', get_str('editLabelDetail'),
+                      'Ctrl+E', 'edit-label', get_str('editLabelDetail'),
                       enabled=False)
         self.edit_button.setDefaultAction(edit)
+        self.copy_button.setDefaultAction(copy)
+        self.delete_button.setDefaultAction(delete)
+        self.visibility_button.setDefaultAction(toggle_visibility)
 
         shape_line_color = action(get_str('shapeLineColor'), self.choose_shape_line_color,
                                   icon='color_line', tip=get_str('shapeLineColorDetail'),
@@ -1231,25 +1271,24 @@ class MainWindow(QMainWindow, WindowMixin):
                               adjustImage=adjust_image,
                               checkImageQuality=check_image_quality,
                               undoImageProcessing=undo_image_processing,
-                              lineColor=color1, create=create, delete=delete, edit=edit, copy=copy,
+                              lineColor=color1, selectTool=select_tool,
+                              panTool=pan_tool, create=create, delete=delete,
+                              edit=edit, copy=copy,
                               copyAnnotations=copy_annotations, pasteAnnotations=paste_annotations,
-                              createMode=create_mode, editMode=edit_mode, advancedMode=advanced_mode,
                               shapeLineColor=shape_line_color, shapeFillColor=shape_fill_color,
                               hideAll=hide_all, showAll=show_all,
+                              toggleVisibility=toggle_visibility,
                               zoom=zoom, zoomIn=zoom_in, zoomOut=zoom_out, zoomOrg=zoom_org,
                               fitWindow=fit_window, fitWidth=fit_width,
                               zoomActions=zoom_actions,
                               fileMenuActions=(
                                   open, open_dir, save, save_as, close, reset_all, quit),
-                              beginner=(), advanced=(),
                               editMenu=(undo_annotation, redo_annotation, None,
                                         edit, copy_annotations, paste_annotations, copy, delete,
                                         None, color1, self.draw_squares_option),
-                              beginnerContext=(create, edit, copy, delete),
-                              advancedContext=(create_mode, edit_mode, edit, copy,
-                                               delete, shape_line_color, shape_fill_color),
+                              canvasContext=(create, edit, copy, delete),
                                onLoadActive=(
-                                   close, create, create_mode, edit_mode,
+                                   close, select_tool, pan_tool, create,
                                    remove_colored_frames, crop_image,
                                    rotate_clockwise, rotate_counterclockwise,
                                    rotate_180, flip_horizontal, flip_vertical,
@@ -1328,6 +1367,7 @@ class MainWindow(QMainWindow, WindowMixin):
 
         # Auto saving: persist annotation changes shortly after they occur.
         self.auto_saving = QAction(get_str('autoSaveMode'), self)
+        self.auto_saving.setIcon(new_icon('auto-save'))
         self.auto_saving.setCheckable(True)
         self.auto_saving.setChecked(settings.get(SETTING_AUTO_SAVE, False))
         self.auto_save_timer = QTimer(self)
@@ -1370,7 +1410,7 @@ class MainWindow(QMainWindow, WindowMixin):
             self.auto_saving,
             self.single_class_mode,
             self.display_label_option,
-            labels, advanced_mode, None,
+            labels, None,
             hide_all, show_all, None,
             zoom_in, zoom_out, zoom_org, None,
             fit_window, fit_width))
@@ -1389,7 +1429,7 @@ class MainWindow(QMainWindow, WindowMixin):
         )
 
         # Custom context menu for the canvas widget:
-        add_actions(self.canvas.menus[0], self.actions.beginnerContext)
+        add_actions(self.canvas.menus[0], self.actions.canvasContext)
         self.copy_here_action = action(
             tr('action.copyHere'), self.copy_shape
         )
@@ -1401,15 +1441,43 @@ class MainWindow(QMainWindow, WindowMixin):
             self.move_here_action,
         ))
 
-        self.tools = self.toolbar(tr('toolbar.tools'))
-        self.actions.beginner = (
-            open_dir, open_next_image, open_prev_image, verify, question, save, save_format, None, create, copy, delete, crop_image, rotate_clockwise, flip_horizontal, None,
-            zoom_in, zoom, zoom_out, fit_window, fit_width)
+        self.review_control = ReviewControl(self)
+        self.review_control.setEnabled(False)
+        self.review_control.stateRequested.connect(
+            self.set_current_review_state
+        )
+        self.format_selector = FormatSelector(
+            self.annotation_format, self
+        )
+        self.format_selector.formatRequested.connect(
+            self.set_annotation_format
+        )
+        self.top_commands = TopCommandBar(
+            open_dir,
+            open_prev_image,
+            open_next_image,
+            self.review_control,
+            rotate_clockwise,
+            flip_horizontal,
+            self.format_selector,
+            self.auto_saving,
+            save,
+            self,
+        )
+        self.addToolBar(Qt.TopToolBarArea, self.top_commands)
 
-        self.actions.advanced = (
-            open_dir, open_next_image, open_prev_image, save, save_format, None,
-            create_mode, edit_mode, crop_image, rotate_clockwise, flip_horizontal, None,
-            hide_all, show_all)
+        self.tools = CanvasToolRail(
+            select_tool, create, pan_tool, crop_image, self
+        )
+        self.tools.setWindowTitle(tr('toolbar.canvasTools'))
+        self.addToolBar(Qt.LeftToolBarArea, self.tools)
+        add_actions(
+            self.menus.edit,
+            (create,) + self.actions.editMenu,
+        )
+        self.zoom_widget.set_zoom_actions(
+            zoom_org, fit_window, fit_width
+        )
 
         self._i18n_action_specs = {
             quit: ('quit', 'quitApp'),
@@ -1436,14 +1504,23 @@ class MainWindow(QMainWindow, WindowMixin):
                 'imageTools.action.removeFramesTip',
             ),
             crop_image: ('crop.action', 'crop.actionTip'),
-            rotate_clockwise: ('geometry.rotateClockwise', 'geometry.quickTip'),
+            rotate_clockwise: (
+                'geometry.rotateClockwise',
+                'geometry.rotateClockwiseTip',
+            ),
             rotate_counterclockwise: (
                 'geometry.rotateCounterclockwise',
-                'geometry.quickTip',
+                'geometry.rotateCounterclockwiseTip',
             ),
-            rotate_180: ('geometry.rotate180', 'geometry.quickTip'),
-            flip_horizontal: ('geometry.flipHorizontal', 'geometry.quickTip'),
-            flip_vertical: ('geometry.flipVertical', 'geometry.quickTip'),
+            rotate_180: ('geometry.rotate180', 'geometry.rotate180Tip'),
+            flip_horizontal: (
+                'geometry.flipHorizontal',
+                'geometry.flipHorizontalTip',
+            ),
+            flip_vertical: (
+                'geometry.flipVertical',
+                'geometry.flipVerticalTip',
+            ),
             transform_image: ('geometry.transform', 'geometry.transformTip'),
             adjust_image: ('adjustment.action', 'adjustment.actionTip'),
             check_image_quality: ('quality.action', 'quality.actionTip'),
@@ -1453,14 +1530,14 @@ class MainWindow(QMainWindow, WindowMixin):
             ),
             reset_all: ('resetAll', 'resetAllDetail'),
             color1: ('boxLineColor', 'boxLineColorDetail'),
-            create_mode: ('crtBox', 'crtBoxDetail'),
-            edit_mode: ('editBox', 'editBoxDetail'),
             create: ('crtBox', 'crtBoxDetail'),
+            select_tool: ('tool.select', 'tool.selectTip'),
+            pan_tool: ('tool.pan', 'tool.panTip'),
             delete: ('delBox', 'delBoxDetail'),
             copy: ('dupBox', 'dupBoxDetail'),
-            advanced_mode: ('advancedMode', 'advancedModeDetail'),
             hide_all: ('hideAllBox', 'hideAllBoxDetail'),
             show_all: ('showAllBox', 'showAllBoxDetail'),
+            toggle_visibility: ('hideAllBox', 'hideAllBoxDetail'),
             help_default: ('tutorialDefault', 'tutorialDetail'),
             show_info: ('info', 'info'),
             show_shortcut: ('shortcut', 'shortcut'),
@@ -1540,15 +1617,6 @@ class MainWindow(QMainWindow, WindowMixin):
         # Add chris
         Shape.difficult = self.difficult
 
-        def xbool(x):
-            if isinstance(x, QVariant):
-                return x.toBool()
-            return bool(x)
-
-        if xbool(settings.get(SETTING_ADVANCE_MODE, False)):
-            self.actions.advancedMode.setChecked(True)
-            self.toggle_advanced_mode()
-
         # Populate the File menu dynamically.
         self.update_file_menu()
 
@@ -1561,14 +1629,14 @@ class MainWindow(QMainWindow, WindowMixin):
         # Callbacks:
         self.zoom_widget.valueChanged.connect(self.paint_canvas)
 
-        self.populate_mode_actions()
-
         # Display cursor coordinates at the right of status bar
         self.label_coordinates = QLabel('')
         self.statusBar().addPermanentWidget(self.label_coordinates)
+        self.statusBar().addPermanentWidget(self.zoom_widget)
         self.canvas.coordinatesChanged.connect(
             self.label_coordinates.setText
         )
+        self.top_commands.set_counter(0, 0)
 
         # Open Dir if default file
         if self.file_path and os.path.isdir(self.file_path):
@@ -1606,12 +1674,11 @@ class MainWindow(QMainWindow, WindowMixin):
         if not hasattr(self, '_i18n_action_specs'):
             return
         for action, (text_id, tip_id) in self._i18n_action_specs.items():
-            if text_id is not None:
-                action.setText(tr(text_id))
-            if tip_id is not None:
-                tip = tr(tip_id)
-                action.setToolTip(tip)
-                action.setStatusTip(tip)
+            set_action_copy(
+                action,
+                tr(text_id) if text_id is not None else None,
+                tr(tip_id) if tip_id is not None else None,
+            )
         self.use_default_label_checkbox.setText(tr('useDefaultLabel'))
         self.diffc_button.setText(tr('useDifficult'))
         self.label_filter.setPlaceholderText(tr('labels.filter'))
@@ -1633,7 +1700,21 @@ class MainWindow(QMainWindow, WindowMixin):
         self.menus.specializedRepair.setTitle(tr('specializedRepair.menu'))
         self._sync_annotation_directory_ui()
         self.menus.language.setTitle(tr('language.menu'))
-        self.tools.setWindowTitle(tr('toolbar.tools'))
+        self.tools.setWindowTitle(tr('toolbar.canvasTools'))
+        self.tools.retranslate_ui()
+        self.top_commands.retranslate_ui()
+        self.review_control.retranslate_ui()
+        self.format_selector.retranslate_ui()
+        self.zoom_widget.retranslate_ui()
+        for button in (
+            self.edit_button,
+            self.copy_button,
+            self.delete_button,
+            self.visibility_button,
+        ):
+            action = button.defaultAction()
+            button.setAccessibleName(action.text().replace('&', ''))
+            button.setAccessibleDescription(action.toolTip())
         self.crop_controls.retranslate()
         self.zoom_widget.setWhatsThis(tr(
             'zoom.help',
@@ -1647,6 +1728,9 @@ class MainWindow(QMainWindow, WindowMixin):
         self.label_summary_label.setText(self.label_list.summary_text())
         if hasattr(self, 'annotation_editing'):
             self._sync_annotation_history_ui()
+        self.toggle_all_annotations(
+            self.actions.toggleVisibility.isChecked()
+        )
         if self.file_list_widget.count():
             self.refresh_file_list_statuses()
 
@@ -1669,6 +1753,17 @@ class MainWindow(QMainWindow, WindowMixin):
             self.canvas.set_multi_selection_mode(True)
 
     def eventFilter(self, watched, event):
+        if (
+            watched is getattr(self, 'canvas', None)
+            and event.type() == QEvent.KeyPress
+            and event.key() == Qt.Key_Escape
+            and self.canvas.mode in (Canvas.CREATE, Canvas.PAN)
+        ):
+            if self.canvas.mode == Canvas.CREATE:
+                self.canvas.cancel_current_drawing(force=True)
+            self.set_edit_mode()
+            event.accept()
+            return True
         if (
             watched is getattr(self, 'canvas', None)
             and event.type() == QEvent.KeyPress
@@ -1696,22 +1791,29 @@ class MainWindow(QMainWindow, WindowMixin):
             self.actions.save_format.setText(FORMAT_CREATEML)
             self.actions.save_format.setIcon(new_icon("format_createml"))
             self.annotation_format = AnnotationFormat.CREATE_ML
+        if hasattr(self, 'format_selector'):
+            self.format_selector.set_format(self.annotation_format)
 
     def change_format(self):
+        """Open the explicit format choices retained by the File menu."""
         if (
             self.annotation_editing.pending
             or self.annotation_editing.edit_open
         ):
             self.status(tr('status.finishEdit'))
             return
-        if self.annotation_format == AnnotationFormat.PASCAL_VOC:
-            self.set_format(FORMAT_YOLO)
-        elif self.annotation_format == AnnotationFormat.YOLO:
-            self.set_format(FORMAT_CREATEML)
-        elif self.annotation_format == AnnotationFormat.CREATE_ML:
-            self.set_format(FORMAT_PASCALVOC)
-        else:
-            raise ValueError('Unknown label file format.')
+        if hasattr(self, 'format_selector'):
+            self.format_selector.menu.popup(QCursor.pos())
+
+    def set_annotation_format(self, annotation_format):
+        if (
+            self.annotation_editing.pending
+            or self.annotation_editing.edit_open
+        ):
+            self.status(tr('status.finishEdit'))
+            self.format_selector.set_format(self.annotation_format)
+            return
+        self.set_format(document_format_name(annotation_format))
         if self.annotation_editing.view is not None:
             self.annotation_editing.set_target(
                 self.file_path,
@@ -1723,40 +1825,6 @@ class MainWindow(QMainWindow, WindowMixin):
 
     def no_shapes(self):
         return not self.canvas.shapes
-
-    def toggle_advanced_mode(self, value=True):
-        self._beginner = not value
-        self.canvas.set_editing(True)
-        self.populate_mode_actions()
-        self.edit_button.setVisible(not value)
-        if value:
-            self.actions.createMode.setEnabled(True)
-            self.actions.editMode.setEnabled(False)
-            self.dock.setFeatures(self.dock.features() | self.dock_features)
-        else:
-            self.dock.setFeatures(self.dock.features() ^ self.dock_features)
-
-    def populate_mode_actions(self):
-        if self.beginner():
-            tool, menu = self.actions.beginner, self.actions.beginnerContext
-        else:
-            tool, menu = self.actions.advanced, self.actions.advancedContext
-        self.tools.clear()
-        add_actions(self.tools, tool)
-        self.canvas.menus[0].clear()
-        add_actions(self.canvas.menus[0], menu)
-        self.menus.edit.clear()
-        actions = (self.actions.create,) if self.beginner()\
-            else (self.actions.createMode, self.actions.editMode)
-        add_actions(self.menus.edit, actions + self.actions.editMenu)
-
-    def set_beginner(self):
-        self.tools.clear()
-        add_actions(self.tools, self.actions.beginner)
-
-    def set_advanced(self):
-        self.tools.clear()
-        add_actions(self.tools, self.actions.advanced)
 
     def _current_annotation_target(self):
         if not self.file_path:
@@ -1891,8 +1959,6 @@ class MainWindow(QMainWindow, WindowMixin):
         )
         for action in (
             self.actions.create,
-            self.actions.createMode,
-            self.actions.editMode,
             self.actions.delete,
             self.actions.copy,
             self.actions.pasteAnnotations,
@@ -2038,6 +2104,16 @@ class MainWindow(QMainWindow, WindowMixin):
     def _sync_annotation_history_ui(self):
         view = self.annotation_editing.view
         if view is None:
+            set_action_copy(
+                self.actions.undoAnnotation,
+                tr('action.undo'),
+                tr('history.undo'),
+            )
+            set_action_copy(
+                self.actions.redoAnnotation,
+                tr('action.redo'),
+                tr('history.redo'),
+            )
             self.actions.undoAnnotation.setEnabled(False)
             self.actions.redoAnnotation.setEnabled(False)
             return
@@ -2050,26 +2126,30 @@ class MainWindow(QMainWindow, WindowMixin):
         undo = view.undo_transition
         redo = view.redo_transition
         if self.annotation_editing.pending:
-            self.actions.undoAnnotation.setText(
-                tr(
-                    'history.cancel',
-                    operation=translate_history_description(
-                        self.annotation_editing.pending_kind
-                    ),
-                )
+            undo_text = tr(
+                'history.cancel',
+                operation=translate_history_description(
+                    self.annotation_editing.pending_kind
+                ),
             )
         else:
-            self.actions.undoAnnotation.setText(
-                self._history_action_text(
-                    tr('history.undo'), undo, 'Ctrl+Z'
-                )
+            undo_text = self._history_action_text(
+                tr('history.undo'), undo, 'Ctrl+Z'
             )
-        self.actions.redoAnnotation.setText(
-            self._history_action_text(
-                tr('history.redo'),
-                redo,
-                'Ctrl+Y / Ctrl+Shift+Z',
-            )
+        redo_text = self._history_action_text(
+            tr('history.redo'),
+            redo,
+            'Ctrl+Y / Ctrl+Shift+Z',
+        )
+        set_action_copy(
+            self.actions.undoAnnotation,
+            undo_text,
+            tr('history.undo'),
+        )
+        set_action_copy(
+            self.actions.redoAnnotation,
+            redo_text,
+            tr('history.redo'),
         )
         self.actions.undoAnnotation.setEnabled(
             (view.can_undo or self.annotation_editing.pending)
@@ -2230,6 +2310,9 @@ class MainWindow(QMainWindow, WindowMixin):
             z.setEnabled(value)
         for action in self.actions.onLoadActive:
             action.setEnabled(value)
+        self.review_control.setEnabled(value)
+        if value:
+            self.actions.selectTool.setChecked(True)
 
     def queue_event(self, function):
         QTimer.singleShot(0, function)
@@ -2257,12 +2340,6 @@ class MainWindow(QMainWindow, WindowMixin):
         elif len(self.recent_files) >= self.max_recent:
             self.recent_files.pop()
         self.recent_files.insert(0, file_path)
-
-    def beginner(self):
-        return self._beginner
-
-    def advanced(self):
-        return not self.beginner()
 
     def show_tutorial_dialog(self, browser='default', link=None):
         if link is None:
@@ -2301,33 +2378,27 @@ class MainWindow(QMainWindow, WindowMixin):
         self.show_tutorial_dialog(browser='default', link='https://github.com/tzutalin/labelImg#Hotkeys')
 
     def create_shape(self):
-        assert self.beginner()
-        self.canvas.set_editing(False)
+        self.canvas.set_mode(Canvas.CREATE)
+        self.actions.create.setChecked(True)
         self.actions.create.setEnabled(False)
 
     def toggle_drawing_sensitive(self, drawing=True):
         """In the middle of drawing, toggling between modes should be disabled."""
-        self.actions.editMode.setEnabled(not drawing)
-        if not drawing and self.beginner():
-            # Cancel creation.
-            print('Cancel creation.')
-            self.canvas.set_editing(True)
-            self.canvas.restore_cursor()
-            self.actions.create.setEnabled(True)
-
-    def toggle_draw_mode(self, edit=True):
-        self.canvas.set_editing(edit)
-        self.actions.createMode.setEnabled(edit)
-        self.actions.editMode.setEnabled(not edit)
-
-    def set_create_mode(self):
-        assert self.advanced()
-        self.toggle_draw_mode(False)
+        self.actions.selectTool.setEnabled(not drawing)
+        self.actions.panTool.setEnabled(not drawing)
+        self.actions.cropImage.setEnabled(not drawing)
+        if not drawing:
+            self.set_edit_mode()
 
     def set_edit_mode(self):
-        assert self.advanced()
-        self.toggle_draw_mode(True)
+        self.canvas.set_mode(Canvas.EDIT)
+        self.actions.selectTool.setChecked(True)
+        self.actions.create.setEnabled(bool(self.file_path))
         self.label_selection_changed()
+
+    def set_pan_mode(self):
+        self.canvas.set_mode(Canvas.PAN)
+        self.actions.panTool.setChecked(True)
 
     def update_file_menu(self):
         curr_file_path = self.file_path
@@ -2723,8 +2794,13 @@ class MainWindow(QMainWindow, WindowMixin):
         if thread is not self._image_quality_thread:
             return
         if self._image_quality_progress is not None:
-            self._image_quality_progress.close()
-            self._image_quality_progress.deleteLater()
+            try:
+                self._image_quality_progress.close()
+                self._image_quality_progress.deleteLater()
+            except RuntimeError:
+                # Qt may auto-delete the progress dialog after the worker
+                # finishes; cleanup remains idempotent in that race.
+                pass
         self._image_quality_progress = None
         self._image_quality_worker = None
         self._image_quality_thread = None
@@ -2910,11 +2986,11 @@ class MainWindow(QMainWindow, WindowMixin):
                 return False
 
         self._crop_active = True
-        self._crop_previous_canvas_mode = self.canvas.editing()
+        self._crop_previous_canvas_mode = self.canvas.mode
         guarded = (
+            self.actions.selectTool,
+            self.actions.panTool,
             self.actions.create,
-            self.actions.createMode,
-            self.actions.editMode,
             self.actions.delete,
             self.actions.copy,
             self.actions.copyAnnotations,
@@ -3090,8 +3166,7 @@ class MainWindow(QMainWindow, WindowMixin):
         for action, enabled in self._crop_action_states.items():
             action.setEnabled(enabled)
         self._crop_action_states = {}
-        if self._crop_previous_canvas_mode is not None:
-            self.canvas.set_editing(self._crop_previous_canvas_mode)
+        self.set_edit_mode()
         self._crop_previous_canvas_mode = None
         self.canvas.setFocus(Qt.OtherFocusReason)
         self.update_image_menu()
@@ -3720,6 +3795,14 @@ class MainWindow(QMainWindow, WindowMixin):
         self.actions.openNext.setEnabled(
             self._adjacent_visible_file(1) is not None
         )
+        if hasattr(self, 'top_commands'):
+            total = len(self.m_img_list)
+            current = (
+                self.m_img_list.index(self.file_path) + 1
+                if self.file_path in self.m_img_list
+                else (1 if self.file_path else 0)
+            )
+            self.top_commands.set_counter(current, total or current)
 
     def _adjacent_visible_file(self, direction):
         visible = set(self.visible_file_paths())
@@ -4014,7 +4097,18 @@ class MainWindow(QMainWindow, WindowMixin):
         paths = self.selected_file_paths()
         if not paths:
             return
-        if len(paths) > 1:
+        self._set_review_state(paths, state, confirm_multiple=True)
+
+    def set_current_review_state(self, state):
+        if not self.file_path:
+            return
+        self._set_review_state(
+            (self.file_path,), state, confirm_multiple=False
+        )
+
+    def _set_review_state(self, paths, state, confirm_multiple=False):
+        paths = tuple(paths)
+        if confirm_multiple and len(paths) > 1:
             title = {
                 'verified': tr('fileMenu.markVerified'),
                 'questioned': tr('fileMenu.markQuestioned'),
@@ -4052,6 +4146,13 @@ class MainWindow(QMainWindow, WindowMixin):
                         )
                     )
                 self.annotation_document = update.document
+                self.canvas.verified = bool(
+                    update.document and update.document.verified
+                )
+                self.canvas.questioned = bool(
+                    update.document and update.document.questioned
+                )
+                self.review_control.set_state(state)
         self.refresh_file_list_statuses()
         self.refresh_candidate_labels()
         if result.recovery_records:
@@ -4624,6 +4725,12 @@ class MainWindow(QMainWindow, WindowMixin):
         self.annotation_document = document
         self.canvas.verified = document.verified
         self.canvas.questioned = document.questioned
+        if hasattr(self, 'review_control'):
+            self.review_control.set_state(
+                'questioned' if document.questioned
+                else 'verified' if document.verified
+                else 'unreviewed'
+            )
 
     def update_combo_box(self):
         # Kept as a compatibility seam for legacy call sites. The old
@@ -4774,17 +4881,13 @@ class MainWindow(QMainWindow, WindowMixin):
             generate_color = generate_color_by_text(text)
             shape = self.canvas.set_last_label(text, generate_color, generate_color)
             self.add_label(shape)
-            if self.beginner():  # Switch to edit mode.
-                self.canvas.set_editing(True)
-                self.actions.create.setEnabled(True)
-            else:
-                self.actions.editMode.setEnabled(True)
             self.annotation_editing.clear_pending()
             self.annotation_scene.identities.assign(shape)
             self.annotation_editing.commit_edit(
                 affected_ids=(shape.session_id,)
             )
             self._after_annotation_edit()
+            self.toggle_drawing_sensitive(False)
 
             if text not in self.label_hist:
                 self.label_hist.append(text)
@@ -4793,6 +4896,7 @@ class MainWindow(QMainWindow, WindowMixin):
             self.annotation_editing.clear_pending()
             self.annotation_editing.cancel_edit(restore=False)
             self._sync_annotation_history_ui()
+            self.set_edit_mode()
 
     def scroll_request(self, delta, orientation):
         units = - delta / (8 * 15)
@@ -4881,6 +4985,23 @@ class MainWindow(QMainWindow, WindowMixin):
     def toggle_polygons(self, value):
         self.label_visibility_requested(tuple(self.canvas.shapes), value)
 
+    def toggle_all_annotations(self, visible):
+        """Apply one explicit all-visible state from the annotation header."""
+        self.toggle_polygons(bool(visible))
+        action = self.actions.toggleVisibility
+        if visible:
+            set_action_copy(
+                action,
+                tr('hideAllBox'),
+                tr('hideAllBoxDetail'),
+            )
+        else:
+            set_action_copy(
+                action,
+                tr('showAllBox'),
+                tr('showAllBoxDetail'),
+            )
+
     def load_file(self, file_path=None):
         """Load the specified file, or the last opened file if None."""
         if file_path is None:
@@ -4959,6 +5080,7 @@ class MainWindow(QMainWindow, WindowMixin):
             self.annotation_document = None
             self.canvas.verified = False
             self.canvas.questioned = False
+            self.review_control.set_state('unreviewed')
 
             if isinstance(self.image_data, QImage):
                 image = self.image_data
@@ -5007,6 +5129,8 @@ class MainWindow(QMainWindow, WindowMixin):
 
             counter = self.counter_str()
             self.setWindowTitle(__appname__ + ' ' + file_path + ' ' + counter)
+            self.update_file_navigation_actions()
+            self.set_edit_mode()
 
             self.canvas.setFocus(True)
             return True
@@ -5139,7 +5263,6 @@ class MainWindow(QMainWindow, WindowMixin):
         settings[SETTING_LINE_COLOR] = self.line_color
         settings[SETTING_FILL_COLOR] = self.fill_color
         settings[SETTING_RECENT_FILES] = self.recent_files
-        settings[SETTING_ADVANCE_MODE] = not self._beginner
         if self.default_save_dir and os.path.exists(self.default_save_dir):
             settings[SETTING_SAVE_DIR] = ustr(self.default_save_dir)
         else:
@@ -5881,6 +6004,12 @@ class MainWindow(QMainWindow, WindowMixin):
             )
             return
         self.annotation_document = saved.document
+        document = saved.document
+        self.review_control.set_state(
+            'questioned' if document and document.questioned
+            else 'verified' if document and document.verified
+            else 'unreviewed'
+        )
         self.paint_canvas()
         self.update_file_list_item_status(self.file_path)
 

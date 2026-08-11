@@ -521,7 +521,7 @@ class MainWindowHistoryIntegrationTest(unittest.TestCase):
         )
         self.assertEqual(len(self.window.canvas.shapes), 1)
 
-    def test_ctrl_z_mid_draw_restores_beginner_actions(self):
+    def test_ctrl_z_mid_draw_restores_canvas_tool_actions(self):
         self.window.create_shape()
         self.window.canvas.current = Shape()
         self.window.canvas.drawingPolygon.emit(True)
@@ -534,6 +534,7 @@ class MainWindowHistoryIntegrationTest(unittest.TestCase):
         self.assertFalse(self.window.annotation_editing.pending)
         self.assertTrue(self.window.actions.create.isEnabled())
         self.assertTrue(self.window.canvas.editing())
+        self.assertTrue(self.window.actions.selectTool.isChecked())
 
     def test_navigation_cancels_an_open_gesture_before_switching_images(self):
         original = self.window.file_path

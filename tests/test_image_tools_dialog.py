@@ -240,7 +240,7 @@ class ImageToolsDialogTest(unittest.TestCase):
             dialog.preview_label.cursor().shape(),
             Qt.PointingHandCursor,
         )
-        self.assertIn("Candidate 1", dialog.preview_label.toolTip())
+        self.assertIn("Border 1", dialog.preview_label.toolTip())
         self.assertIn("click to exclude", dialog.preview_label.toolTip())
         self.assertEqual(
             tuple(state.result.selected_candidate_ids),
