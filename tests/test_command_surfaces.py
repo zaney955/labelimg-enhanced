@@ -1,0 +1,279 @@
+import os
+import tempfile
+import unittest
+from unittest.mock import patch
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+from PyQt5.QtCore import QEvent, QPointF, QSize, Qt
+from PyQt5.QtGui import QColor, QImage, QMouseEvent
+from PyQt5.QtWidgets import QApplication
+
+from labelimg.annotation_document import AnnotationFormat
+from labelimg.app import MainWindow
+from labelimg.canvas import Canvas
+from labelimg.i18n import ENGLISH, SIMPLIFIED_CHINESE, set_language
+
+
+class CommandSurfacesTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self):
+        set_language(ENGLISH)
+        self.temporary = tempfile.TemporaryDirectory()
+        self.environment = patch.dict(
+            os.environ,
+            {"LABELIMG_CONFIG_DIR": self.temporary.name},
+        )
+        self.environment.start()
+        classes_path = os.path.join(self.temporary.name, "classes.txt")
+        with open(classes_path, "w", encoding="utf-8"):
+            pass
+        self.window = MainWindow(
+            default_prefdef_class_file=classes_path,
+            default_save_dir="",
+        )
+
+    def tearDown(self):
+        self.window.deleteLater()
+        QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        self.app.processEvents()
+        self.environment.stop()
+        self.temporary.cleanup()
+        set_language(ENGLISH)
+
+    def load_image(self, name="image.png"):
+        image_path = os.path.join(self.temporary.name, name)
+        image = QImage(20, 20, QImage.Format_RGB32)
+        image.fill(QColor("white"))
+        self.assertTrue(image.save(image_path))
+        self.assertTrue(self.window.load_file(image_path))
+        return image_path
+
+    def test_left_rail_is_fixed_and_contains_only_canvas_tools(self):
+        rail = self.window.tools
+
+        self.assertEqual(rail.width(), 52)
+        self.assertFalse(rail.isMovable())
+        self.assertFalse(rail.isFloatable())
+        self.assertFalse(rail.toggleViewAction().isVisible())
+        self.assertEqual(
+            [
+                button.defaultAction()
+                for button in rail.buttons.values()
+            ],
+            [
+                self.window.actions.selectTool,
+                self.window.actions.create,
+                self.window.actions.panTool,
+                self.window.actions.cropImage,
+            ],
+        )
+        self.assertTrue(self.window.actions.selectTool.isChecked())
+        self.assertTrue(all(
+            button.size() == QSize(44, 44)
+            for button in rail.buttons.values()
+        ))
+        self.assertTrue(all(
+            button.iconSize() == QSize(24, 24)
+            for button in rail.buttons.values()
+        ))
+        forbidden = {
+            self.window.actions.openDir,
+            self.window.actions.openPrev,
+            self.window.actions.openNext,
+            self.window.actions.save,
+            self.window.actions.copy,
+            self.window.actions.delete,
+        }
+        self.assertTrue(forbidden.isdisjoint(
+            button.defaultAction() for button in rail.buttons.values()
+        ))
+
+    def test_selection_and_pan_are_explicit_stable_modes(self):
+        self.window.actions.panTool.setEnabled(True)
+        self.window.actions.panTool.trigger()
+        self.assertEqual(self.window.canvas.mode, Canvas.PAN)
+        self.assertTrue(self.window.actions.panTool.isChecked())
+
+        self.window.actions.selectTool.setEnabled(True)
+        self.window.actions.selectTool.trigger()
+        self.assertEqual(self.window.canvas.mode, Canvas.EDIT)
+        self.assertTrue(self.window.actions.selectTool.isChecked())
+
+    def test_pan_mode_and_middle_drag_emit_pan_without_annotation_gesture(self):
+        pans = []
+        gestures = []
+        self.window.canvas.panRequest.connect(
+            lambda x, y: pans.append((x, y))
+        )
+        self.window.canvas.annotationGestureStarted.connect(
+            gestures.append
+        )
+
+        self.window.canvas.set_mode(Canvas.PAN)
+        self.window.canvas.mousePressEvent(QMouseEvent(
+            QEvent.MouseButtonPress, QPointF(10, 10),
+            Qt.LeftButton, Qt.LeftButton, Qt.NoModifier,
+        ))
+        self.window.canvas.mouseMoveEvent(QMouseEvent(
+            QEvent.MouseMove, QPointF(20, 18),
+            Qt.NoButton, Qt.LeftButton, Qt.NoModifier,
+        ))
+        self.window.canvas.mouseReleaseEvent(QMouseEvent(
+            QEvent.MouseButtonRelease, QPointF(20, 18),
+            Qt.LeftButton, Qt.NoButton, Qt.NoModifier,
+        ))
+
+        self.window.canvas.set_mode(Canvas.EDIT)
+        self.window.canvas.mousePressEvent(QMouseEvent(
+            QEvent.MouseButtonPress, QPointF(10, 10),
+            Qt.MiddleButton, Qt.MiddleButton, Qt.NoModifier,
+        ))
+        self.window.canvas.mouseMoveEvent(QMouseEvent(
+            QEvent.MouseMove, QPointF(16, 14),
+            Qt.NoButton, Qt.MiddleButton, Qt.NoModifier,
+        ))
+        self.window.canvas.mouseReleaseEvent(QMouseEvent(
+            QEvent.MouseButtonRelease, QPointF(16, 14),
+            Qt.MiddleButton, Qt.NoButton, Qt.NoModifier,
+        ))
+
+        self.assertEqual(len(pans), 2)
+        self.assertEqual(gestures, [])
+
+    def test_top_bar_collapses_only_image_quick_actions(self):
+        bar = self.window.top_commands
+        bar.update_responsive_layout(800)
+        self.assertTrue(bar.image_quick_widget_action.isVisible())
+        self.assertFalse(bar.rotate_widget_action.isVisible())
+        self.assertFalse(bar.flip_widget_action.isVisible())
+        self.assertEqual(bar.open_button.width(), 44)
+        self.assertEqual(self.window.format_selector.width(), 44)
+        self.assertTrue(all(
+            button.width() == 44
+            for button in self.window.review_control.buttons.values()
+        ))
+
+        bar.update_responsive_layout(1100)
+        self.assertFalse(bar.image_quick_widget_action.isVisible())
+        self.assertTrue(bar.rotate_widget_action.isVisible())
+        self.assertTrue(bar.flip_widget_action.isVisible())
+        self.assertEqual(bar.open_button.width(), 156)
+        self.assertEqual(self.window.format_selector.width(), 132)
+        self.assertTrue(all(
+            button.width() == 98
+            for button in self.window.review_control.buttons.values()
+        ))
+
+    def test_one_shot_create_accept_returns_to_enabled_selection(self):
+        self.load_image("accept.png")
+        self.window.use_default_label_checkbox.setChecked(True)
+        self.window.default_label_text_line.setText("cat")
+
+        self.window.create_shape()
+        self.window.canvas.handle_drawing(QPointF(2, 2))
+        self.window.canvas.line[1] = QPointF(12, 12)
+        self.window.canvas.handle_drawing(QPointF(12, 12))
+
+        self.assertEqual(self.window.canvas.mode, Canvas.EDIT)
+        self.assertTrue(self.window.actions.selectTool.isChecked())
+        for action in (
+            self.window.actions.selectTool,
+            self.window.actions.create,
+            self.window.actions.panTool,
+            self.window.actions.cropImage,
+        ):
+            self.assertTrue(action.isEnabled())
+        self.assertEqual(len(self.window.canvas.shapes), 1)
+        self.assertEqual(self.window.canvas.shapes[0].label, "cat")
+
+    def test_one_shot_create_cancel_returns_to_selection_without_shape(self):
+        self.load_image("cancel.png")
+        self.window.use_default_label_checkbox.setChecked(False)
+
+        with patch.object(
+            self.window.candidate_label_dialog,
+            "choose",
+            return_value=None,
+        ):
+            self.window.create_shape()
+            self.window.canvas.handle_drawing(QPointF(2, 2))
+            self.window.canvas.line[1] = QPointF(12, 12)
+            self.window.canvas.handle_drawing(QPointF(12, 12))
+
+        self.assertEqual(self.window.canvas.mode, Canvas.EDIT)
+        self.assertTrue(self.window.actions.selectTool.isChecked())
+        self.assertTrue(self.window.actions.create.isEnabled())
+        self.assertEqual(self.window.canvas.shapes, [])
+
+    def test_annotation_panel_owns_copy_delete_and_visibility(self):
+        self.assertIs(
+            self.window.copy_button.defaultAction(),
+            self.window.actions.copy,
+        )
+        self.assertIs(
+            self.window.delete_button.defaultAction(),
+            self.window.actions.delete,
+        )
+        self.assertIs(
+            self.window.visibility_button.defaultAction(),
+            self.window.actions.toggleVisibility,
+        )
+        rail_actions = {
+            button.defaultAction()
+            for button in self.window.tools.buttons.values()
+        }
+        self.assertNotIn(self.window.actions.copy, rail_actions)
+        self.assertNotIn(self.window.actions.delete, rail_actions)
+
+    def test_accessible_names_follow_live_language_changes(self):
+        self.window.change_language(SIMPLIFIED_CHINESE)
+
+        self.assertEqual(
+            self.window.tools.buttons["select"].accessibleName(),
+            "选择/编辑",
+        )
+        self.assertEqual(
+            self.window.top_commands.open_button.accessibleName(),
+            "打开图像目录…",
+        )
+        self.assertEqual(
+            self.window.copy_button.accessibleName(),
+            "创建标注框副本",
+        )
+        self.assertEqual(
+            self.window.zoom_widget.plus.accessibleName(),
+            "放大",
+        )
+
+    def test_review_format_and_zoom_are_explicit_controls(self):
+        self.assertEqual(
+            set(self.window.review_control.actions),
+            {"unreviewed", "questioned", "verified"},
+        )
+        self.window.review_control.set_state("questioned")
+        self.assertTrue(
+            self.window.review_control.actions["questioned"].isChecked()
+        )
+
+        self.window.format_selector.set_format(AnnotationFormat.YOLO)
+        self.assertEqual(self.window.format_selector.text(), "YOLO")
+        self.assertEqual(
+            len(self.window.format_selector.menu.actions()), 3
+        )
+
+        self.assertIn(
+            self.window.zoom_widget,
+            self.window.statusBar().findChildren(type(self.window.zoom_widget)),
+        )
+        self.load_image("zoom.png")
+        self.window.zoom_widget.setValue(135)
+        self.assertEqual(self.window.zoom_widget.value(), 135)
+        self.assertEqual(self.window.zoom_widget.value_button.text(), "135%")
+
+
+if __name__ == "__main__":
+    unittest.main()

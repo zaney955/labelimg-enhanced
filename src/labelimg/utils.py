@@ -28,6 +28,56 @@ def new_button(text, icon=None, slot=None):
     return b
 
 
+def _plain_action_text(text):
+    """Return an action label without menu-only shortcut decoration."""
+    text = str(text or "")
+    label, _separator, _manual_shortcut = text.partition("\t")
+    escaped_ampersand = "\0"
+    label = label.replace("&&", escaped_ampersand)
+    label = label.replace("&", "").replace(escaped_ampersand, "&")
+    label = re.sub(r"(?:\([A-Za-z]\)|（[A-Za-z]）)$", "", label)
+    return label.strip()
+
+
+def format_action_tooltip(text, shortcuts=()):
+    """Build a concise localized tooltip from an action label and shortcuts."""
+    _label, separator, manual_shortcut = str(text or "").partition("\t")
+    if isinstance(shortcuts, (str, QKeySequence)):
+        shortcuts = (shortcuts,)
+    shortcut_texts = []
+    for shortcut in shortcuts or ():
+        shortcut_text = (
+            shortcut.toString()
+            if isinstance(shortcut, QKeySequence)
+            else str(shortcut)
+        ).strip()
+        if shortcut_text and shortcut_text not in shortcut_texts:
+            shortcut_texts.append(shortcut_text)
+    if not shortcut_texts and separator and manual_shortcut.strip():
+        shortcut_texts.append(manual_shortcut.strip())
+    label = _plain_action_text(text)
+    if not shortcut_texts:
+        return label
+    from labelimg.i18n import tr
+    return tr(
+        "action.tooltipWithShortcut",
+        action=label,
+        shortcut=" / ".join(shortcut_texts),
+    )
+
+
+def set_action_copy(action, text=None, tip=None):
+    """Keep command, tooltip, and status explanation in distinct roles."""
+    if text is not None:
+        action.setText(text)
+    action.setToolTip(
+        format_action_tooltip(action.text(), action.shortcuts())
+    )
+    action.setStatusTip(
+        tip if tip is not None else _plain_action_text(action.text())
+    )
+
+
 def new_action(parent, text, slot=None, shortcut=None, icon=None,
                tip=None, checkable=False, enabled=True):
     """Create a new action and assign callbacks, shortcuts, etc."""
@@ -39,9 +89,7 @@ def new_action(parent, text, slot=None, shortcut=None, icon=None,
             a.setShortcuts(shortcut)
         else:
             a.setShortcut(shortcut)
-    if tip is not None:
-        a.setToolTip(tip)
-        a.setStatusTip(tip)
+    set_action_copy(a, tip=tip)
     if slot is not None:
         a.triggered.connect(slot)
     if checkable:

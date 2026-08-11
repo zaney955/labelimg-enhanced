@@ -49,6 +49,72 @@ class TestAppIconAssets(unittest.TestCase):
         self.assertEqual(svg_root.get("viewBox"), "95.75 103.14 832.5 832.5")
         self.assertIsNone(svg_root.get("preserveAspectRatio"))
 
+    def test_runtime_resources_are_svg_only(self):
+        resource_tree = ElementTree.parse(REPOSITORY_ROOT / "resources.qrc")
+        resource_elements = list(resource_tree.iter("file"))
+        runtime_paths = [element.text for element in resource_elements]
+        self.assertTrue(runtime_paths)
+        self.assertTrue(all(
+            path.endswith(".svg") for path in runtime_paths
+        ))
+        self.assertEqual(
+            sorted(path.name for path in ICON_DIRECTORY.glob("*.png")),
+            [],
+        )
+        self.assertEqual(
+            set(runtime_paths),
+            {
+                path.relative_to(REPOSITORY_ROOT).as_posix()
+                for path in ICON_DIRECTORY.glob("*.svg")
+            },
+        )
+        for element in resource_elements:
+            alias = element.get("alias")
+            with self.subTest(alias=alias):
+                icon = QIcon(":/" + alias)
+                self.assertFalse(icon.isNull())
+                self.assertFalse(icon.pixmap(24, 24).isNull())
+        for relative_path in sorted(set(runtime_paths)):
+            if relative_path.endswith("/app.svg"):
+                continue
+            svg_root = ElementTree.parse(
+                REPOSITORY_ROOT / relative_path
+            ).getroot()
+            with self.subTest(path=relative_path):
+                self.assertEqual(svg_root.get("width"), "24")
+                self.assertEqual(svg_root.get("height"), "24")
+                self.assertEqual(svg_root.get("viewBox"), "0 0 24 24")
+
+    def test_operation_svg_style_is_uniform_and_font_independent(self):
+        expected_root_attributes = {
+            "width": "24",
+            "height": "24",
+            "viewBox": "0 0 24 24",
+            "fill": "none",
+            "stroke": "#3c4043",
+            "stroke-width": "1.8",
+            "stroke-linecap": "round",
+            "stroke-linejoin": "round",
+        }
+        forbidden_elements = {"foreignObject", "image", "script", "text"}
+        allowed_paints = {"#3c4043", "none"}
+
+        for path in sorted(ICON_DIRECTORY.glob("*.svg")):
+            if path.name == "app.svg":
+                continue
+            root = ElementTree.parse(path).getroot()
+            with self.subTest(path=path.name):
+                for name, value in expected_root_attributes.items():
+                    self.assertEqual(root.get(name), value)
+                for element in root.iter():
+                    tag = element.tag.rsplit("}", 1)[-1]
+                    self.assertNotIn(tag, forbidden_elements)
+                    self.assertNotIn("style", element.attrib)
+                    for attribute in ("fill", "stroke"):
+                        paint = element.get(attribute)
+                        if paint is not None:
+                            self.assertIn(paint, allowed_paints)
+
     def test_compiled_qt_icon_renders_at_windows_sizes(self):
         icon = QIcon(":/app")
         self.assertFalse(icon.isNull())
@@ -57,10 +123,6 @@ class TestAppIconAssets(unittest.TestCase):
                 self.assertFalse(icon.pixmap(size, size).isNull())
 
     def test_generated_platform_assets_are_valid(self):
-        with Image.open(ICON_DIRECTORY / "app.png") as png_image:
-            self.assertEqual(png_image.format, "PNG")
-            self.assertEqual(png_image.size, (1024, 1024))
-
         with Image.open(ICON_DIRECTORY / "app.ico") as ico_image:
             self.assertEqual(ico_image.format, "ICO")
             self.assertEqual(set(ico_image.ico.sizes()), EXPECTED_ICO_SIZES)

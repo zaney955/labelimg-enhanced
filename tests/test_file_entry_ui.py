@@ -43,8 +43,8 @@ class FileEntryUiTest(unittest.TestCase):
         self.temporary.cleanup()
         set_language(ENGLISH)
 
-    def test_toolbar_has_one_primary_open_directory_split_button(self):
-        buttons = self.window.tools.findChildren(QToolButton)
+    def test_top_bar_has_one_primary_open_directory_split_button(self):
+        buttons = self.window.top_commands.findChildren(QToolButton)
         open_buttons = [
             button
             for button in buttons

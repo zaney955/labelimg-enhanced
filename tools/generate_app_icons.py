@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import shutil
+import tempfile
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -44,25 +45,26 @@ def render_master(svg_path: Path, png_path: Path) -> None:
 
 def generate() -> tuple[Path, ...]:
     svg_path = ICON_DIRECTORY / "app.svg"
-    png_path = ICON_DIRECTORY / "app.png"
     ico_path = ICON_DIRECTORY / "app.ico"
     icns_path = ICON_DIRECTORY / "app.icns"
     packaged_ico_path = PACKAGE_DATA_DIRECTORY / "app.ico"
 
     PACKAGE_DATA_DIRECTORY.mkdir(parents=True, exist_ok=True)
-    render_master(svg_path, png_path)
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        png_path = Path(temporary_directory) / "app.png"
+        render_master(svg_path, png_path)
 
-    with Image.open(png_path) as master:
-        rgba_master = master.convert("RGBA")
-        rgba_master.save(
-            ico_path,
-            format="ICO",
-            sizes=[(size, size) for size in ICO_SIZES],
-        )
-        rgba_master.save(icns_path, format="ICNS")
+        with Image.open(png_path) as master:
+            rgba_master = master.convert("RGBA")
+            rgba_master.save(
+                ico_path,
+                format="ICO",
+                sizes=[(size, size) for size in ICO_SIZES],
+            )
+            rgba_master.save(icns_path, format="ICNS")
 
     shutil.copyfile(ico_path, packaged_ico_path)
-    return png_path, ico_path, icns_path, packaged_ico_path
+    return ico_path, icns_path, packaged_ico_path
 
 
 def main() -> int:

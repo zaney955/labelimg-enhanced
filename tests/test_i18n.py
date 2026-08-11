@@ -130,7 +130,7 @@ class TranslationCatalogTest(unittest.TestCase):
     def test_every_static_translation_reference_exists(self):
         source_root = Path(__file__).resolve().parents[1] / "src" / "labelimg"
         referenced = set()
-        for source_path in source_root.glob("*.py"):
+        for source_path in source_root.rglob("*.py"):
             tree = ast.parse(source_path.read_text(encoding="utf-8"))
             for node in ast.walk(tree):
                 if not isinstance(node, ast.Call):
@@ -157,7 +157,7 @@ class TranslationCatalogTest(unittest.TestCase):
             "warning",
         }
         failures = []
-        for source_path in source_root.glob("*.py"):
+        for source_path in source_root.rglob("*.py"):
             if source_path.name in {"i18n.py", "translations.py"}:
                 continue
             source = source_path.read_text(encoding="utf-8")

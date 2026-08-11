@@ -26,7 +26,7 @@ Image quality checking is one analysis-only capability covering unreadable or co
 
 Specialized repair currently includes red and yellow frame removal. New specialized repairs require representative real samples and explicit acceptance criteria before they enter the capability catalog. Manual region blur or mosaic, watermark removal, background removal, denoising, and super-resolution are not planned speculatively.
 
-The Image menu presents Crop first, followed by a Rotate and Flip submenu containing every quick transform, Transform Image… for previewed or batch geometry work, Adjust Image…, Check Image Quality…, a Specialized Repair submenu containing Remove Red/Yellow Frames…, and Undo Last Image Processing…. This menu remains the complete catalog even when toolbar shortcuts exist.
+The Image menu presents Crop first, followed by a Rotate / Flip submenu containing every quick transform, Transform Image… for previewed or batch geometry work, Adjust Image…, Check Image Quality…, a Specialized Repair submenu containing Remove Red/Yellow Borders…, and Undo Last Image Processing…. This menu remains the complete catalog even when toolbar shortcuts exist.
 
 ## Target selection
 

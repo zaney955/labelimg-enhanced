@@ -45,7 +45,7 @@ class Canvas(QWidget):
     annotationGestureCanceled = pyqtSignal(str)
     hoverShapeChanged = pyqtSignal(object)
 
-    CREATE, EDIT = list(range(2))
+    CREATE, EDIT, PAN = list(range(3))
 
     epsilon = 11.0
     edge_epsilon = 5.0
@@ -89,6 +89,7 @@ class Canvas(QWidget):
 
         # initialisation for panning
         self.pan_initial_pos = QPoint()
+        self._pan_dragging = False
 
     def set_drawing_color(self, qcolor):
         self.drawing_line_color = qcolor
@@ -138,14 +139,27 @@ class Canvas(QWidget):
     def editing(self):
         return self.mode == self.EDIT
 
-    def set_editing(self, value=True):
-        self.mode = self.EDIT if value else self.CREATE
-        if not value:  # Create
+    def panning(self):
+        return self.mode == self.PAN
+
+    def set_mode(self, mode):
+        if mode not in (self.CREATE, self.EDIT, self.PAN):
+            raise ValueError("Unknown canvas mode: %r" % (mode,))
+        self.mode = mode
+        if mode != self.CREATE:
+            self.current = None
+            self.line.points = []
+        if mode != self.EDIT:
             self.un_highlight()
             self.set_external_hover_shape(None)
             self.de_select_shape()
         self.prev_point = QPointF()
+        self._cursor = CURSOR_GRAB if mode == self.PAN else CURSOR_DEFAULT
+        self.setCursor(QCursor(self._cursor))
         self.repaint()
+
+    def set_editing(self, value=True):
+        self.set_mode(self.EDIT if value else self.CREATE)
 
     def un_highlight(self):
         if self.h_shape:
@@ -517,6 +531,13 @@ class Canvas(QWidget):
         if self.pixmap and not self.pixmap.isNull():
             self._emit_coordinates(pos)
 
+        if self._pan_dragging:
+            delta = ev.globalPos() - self.pan_initial_pos
+            self.pan_canvas(delta)
+            self.pan_initial_pos = ev.globalPos()
+            self.update()
+            return
+
         if (
             self.selection_press_pos is not None
             and Qt.LeftButton & ev.buttons()
@@ -672,6 +693,15 @@ class Canvas(QWidget):
         pos = self.transform_pos(ev.pos())
         self._last_pointer_pos = QPointF(pos)
 
+        if ev.button() == Qt.MiddleButton or (
+            ev.button() == Qt.LeftButton and self.panning()
+        ):
+            self._pan_dragging = True
+            self.pan_initial_pos = ev.globalPos()
+            QApplication.setOverrideCursor(QCursor(Qt.ClosedHandCursor))
+            ev.accept()
+            return
+
         if ev.button() == Qt.LeftButton:
             if (
                 self.current is None
@@ -722,6 +752,15 @@ class Canvas(QWidget):
 
     def mouseReleaseEvent(self, ev):
         self._last_pointer_pos = self.transform_pos(ev.pos())
+        if self._pan_dragging and ev.button() in (
+            Qt.MiddleButton, Qt.LeftButton
+        ):
+            self._pan_dragging = False
+            QApplication.restoreOverrideCursor()
+            if self.panning():
+                self.override_cursor(CURSOR_GRAB)
+            ev.accept()
+            return
         if ev.button() == Qt.RightButton:
             menu = self.menus[bool(self.selected_shape_copy)]
             self.restore_cursor()
@@ -1541,6 +1580,7 @@ class Canvas(QWidget):
         self._annotation_gesture_description = None
         self._annotation_gesture_source = None
         self._held_arrow_keys.clear()
+        self._pan_dragging = False
         self._interaction.reset()
         self._external_hover_shapes = tuple()
         self._last_pointer_pos = None

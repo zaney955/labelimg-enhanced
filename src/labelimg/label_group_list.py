@@ -59,7 +59,7 @@ class LabelGroupListWidget(QAbstractScrollArea):
     chip_gap = 4
     chip_step = chip_size + chip_gap
     drag_threshold = 5
-    selected_fill_alpha = 48
+    selected_fill_alpha = 200
     hover_background_alpha = 45
     separator_alpha = 45
     hidden_opacity = 0.45

@@ -15,7 +15,7 @@ from PyQt5.QtWidgets import QApplication, QMessageBox
 
 from labelimg.app import MainWindow
 from labelimg.i18n import SIMPLIFIED_CHINESE, set_language
-from labelimg.annotation_document import AnnotationDocument
+from labelimg.annotation_document import AnnotationDocument, AnnotationFormat
 from labelimg.constants import FORMAT_YOLO
 from labelimg.shape import Shape
 from labelimg.file_recovery import (
@@ -298,16 +298,13 @@ class FileListAnnotationStatusTest(unittest.TestCase):
             self.window.actions.question.icon().cacheKey(),
             self.window.actions.verify.icon().cacheKey(),
         )
-        self.assertIn(
-            self.window.actions.question,
-            self.window.actions.beginner,
-        )
-        verify_index = self.window.actions.beginner.index(
-            self.window.actions.verify
+        self.assertEqual(
+            set(self.window.review_control.actions),
+            {'unreviewed', 'questioned', 'verified'},
         )
         self.assertIs(
-            self.window.actions.beginner[verify_index + 1],
-            self.window.actions.question,
+            self.window.top_commands.review_control,
+            self.window.review_control,
         )
 
     def test_ctrl_space_triggers_question_status(self):
@@ -422,7 +419,7 @@ class FileListAnnotationStatusTest(unittest.TestCase):
         self.window.annotation_editing.cancel_pending_operation()
 
     def test_batch_review_preserves_the_active_yolo_format(self):
-        self.window.change_format()
+        self.window.set_annotation_format(AnnotationFormat.YOLO)
         self.assertEqual(self.window.actions.save_format.text(), FORMAT_YOLO)
         self.item(0).setSelected(True)
 
