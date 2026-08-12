@@ -1,6 +1,6 @@
 """Run LabelImg Enhanced with ``python -m labelimg``."""
 
-from labelimg.app import main
+from labelimg.workbench.bootstrap import main
 
 
 if __name__ == '__main__':

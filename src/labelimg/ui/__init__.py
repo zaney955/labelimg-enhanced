@@ -1,0 +1,2 @@
+"""Shared Qt presentation primitives."""
+

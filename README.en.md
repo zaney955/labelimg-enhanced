@@ -58,6 +58,8 @@ python -m pip wheel . --no-deps --no-build-isolation
 python tools/run_tests.py --installed
 ```
 
+The source is a feature-first modular monolith: `annotations`, `canvas`, `files`, and `image_tools` own their domain, application, infrastructure, and UI concerns, while `workbench` is limited to the desktop shell and cross-feature composition. The root package contains only version and module-entry code; AST architecture tests prevent regressions to flat modules, Qt leakage, and boundary-bypassing dependencies. See the [modular architecture design](docs/design/modular-architecture-refactor.md) for the complete migration map.
+
 The bilingual catalogs use stable message IDs. Tests require identical English and Chinese keys and formatting parameters, and prevent UI code from reintroducing hard-coded application text. See [Bilingual Interface Design](docs/design/bilingual-interface.md).
 
 ## Origin and license
