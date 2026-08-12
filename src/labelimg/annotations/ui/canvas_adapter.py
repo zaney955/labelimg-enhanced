@@ -8,7 +8,7 @@ except ImportError:
     from PyQt4.QtGui import QColor
 
 from labelimg.annotations.domain.model import AnnotationBox, AnnotationDocument
-from labelimg.canvas.shape import Shape
+from labelimg.canvas import Shape
 
 
 def box_from_shape(shape):

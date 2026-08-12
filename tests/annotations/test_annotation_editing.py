@@ -28,7 +28,7 @@ from labelimg.annotations.domain.model import (
 )
 from labelimg.annotations.infrastructure.document import AnnotationDocument
 from labelimg.canvas.widget import Canvas
-from labelimg.workbench.main_window import MainWindow
+from labelimg.workbench.bootstrap import WorkbenchLaunchOptions, create_workbench
 FORMAT_YOLO = AnnotationFormat.YOLO.display_name
 from labelimg.canvas.shape import Shape
 
@@ -426,10 +426,10 @@ class MainWindowHistoryIntegrationTest(unittest.TestCase):
         classes_path = os.path.join(self.temp_dir.name, "classes.txt")
         with open(classes_path, "w", encoding="utf8"):
             pass
-        self.window = MainWindow(
-            default_prefdef_class_file=classes_path,
-            default_save_dir=self.temp_dir.name,
-        )
+        self.window = create_workbench(WorkbenchLaunchOptions(
+            class_file=classes_path,
+            save_dir=self.temp_dir.name,
+        ))
         self.assertTrue(
             self.window.load_file(
                 os.path.abspath("tests/test.512.512.bmp")

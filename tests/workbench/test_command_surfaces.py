@@ -1,4 +1,5 @@
 import os
+import hashlib
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -10,7 +11,7 @@ from PyQt5.QtGui import QColor, QImage, QMouseEvent
 from PyQt5.QtWidgets import QApplication
 
 from labelimg.annotations.domain.model import AnnotationFormat
-from labelimg.workbench.main_window import MainWindow
+from labelimg.workbench.bootstrap import WorkbenchLaunchOptions, create_workbench
 from labelimg.canvas.widget import Canvas
 from labelimg.localization.runtime import ENGLISH, SIMPLIFIED_CHINESE, set_language
 
@@ -31,10 +32,10 @@ class CommandSurfacesTest(unittest.TestCase):
         classes_path = os.path.join(self.temporary.name, "classes.txt")
         with open(classes_path, "w", encoding="utf-8"):
             pass
-        self.window = MainWindow(
-            default_prefdef_class_file=classes_path,
-            default_save_dir="",
-        )
+        self.window = create_workbench(WorkbenchLaunchOptions(
+            class_file=classes_path,
+            save_dir="",
+        ))
 
     def tearDown(self):
         self.window.deleteLater()
@@ -297,6 +298,45 @@ class CommandSurfacesTest(unittest.TestCase):
         self.assertTrue(actions[1].isSeparator())
         self.assertTrue(actions[4].isSeparator())
         self.assertTrue(self.window.single_class_mode.shortcut().isEmpty())
+
+    def test_every_static_menu_option_has_a_distinct_semantic_icon(self):
+        menu_actions = []
+
+        def collect(menu):
+            for action in menu.actions():
+                if action.isSeparator():
+                    continue
+                menu_actions.append(action)
+                if action.menu() is not None:
+                    collect(action.menu())
+
+        for menu in (
+            self.window.menus.file,
+            self.window.menus.edit,
+            self.window.menus.image,
+            self.window.menus.view,
+            self.window.menus.settings,
+            self.window.menus.help,
+        ):
+            collect(menu)
+
+        self.assertTrue(menu_actions)
+        self.assertEqual(
+            [action.text() for action in menu_actions if action.icon().isNull()],
+            [],
+        )
+
+        def icon_signature(action):
+            image = action.icon().pixmap(24, 24).toImage().convertToFormat(
+                QImage.Format_ARGB32
+            )
+            data = image.bits().asstring(image.byteCount())
+            return hashlib.sha256(data).digest()
+
+        self.assertEqual(
+            len({icon_signature(action) for action in menu_actions}),
+            len(menu_actions),
+        )
 
     def test_file_and_edit_menus_have_distinct_command_ownership(self):
         file_actions = self.window.menus.file.actions()

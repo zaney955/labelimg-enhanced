@@ -48,12 +48,12 @@ class _Workspace:
         return None
 
 
-class _Operations:
+class _Transaction:
     def __init__(self, events):
         self._events = events
         self.recovery_entries = ()
 
-    def execute_image_processing(self, replacements, *, target_count=None):
+    def execute(self, replacements, *, target_count=None):
         replacements = tuple(replacements)
         self._events.append(("commit-pixel", replacements, target_count))
         return SimpleNamespace(
@@ -66,7 +66,7 @@ class _Operations:
             recovery_entry=object(),
         )
 
-    def execute_grouped_image_processing(
+    def execute_grouped(
         self,
         image_path,
         replacements,
@@ -81,11 +81,11 @@ class _Operations:
         ))
         return SimpleNamespace(recovery_entry=object())
 
-    def execute_grouped_image_processing_batch(self, groups):
+    def execute_grouped_batch(self, groups):
         self._events.append(("commit-geometry-batch", tuple(groups)))
         return SimpleNamespace(recovery_entry=object())
 
-    def discard_image_histories(self, paths):
+    def discard_histories(self, paths):
         self._events.append(("discard-histories", tuple(paths)))
 
     def recover(self, entry_id, selected_paths=None):
@@ -100,7 +100,7 @@ class ImageProcessingSessionTest(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.events = []
-        self.operations = _Operations(self.events)
+        self.transaction = _Transaction(self.events)
         self.editing = _Editing(events=self.events)
         self.persistence = _Persistence(self.events)
         self.projections = []
@@ -109,7 +109,7 @@ class ImageProcessingSessionTest(unittest.TestCase):
             workspace=_Workspace(),
             editing=self.editing,
             persistence=self.persistence,
-            operations=self.operations,
+            transaction=self.transaction,
             project=self._project,
             document_for_path=self._document_for_path,
         )

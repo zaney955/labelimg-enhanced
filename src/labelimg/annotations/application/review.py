@@ -11,11 +11,20 @@ from labelimg.annotations.domain.model import (
 )
 from labelimg.annotations.infrastructure.document import AnnotationDocument
 from labelimg.annotations.application.workspace import annotation_resources
-from labelimg.files.application.recovery import (
-    FileRecoveryConflict,
-    FileRecoveryError,
-    ReviewRecoveryRecord,
+from labelimg.platform.recovery import (
+    RecoveryConflict as FileRecoveryConflict,
+    RecoveryError as FileRecoveryError,
 )
+
+
+@dataclass(frozen=True)
+class ReviewRecoveryRecord:
+    image_path: str
+    prior_verified: bool
+    prior_questioned: bool
+    result_verified: bool
+    result_questioned: bool
+    annotation_path: str | None = None
 
 
 @dataclass(frozen=True)

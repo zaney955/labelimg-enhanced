@@ -9,7 +9,7 @@ from PyQt5.QtGui import QColor, QImage
 from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication
 
-from labelimg.workbench.main_window import MainWindow
+from labelimg.workbench.bootstrap import WorkbenchLaunchOptions, create_workbench
 from labelimg.annotations.infrastructure.formats.pascal_voc import PascalVocReader
 from labelimg.canvas.shape import Shape
 
@@ -37,10 +37,10 @@ class RealtimeAutoSaveTest(unittest.TestCase):
         with open(classes_path, "w", encoding="utf-8"):
             pass
 
-        self.window = MainWindow(
-            default_prefdef_class_file=classes_path,
-            default_save_dir=self.annotation_dir,
-        )
+        self.window = create_workbench(WorkbenchLaunchOptions(
+            class_file=classes_path,
+            save_dir=self.annotation_dir,
+        ))
         self.window.auto_saving.setChecked(True)
         self.assertTrue(self.window.load_file(self.image_path))
 

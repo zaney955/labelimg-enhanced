@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
-from labelimg.annotations.infrastructure.storage import fingerprint_path
+from labelimg.annotations import fingerprint_path
 from labelimg.image_tools.domain.crop_geometry import (
     CropAnnotationResult,
     CropRegion,

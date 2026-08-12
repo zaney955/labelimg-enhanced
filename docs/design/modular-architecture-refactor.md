@@ -256,7 +256,7 @@ class AnnotationBox:
     visible: bool
 ```
 
-Format adapters, histories, saves, review workflows, and geometry-changing image tools operate on `AnnotationBox` or immutable annotation snapshots. Canvas retains a mutable, Qt-oriented `Shape` for interactive rendering. `canvas.annotation_adapter` performs the only `AnnotationBox <-> Shape` conversion. Annotation modules never import Canvas or `Shape`.
+Format adapters, histories, saves, review workflows, and geometry-changing image tools operate on `AnnotationBox` or immutable annotation snapshots. Canvas retains a mutable, Qt-oriented `Shape` for interactive rendering. `annotations.ui.canvas_adapter` performs the only `AnnotationBox <-> Shape` conversion. This adapter belongs to the annotation UI because it projects annotation values into Canvas values; Canvas therefore has no dependency back to annotations.
 
 ## State ownership
 
@@ -375,7 +375,7 @@ This adapter presents the combined recovery surface while dispatching to the pub
 | `labelimg/shape.py` | `canvas/shape.py` |
 | `labelimg/selection.py` | `canvas/selection.py` |
 | `labelimg/canvas_interaction.py` | `canvas/interaction.py` |
-| Canvas/annotation conversions inside `app.py` | `canvas/annotation_adapter.py` |
+| Canvas/annotation conversions inside `app.py` | `annotations/ui/canvas_adapter.py` |
 | Canvas distance helpers in `utils.py` | `canvas/geometry.py` |
 | `labelimg/file_list.py` | split into `files/ui/list_widget.py`, `filter_panel.py`, `rename_dialog.py`, and file view-state types |
 | `labelimg/file_operations.py` | split into `files/application/operations.py` and `files/infrastructure/filesystem.py` |
@@ -561,4 +561,23 @@ DL deployment occurs only after isolated wheel validation. The previously instal
 
 ## Decision status
 
-All architecture branches described here are resolved. Source implementation is intentionally paused until the user confirms that this document represents the shared understanding required by the `grill-with-docs` session.
+All architecture branches described here are resolved. The user authorized full implementation and waived further questions for conclusions that follow established engineering practice.
+
+### 2026-08-12 deepening checkpoint
+
+The implementation now makes the following seams executable rather than aspirational:
+
+- `FileListProjection` owns immutable row facts, sorting, filtering, visible navigation, and deterministic adjacency; the Qt control state is only a mutable query adapter.
+- `CanvasInteractionSnapshot` is immutable and all selection, right-drag, and hover changes pass through `CanvasInteraction` transitions; Canvas no longer exposes writable forwarding properties for transient gesture state.
+- file operations and image processing use separate transaction and recovery ledgers. Shared trash identities/statuses live in `platform.recovery`; `files` no longer imports image-tool implementations.
+- `WorkbenchSession` owns ordered transition requirements and issues source/target/revision-bound single-use tickets after crop, edit, conflict, and dirty-history requirements are resolved.
+- `workbench.bootstrap` owns CLI parsing, typed launch options, concrete window construction, and process startup. `WorkbenchComposer` is called explicitly and is not a `MainWindow` mixin.
+- `annotations`, `canvas`, `files`, and `image_tools` form an acyclic feature graph and cross-feature production imports use package public exports. Architecture tests enforce the graph, public exports, composition root, Qt-free layers, numeric dependency ownership, and legacy-path absence.
+
+### 2026-08-12 deepening closure
+
+- current-image identity no longer has a writable `MainWindow.file_path` projection or a `WorkbenchSession.replace_active` bypass. Every replacement consumes a source/target/revision-bound transition ticket through `WorkbenchSession`.
+- `MainWindow` constructs only its Qt base. `workbench.bootstrap.create_workbench` is now required to apply the concrete `WorkbenchComposer`; tests and production startup cross the same composition interface.
+- the recovery workbench consumes file and image-processing outcomes through feature public exports, while feature-neutral resource fingerprints live in `platform.recovery` without a dependency on annotation infrastructure.
+- `FileListViewState` exposes only the immutable `FileListProjection` interface. The old callback-heavy `ordered_paths`, `matches`, and `visible_paths` compatibility queries and the controller navigation fallback are removed.
+- Canvas hover is observed through `CanvasInteractionSnapshot` and changed through one signal-aware transition method. Writable `h_shape`, `h_vertex`, and `h_edge` compatibility properties are removed.

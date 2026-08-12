@@ -7,8 +7,8 @@ import os
 import tempfile
 import uuid
 
-from labelimg.annotations.infrastructure.storage import fingerprint_path
-from labelimg.files.application.recovery import TrashedResource
+from labelimg.annotations import fingerprint_path
+from labelimg.platform.recovery import TrashedResource
 
 
 @dataclass(frozen=True)

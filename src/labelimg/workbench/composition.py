@@ -16,7 +16,7 @@ from types import SimpleNamespace
 
 from PyQt5.QtCore import QByteArray, QDateTime, QEvent, QFileInfo, QItemSelectionModel, QModelIndex, QPersistentModelIndex, QPoint, QPointF, QProcess, QRect, QRectF, QSignalBlocker, QSize, QThread, QTimer, Qt, pyqtSignal
 from PyQt5.QtGui import QBrush, QColor, QCursor, QImage, QImageReader, QPainter, QPainterPath, QPalette, QPen, QPixmap
-from PyQt5.QtWidgets import QAbstractItemView, QAction, QActionGroup, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDockWidget, QFileDialog, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QProgressDialog, QPushButton, QScrollArea, QSizePolicy, QStackedWidget, QStyle, QStyleOptionViewItem, QStyledItemDelegate, QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget, QWidgetAction
+from PyQt5.QtWidgets import QAbstractItemView, QAction, QActionGroup, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDockWidget, QFileDialog, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QProgressDialog, QPushButton, QScrollArea, QSizePolicy, QStackedWidget, QStyle, QStyleOptionViewItem, QStyledItemDelegate, QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget, QWidgetAction
 
 import labelimg.ui.generated_resources  # noqa: F401 - registers Qt resources
 from labelimg.platform.settings_keys import (
@@ -84,7 +84,7 @@ from labelimg.annotations.domain.model import (
     AnnotationFormat,
 )
 from labelimg.annotations.infrastructure.document import image_path_hint
-from labelimg.canvas.annotation_adapter import (
+from labelimg.annotations.ui.canvas_adapter import (
     document_from_shapes,
     shapes_from_document,
 )
@@ -130,12 +130,12 @@ from labelimg.files.application.operations import (
     FileOperationError,
     SystemTrashAdapter,
 )
-from labelimg.files.application.transaction import (
+from labelimg.files import (
     FileOperationBlocked,
     FileOperationTransaction,
     FileRecoveryBlocked,
+    RecoveryOperation,
 )
-from labelimg.files.application.recovery import RecoveryOperation
 from labelimg.annotations.ui.label_group_list import LabelGroupListWidget
 from labelimg.image_tools.application.session import (
     AdjustmentChange,
@@ -145,6 +145,7 @@ from labelimg.image_tools.application.session import (
     ImageProcessingSession,
     PreparedPixelChange,
 )
+from labelimg.image_tools import ImageProcessingTransaction
 from labelimg.workbench.session import WorkbenchSession
 from labelimg.workbench.support import (
     APP_NAME,
@@ -177,9 +178,11 @@ __appname__ = APP_NAME
 
 
 
-class WorkbenchCompositionMixin:
-    def __init__(self, default_filename=None, default_prefdef_class_file=None, default_save_dir=None):
-        super().__init__()
+class WorkbenchComposer:
+    """Explicitly assemble one concrete window without joining its MRO."""
+
+    @staticmethod
+    def compose(self, default_filename=None, default_prefdef_class_file=None, default_save_dir=None):
         self.workbench_session = WorkbenchSession(default_filename)
         self.setWindowTitle(__appname__)
 
@@ -511,11 +514,17 @@ class WorkbenchCompositionMixin:
             self.review_state_transaction,
             self.system_trash,
         )
+        self.image_processing_transaction = ImageProcessingTransaction(
+            self.annotation_editing,
+            self.annotation_scene,
+            self.annotation_persistence,
+            self.system_trash,
+        )
         self.image_processing = ImageProcessingSession(
             self.annotation_workspace,
             self.annotation_editing,
             self.annotation_persistence,
-            self.file_operations,
+            self.image_processing_transaction,
             self._project_image_processing,
             self.annotation_document_for_path,
         )
@@ -581,7 +590,7 @@ class WorkbenchCompositionMixin:
                           get_str('openDirDetail'))
 
         change_save_dir = action(get_str('changeSaveDir'), self.change_save_dir_dialog,
-                                 None, 'annotation-directory',
+                                 None, 'choose-annotation-directory',
                                  get_str('changeSavedAnnotationDir'))
         self.annotation_directory_button.setDefaultAction(change_save_dir)
 
@@ -592,12 +601,12 @@ class WorkbenchCompositionMixin:
         open_file_menu.addAction(open)
         open_dir._toolbar_menu = open_file_menu
         copy_annotations = action(tr('action.copyLabels'), self.copy_current_bounding_boxes, 'Ctrl+C',
-                                  'copy', tr('action.copyLabelsTip'),
+                                  'copy-annotations', tr('action.copyLabelsTip'),
                                   enabled=False)
         paste_annotations = action(tr('action.pasteLabels'), self.paste_copied_bounding_boxes, 'Ctrl+V',
-                                   'copy', tr('action.pasteLabelsTip'))
+                                   'paste', tr('action.pasteLabelsTip'))
         copy_prev_bounding = action(get_str('copyPrevBounding'), self.copy_previous_bounding_boxes,
-                                    None, 'copy', get_str('copyPrevBounding'))
+                                    None, 'copy-previous-annotations', get_str('copyPrevBounding'))
 
         open_next_image = action(get_str('nextImg'), self.open_next_image,
                                  'd', 'next', get_str('nextImgDetail'),
@@ -645,17 +654,19 @@ class WorkbenchCompositionMixin:
 
         close = action(get_str('closeCur'), self.close_file, 'Ctrl+W', 'close', get_str('closeCurDetail'))
 
-        delete_image = action(get_str('deleteImg'), self.delete_image, 'Ctrl+Delete', 'delete', get_str('deleteImgDetail'))
+        delete_image = action(get_str('deleteImg'), self.delete_image, 'Ctrl+Delete', 'delete-image', get_str('deleteImgDetail'))
         recent_file_operations = QAction(
             tr('action.recentOperations'),
             self,
         )
+        recent_file_operations.setIcon(new_icon('recent-operations'))
         recent_file_operations.triggered.connect(
             self.open_file_recovery_center
         )
         remove_colored_frames = action(
             tr('imageTools.action.removeFrames'),
             self.open_remove_colored_frames,
+            icon='remove-frames',
             tip=tr('imageTools.action.removeFramesTip'),
             enabled=False,
         )
@@ -683,12 +694,14 @@ class WorkbenchCompositionMixin:
                 self.quick_transform_current_image,
                 'rotate-counterclockwise',
             ),
+            icon='rotate-counterclockwise',
             tip=tr('geometry.rotateCounterclockwiseTip'),
             enabled=False,
         )
         rotate_180 = action(
             tr('geometry.rotate180'),
             partial(self.quick_transform_current_image, 'rotate-180'),
+            icon='rotate-180',
             tip=tr('geometry.rotate180Tip'),
             enabled=False,
         )
@@ -702,24 +715,28 @@ class WorkbenchCompositionMixin:
         flip_vertical = action(
             tr('geometry.flipVertical'),
             partial(self.quick_transform_current_image, 'flip-vertical'),
+            icon='flip-vertical',
             tip=tr('geometry.flipVerticalTip'),
             enabled=False,
         )
         transform_image = action(
             tr('geometry.transform'),
             self.open_transform_image,
+            icon='geometry-transform',
             tip=tr('geometry.transformTip'),
             enabled=False,
         )
         adjust_image = action(
             tr('adjustment.action'),
             self.open_adjust_image,
+            icon='adjust-image',
             tip=tr('adjustment.actionTip'),
             enabled=False,
         )
         check_image_quality = action(
             tr('quality.action'),
             self.open_image_quality_check,
+            icon='image-quality',
             tip=tr('quality.actionTip'),
             enabled=False,
         )
@@ -735,6 +752,7 @@ class WorkbenchCompositionMixin:
         undo_image_processing = action(
             tr('imageTools.action.undoCommitted'),
             self.undo_last_image_processing,
+            icon='undo-image-processing',
             tip=tr('imageTools.action.undoCommittedTip'),
             enabled=False,
         )
@@ -758,13 +776,13 @@ class WorkbenchCompositionMixin:
                         'w', 'new', get_str('crtBoxDetail'), enabled=False,
                         checkable=True)
         delete = action(get_str('delBox'), self.delete_selected_shape,
-                        'Delete', 'delete', get_str('delBoxDetail'), enabled=False)
+                        'Delete', 'delete-boxes', get_str('delBoxDetail'), enabled=False)
         copy = action(get_str('dupBox'), self.copy_selected_shape,
-                      'Ctrl+D', 'copy', get_str('dupBoxDetail'),
+                      'Ctrl+D', 'duplicate-boxes', get_str('dupBoxDetail'),
                       enabled=False)
 
         hide_all = action(get_str('hideAllBox'), partial(self.toggle_polygons, False),
-                          'Ctrl+H', 'hide', get_str('hideAllBoxDetail'),
+                          'Ctrl+H', 'hide-all', get_str('hideAllBoxDetail'),
                           enabled=False)
         show_all = action(get_str('showAllBox'), partial(self.toggle_polygons, True),
                           'Ctrl+A', 'hide', get_str('showAllBoxDetail'),
@@ -776,9 +794,9 @@ class WorkbenchCompositionMixin:
         )
         toggle_visibility.setChecked(True)
 
-        help_default = action(get_str('tutorialDefault'), self.show_default_tutorial_dialog, None, 'help', get_str('tutorialDetail'))
-        show_info = action(get_str('info'), self.show_info_dialog, None, 'help', get_str('info'))
-        show_shortcut = action(get_str('shortcut'), self.show_shortcuts_dialog, None, 'help', get_str('shortcut'))
+        help_default = action(get_str('tutorialDefault'), self.show_default_tutorial_dialog, None, 'tutorial', get_str('tutorialDetail'))
+        show_info = action(get_str('info'), self.show_info_dialog, None, 'about', get_str('info'))
+        show_shortcut = action(get_str('shortcut'), self.show_shortcuts_dialog, None, 'keyboard-shortcuts', get_str('shortcut'))
 
         zoom = QWidgetAction(self)
         zoom.setDefaultWidget(self.zoom_widget)
@@ -815,12 +833,14 @@ class WorkbenchCompositionMixin:
         }
 
         undo_annotation = QAction(tr('action.undo'), self)
+        undo_annotation.setIcon(new_icon('undo'))
         undo_annotation.setEnabled(False)
         undo_annotation.triggered.connect(self.undo_annotation)
         redo_annotation = QAction(
             tr('action.redo'),
             self,
         )
+        redo_annotation.setIcon(new_icon('redo'))
         redo_annotation.setEnabled(False)
         redo_annotation.triggered.connect(self.redo_annotation)
 
@@ -840,6 +860,7 @@ class WorkbenchCompositionMixin:
                                   enabled=False)
 
         labels = self.dock.toggleViewAction()
+        labels.setIcon(new_icon('annotation-panel'))
         labels.setText(get_str('showHide'))
         labels.setShortcut('Ctrl+Shift+L')
 
@@ -849,6 +870,7 @@ class WorkbenchCompositionMixin:
 
         # Draw squares/rectangles
         self.draw_squares_option = QAction(get_str('drawSquares'), self)
+        self.draw_squares_option.setIcon(new_icon('draw-squares'))
         self.draw_squares_option.setShortcut('Ctrl+Shift+R')
         self.draw_squares_option.setCheckable(True)
         self.draw_squares_option.setChecked(settings.get(SETTING_DRAW_SQUARE, False))
@@ -918,14 +940,18 @@ class WorkbenchCompositionMixin:
             tr('annotationDirectory.menu'),
             self,
         )
+        self.menus.recentFiles.setIcon(new_icon('open-recent'))
+        self.menus.annotationDirectory.setIcon(new_icon('annotation-directory'))
         annotation_directory_current = QAction(
             tr('annotationDirectory.currentImage'),
             self,
         )
+        annotation_directory_current.setIcon(new_icon('annotation-current'))
         annotation_directory_current.setEnabled(False)
         use_image_directory = action(
             tr('annotationDirectory.useImage'),
             self.use_image_directory_for_annotations,
+            icon='use-image-directory',
         )
         add_actions(
             self.menus.annotationDirectory,
@@ -939,6 +965,7 @@ class WorkbenchCompositionMixin:
         self.actions.annotationDirectoryCurrent = annotation_directory_current
         self.actions.useImageDirectory = use_image_directory
         self.menus.geometry = QMenu(tr('geometry.menu'), self)
+        self.menus.geometry.setIcon(new_icon('rotate-flip'))
         add_actions(
             self.menus.geometry,
             (
@@ -953,12 +980,14 @@ class WorkbenchCompositionMixin:
         self.menus.specializedRepair = QMenu(
             tr('specializedRepair.menu'), self
         )
+        self.menus.specializedRepair.setIcon(new_icon('specialized-repair'))
         add_actions(
             self.menus.specializedRepair,
             (remove_colored_frames,),
         )
 
         self.menus.language = QMenu(tr('language.menu'), self)
+        self.menus.language.setIcon(new_icon('language'))
         self.language_action_group = QActionGroup(self.menus.language)
         self.language_action_group.setExclusive(True)
         self.language_actions = {}
@@ -966,6 +995,11 @@ class WorkbenchCompositionMixin:
             language_action = self.menus.language.addAction(
                 LANGUAGE_NAMES[language]
             )
+            language_action.setIcon(new_icon(
+                'language-chinese'
+                if language == SIMPLIFIED_CHINESE
+                else 'language-english'
+            ))
             language_action.setCheckable(True)
             language_action.setData(language)
             language_action.setChecked(current_language() == language)
@@ -986,11 +1020,13 @@ class WorkbenchCompositionMixin:
         self.auto_save_timer.timeout.connect(self.save_dirty_annotations)
         # Sync single class mode from PR#106
         self.single_class_mode = QAction(get_str('singleClsMode'), self)
+        self.single_class_mode.setIcon(new_icon('single-class'))
         self.single_class_mode.setCheckable(True)
         self.single_class_mode.setChecked(settings.get(SETTING_SINGLE_CLASS, False))
         self.lastLabel = None
         # Add option to enable/disable labels being displayed at the top of bounding boxes
         self.display_label_option = QAction(get_str('displayLabel'), self)
+        self.display_label_option.setIcon(new_icon('show-box-labels'))
         self.display_label_option.setShortcut("Ctrl+Shift+P")
         self.display_label_option.setCheckable(True)
         self.display_label_option.setChecked(settings.get(SETTING_PAINT_LABEL, False))
@@ -1182,7 +1218,6 @@ class WorkbenchCompositionMixin:
 
         # Application state.
         self.image = QImage()
-        self.file_path = ustr(default_filename)
         self.last_open_dir = None
         self.recent_files = []
         self.max_recent = 7

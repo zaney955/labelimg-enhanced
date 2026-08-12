@@ -16,6 +16,11 @@ from labelimg.files.ui.list_widget import (
     FileListViewState,
     FileListWidget,
 )
+from labelimg.files.model import (
+    FileListItemState,
+    FileListProjection,
+    FileListQuery,
+)
 from labelimg.platform.settings_keys import (
     SETTING_FILE_LIST_SORT_DESCENDING,
     SETTING_FILE_LIST_SORT_KEY,
@@ -63,22 +68,23 @@ class FileListViewStateTest(unittest.TestCase):
         self.temporary.cleanup()
 
     def ordered(self, state):
-        return state.ordered_paths(
+        return list(state.project(
             self.paths,
             self.root,
             annotation_state_for=self.annotation.get,
             review_state_for=self.review.get,
+            persistence_flags_for=lambda _path: (),
             modified_time_for=self.modified.get,
-        )
+        ).ordered_paths)
 
     def visible(self, state):
-        return state.visible_paths(
+        return list(state.project(
             self.paths,
             self.root,
             annotation_state_for=self.annotation.get,
             review_state_for=self.review.get,
             persistence_flags_for=self.flags.get,
-        )
+        ).visible_paths)
 
     def test_name_order_keeps_relative_directories_as_natural_batches(self):
         state = FileListViewState("name", False)
@@ -137,12 +143,12 @@ class FileListViewStateTest(unittest.TestCase):
         )
         self.assertEqual(
             self.visible(state),
-            [self.paths[1], self.paths[3]],
+            [self.paths[3], self.paths[1]],
         )
         self.assertTrue(state.filter_active)
 
         state.reset_filter()
-        self.assertEqual(self.visible(state), self.paths)
+        self.assertEqual(self.visible(state), self.ordered(state))
         self.assertFalse(state.filter_active)
 
     def test_quality_filter_is_independent_from_persistence_alerts(self):
@@ -150,16 +156,16 @@ class FileListViewStateTest(unittest.TestCase):
         state.set_filter(quality="issues")
         issues = {self.paths[0]: ("blur",), self.paths[2]: ("dark",)}
 
-        visible = state.visible_paths(
+        visible = state.project(
             self.paths,
             self.root,
             annotation_state_for=self.annotation.get,
             review_state_for=self.review.get,
             persistence_flags_for=self.flags.get,
             quality_findings_for=lambda path: issues.get(path, ()),
-        )
+        ).visible_paths
 
-        self.assertEqual(visible, [self.paths[0], self.paths[2]])
+        self.assertEqual(visible, (self.paths[2], self.paths[0]))
         self.assertEqual(state.alert_filter, "all")
         self.assertEqual(state.quality_filter, "issues")
 
@@ -169,16 +175,60 @@ class FileListViewStateTest(unittest.TestCase):
             self.paths[3]: ({"code": "unreadable", "severity": "error"},),
         }
         self.assertEqual(
-            state.visible_paths(
+            state.project(
                 self.paths,
                 self.root,
                 annotation_state_for=self.annotation.get,
                 review_state_for=self.review.get,
                 persistence_flags_for=self.flags.get,
                 quality_findings_for=lambda path: structured.get(path, ()),
-            ),
-            [self.paths[1]],
+            ).visible_paths,
+            (self.paths[1],),
         )
+
+
+class FileListProjectionTest(unittest.TestCase):
+    def test_one_projection_owns_order_filter_and_visible_navigation(self):
+        root = os.path.abspath("workspace")
+        first = FileListItemState(
+            os.path.join(root, "day2", "10.png"),
+            modified_time=20,
+            annotation_state="annotated",
+            review_state="verified",
+        )
+        second = FileListItemState(
+            os.path.join(root, "day1", "2.png"),
+            modified_time=10,
+            annotation_state="unannotated",
+            review_state="questioned",
+            persistence_flags=("dirty",),
+        )
+        third = FileListItemState(
+            os.path.join(root, "day2", "1.png"),
+            modified_time=30,
+            annotation_state="annotated",
+            review_state="unreviewed",
+            quality_findings=({"code": "blur", "severity": "warning"},),
+        )
+
+        projection = FileListProjection.create(
+            root,
+            (first, second, third),
+            FileListQuery(
+                sort_key="name",
+                text="day2/",
+                annotation="annotated",
+            ),
+        )
+
+        self.assertEqual(
+            projection.ordered_paths,
+            (second.path, third.path, first.path),
+        )
+        self.assertEqual(projection.visible_paths, (third.path, first.path))
+        self.assertEqual(projection.adjacent_visible(third.path, 1), first.path)
+        self.assertIsNone(projection.adjacent_visible(first.path, 1))
+        self.assertTrue(projection.filter_active)
 
 
 class FileListControlsTest(unittest.TestCase):
@@ -257,7 +307,10 @@ class FileListControlsTest(unittest.TestCase):
         )
 
     def test_main_window_loads_and_saves_sort_preference_only(self):
-        from labelimg.workbench.main_window import MainWindow
+        from labelimg.workbench.bootstrap import (
+            WorkbenchLaunchOptions,
+            create_workbench,
+        )
 
         with tempfile.TemporaryDirectory() as config_dir:
             with patch.dict(
@@ -271,9 +324,9 @@ class FileListControlsTest(unittest.TestCase):
                 classes = os.path.join(config_dir, "classes.txt")
                 with open(classes, "w", encoding="utf8"):
                     pass
-                window = MainWindow(
-                    default_prefdef_class_file=classes,
-                )
+                window = create_workbench(WorkbenchLaunchOptions(
+                    class_file=classes,
+                ))
                 self.assertEqual(
                     window.file_list_controls.state.sort_key,
                     "review",

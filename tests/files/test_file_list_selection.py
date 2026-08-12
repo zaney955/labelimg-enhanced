@@ -17,7 +17,7 @@ from PyQt5.QtWidgets import (
     QStyleOptionViewItem,
 )
 
-from labelimg.workbench.main_window import MainWindow
+from labelimg.workbench.bootstrap import WorkbenchLaunchOptions, create_workbench
 from labelimg.localization.runtime import SIMPLIFIED_CHINESE, set_language
 from labelimg.files.application.recovery import TrashIdentity
 from labelimg.files.ui.list_widget import (
@@ -70,9 +70,9 @@ class FileListSelectionTest(unittest.TestCase):
         classes = os.path.join(self.temporary.name, "classes.txt")
         with open(classes, "w", encoding="utf8"):
             pass
-        self.window = MainWindow(
-            default_prefdef_class_file=classes,
-        )
+        self.window = create_workbench(WorkbenchLaunchOptions(
+            class_file=classes,
+        ))
         self.window.change_language(SIMPLIFIED_CHINESE)
         trash_dir = os.path.join(self.temporary.name, "trash")
         os.makedirs(trash_dir)
@@ -710,13 +710,13 @@ class FileListSelectionTest(unittest.TestCase):
             self.window.open_next_image()
             load_file.assert_called_once_with(self.paths[1])
 
-        self.window.file_path = self.paths[1]
+        self.window.workbench_session.activate(self.paths[1])
         self.window.cur_img_idx = self.window.m_img_list.index(self.paths[1])
         with patch.object(self.window, "load_file") as load_file:
             self.window.open_next_image()
             load_file.assert_called_once_with(self.paths[3])
 
-        self.window.file_path = self.paths[3]
+        self.window.workbench_session.activate(self.paths[3])
         self.window.cur_img_idx = self.window.m_img_list.index(self.paths[3])
         with patch.object(self.window, "load_file") as load_file:
             self.window.open_next_image()

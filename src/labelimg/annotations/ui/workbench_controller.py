@@ -12,14 +12,14 @@ from PyQt5.QtWidgets import QApplication, QMenu, QMessageBox
 import labelimg.ui.generated_resources  # noqa: F401 - registers Qt resources
 from labelimg.ui.actions import new_icon, set_action_copy
 from labelimg.annotations.ui.style import generate_color_by_text
-from labelimg.canvas.shape import Shape
+from labelimg.canvas import Shape
 from labelimg.localization.runtime import localize_message_box_buttons, question as localized_question, tr, translate_history_description
 from labelimg.annotations.domain.model import (
     AnnotationDocument,
     AnnotationDocumentError,
     AnnotationFormat,
 )
-from labelimg.canvas.annotation_adapter import (
+from labelimg.annotations.ui.canvas_adapter import (
     document_from_shapes,
     shapes_from_document,
 )

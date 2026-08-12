@@ -8,7 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt5.QtCore import QEvent
 from PyQt5.QtWidgets import QApplication, QAction, QToolButton
 
-from labelimg.workbench.main_window import MainWindow
+from labelimg.workbench.bootstrap import WorkbenchLaunchOptions, create_workbench
 from labelimg.localization.runtime import ENGLISH, SIMPLIFIED_CHINESE, set_language
 from labelimg.localization.catalogs import CATALOGS
 from labelimg.ui.actions import format_action_tooltip
@@ -30,10 +30,10 @@ class UserInterfaceCopyTest(unittest.TestCase):
         classes_path = os.path.join(self.temporary.name, "classes.txt")
         with open(classes_path, "w", encoding="utf-8"):
             pass
-        self.window = MainWindow(
-            default_prefdef_class_file=classes_path,
-            default_save_dir="",
-        )
+        self.window = create_workbench(WorkbenchLaunchOptions(
+            class_file=classes_path,
+            save_dir="",
+        ))
 
     def tearDown(self):
         self.window.deleteLater()

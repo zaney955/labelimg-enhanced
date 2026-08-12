@@ -9,7 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt5.QtGui import QColor, QImage, QKeySequence
 from PyQt5.QtWidgets import QApplication
 
-from labelimg.workbench.main_window import MainWindow
+from labelimg.workbench.bootstrap import WorkbenchLaunchOptions, create_workbench
 from labelimg.files.application.recovery import TrashIdentity
 
 
@@ -77,10 +77,10 @@ class DeleteImageNavigationTest(unittest.TestCase):
         with open(classes_path, "w", encoding="utf-8"):
             pass
 
-        self.window = MainWindow(
-            default_prefdef_class_file=classes_path,
-            default_save_dir=self.annotation_dir,
-        )
+        self.window = create_workbench(WorkbenchLaunchOptions(
+            class_file=classes_path,
+            save_dir=self.annotation_dir,
+        ))
         trash_dir = os.path.join(self.temp_dir.name, "trash")
         os.makedirs(trash_dir)
         self.window.system_trash = FakeTrashAdapter(trash_dir)

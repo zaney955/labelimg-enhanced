@@ -1,10 +1,11 @@
 import unittest
 
 from labelimg.annotations.infrastructure.storage import ResourceFingerprint
-from labelimg.files.application.recovery import (
-    FileRecoveryCenter,
-    FileRecoveryError,
-    RecoveryOperation,
+from labelimg.image_tools.application.recovery import (
+    ImageRecoveryCenter,
+    ImageRecoveryError,
+)
+from labelimg.platform.recovery import (
     RecoveryStatus,
     TrashIdentity,
     TrashedResource,
@@ -21,17 +22,17 @@ def resource(path):
 
 class ImageProcessingRecoveryCenterTest(unittest.TestCase):
     def setUp(self):
-        self.center = FileRecoveryCenter()
+        self.center = ImageRecoveryCenter()
         self.first = resource("first.jpg")
         self.second = resource("second.jpg")
-        self.entry = self.center.record_image_processing(
+        self.entry = self.center.record(
             (self.first, self.second)
         )
 
     def test_selected_subset_recovers_atomically_and_retains_the_rest(self):
         calls = []
 
-        result = self.center.recover_subset(
+        result = self.center.recover_resources(
             self.entry.entry_id,
             (self.first,),
             lambda _entry, selected: calls.append(selected) or "restored",
@@ -44,7 +45,7 @@ class ImageProcessingRecoveryCenterTest(unittest.TestCase):
         self.assertEqual(self.entry.status, RecoveryStatus.RECOVERABLE)
         self.assertIn("1 image", self.entry.detail)
 
-        self.center.recover_subset(
+        self.center.recover_resources(
             self.entry.entry_id,
             (self.second,),
             lambda _entry, selected: selected,
@@ -54,14 +55,14 @@ class ImageProcessingRecoveryCenterTest(unittest.TestCase):
         self.assertEqual(self.entry.status, RecoveryStatus.RESTORED)
 
     def test_subset_must_be_nonempty_and_belong_to_the_entry(self):
-        with self.assertRaises(FileRecoveryError):
-            self.center.recover_subset(
+        with self.assertRaises(ImageRecoveryError):
+            self.center.recover_resources(
                 self.entry.entry_id,
                 (),
                 lambda _entry, selected: selected,
             )
-        with self.assertRaises(FileRecoveryError):
-            self.center.recover_subset(
+        with self.assertRaises(ImageRecoveryError):
+            self.center.recover_resources(
                 self.entry.entry_id,
                 (resource("other.jpg"),),
                 lambda _entry, selected: selected,
@@ -69,10 +70,10 @@ class ImageProcessingRecoveryCenterTest(unittest.TestCase):
 
     def test_failed_subset_recovery_keeps_every_resource_retryable(self):
         def fail(_entry, _selected):
-            raise FileRecoveryError("external change")
+            raise ImageRecoveryError("external change")
 
-        with self.assertRaisesRegex(FileRecoveryError, "external change"):
-            self.center.recover_subset(
+        with self.assertRaisesRegex(ImageRecoveryError, "external change"):
+            self.center.recover_resources(
                 self.entry.entry_id,
                 (self.first,),
                 fail,
@@ -82,20 +83,10 @@ class ImageProcessingRecoveryCenterTest(unittest.TestCase):
         self.assertEqual(self.entry.status, RecoveryStatus.CONFLICT)
         self.assertTrue(self.entry.recoverable)
 
-    def test_full_recover_interface_remains_valid_for_other_operations(self):
-        delete = self.center.record_trash_operation(
-            RecoveryOperation.DELETE,
-            (self.first,),
-            target_count=1,
-        )
-
-        outcome = self.center.recover(
-            delete.entry_id,
-            lambda entry: entry.operation,
-        )
-
-        self.assertEqual(outcome, RecoveryOperation.DELETE)
-        self.assertEqual(delete.status, RecoveryStatus.RESTORED)
+    def test_image_recovery_ledger_is_independent_and_clearable(self):
+        self.assertEqual(self.center.entries, (self.entry,))
+        self.center.clear()
+        self.assertEqual(self.center.entries, ())
 
 
 if __name__ == "__main__":

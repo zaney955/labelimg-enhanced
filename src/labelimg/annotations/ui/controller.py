@@ -167,7 +167,7 @@ def _shape_from_box_state(state, prior_shape, default_paint_labels):
     from PyQt5.QtCore import QPointF
     from PyQt5.QtGui import QColor
 
-    from labelimg.canvas.shape import Shape
+    from labelimg.canvas import Shape
 
     shape = Shape(label=state.label)
     shape.session_id = state.session_id

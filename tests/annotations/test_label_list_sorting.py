@@ -10,7 +10,7 @@ from PyQt5.QtGui import QColor, QImage, QPainter, QPalette
 from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication
 
-from labelimg.workbench.main_window import MainWindow
+from labelimg.workbench.bootstrap import WorkbenchLaunchOptions, create_workbench
 from labelimg.canvas.shape import Shape
 
 
@@ -39,7 +39,9 @@ class LabelListSortingTest(unittest.TestCase):
         classes_path = os.path.join(self.temp_dir.name, "classes.txt")
         with open(classes_path, "w", encoding="utf-8"):
             pass
-        self.window = MainWindow(default_prefdef_class_file=classes_path)
+        self.window = create_workbench(WorkbenchLaunchOptions(
+            class_file=classes_path,
+        ))
         self.window.label_list.resize(360, 180)
         self.window.label_list.show()
 

@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-import argparse
 import ctypes
 import os.path
 import platform
@@ -16,7 +15,7 @@ from types import SimpleNamespace
 
 from PyQt5.QtCore import QByteArray, QDateTime, QEvent, QFileInfo, QItemSelectionModel, QModelIndex, QPersistentModelIndex, QPoint, QPointF, QProcess, QRect, QRectF, QSignalBlocker, QSize, QThread, QTimer, Qt, pyqtSignal
 from PyQt5.QtGui import QBrush, QColor, QCursor, QImage, QImageReader, QPainter, QPainterPath, QPalette, QPen, QPixmap
-from PyQt5.QtWidgets import QAbstractItemView, QAction, QActionGroup, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDockWidget, QFileDialog, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QProgressDialog, QPushButton, QScrollArea, QSizePolicy, QStackedWidget, QStyle, QStyleOptionViewItem, QStyledItemDelegate, QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget, QWidgetAction
+from PyQt5.QtWidgets import QAbstractItemView, QAction, QActionGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDockWidget, QFileDialog, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QProgressDialog, QPushButton, QScrollArea, QSizePolicy, QStackedWidget, QStyle, QStyleOptionViewItem, QStyledItemDelegate, QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget, QWidgetAction
 
 import labelimg.ui.generated_resources  # noqa: F401 - registers Qt resources
 from labelimg.platform.settings_keys import (
@@ -84,7 +83,7 @@ from labelimg.annotations.domain.model import (
     AnnotationFormat,
 )
 from labelimg.annotations.infrastructure.document import image_path_hint
-from labelimg.canvas.annotation_adapter import (
+from labelimg.annotations.ui.canvas_adapter import (
     document_from_shapes,
     shapes_from_document,
 )
@@ -126,26 +125,12 @@ from labelimg.files.ui.list_widget import (
     validate_base_name,
     validate_rename_mapping,
 )
-from labelimg.files.application.operations import (
-    FileOperationError,
-    SystemTrashAdapter,
-)
-from labelimg.files.application.transaction import (
-    FileOperationBlocked,
-    FileOperationTransaction,
-    FileRecoveryBlocked,
-)
-from labelimg.files.application.recovery import RecoveryOperation
 from labelimg.annotations.ui.label_group_list import LabelGroupListWidget
-from labelimg.image_tools.application.session import (
-    AdjustmentChange,
-    CropChange,
-    GeometryTransformChange,
-    ImageProcessingProjectionKind,
-    ImageProcessingSession,
-    PreparedPixelChange,
+from labelimg.workbench.session import (
+    TransitionFacts,
+    TransitionRequirement,
+    WorkbenchSession,
 )
-from labelimg.workbench.session import WorkbenchSession
 from labelimg.workbench.support import (
     APP_NAME,
     compare_image_paths,
@@ -159,7 +144,6 @@ from labelimg.canvas.workbench_controller import CanvasActionsMixin
 from labelimg.files.ui.controller import FileActionsMixin
 from labelimg.image_tools.ui.controller import ImageToolsActionsMixin
 from labelimg.workbench.recovery_ui import RecoveryActionsMixin
-from labelimg.workbench.composition import WorkbenchCompositionMixin
 
 __appname__ = APP_NAME
 
@@ -179,7 +163,6 @@ __appname__ = APP_NAME
 
 
 class MainWindow(
-    WorkbenchCompositionMixin,
     AnnotationActionsMixin,
     CanvasActionsMixin,
     FileActionsMixin,
@@ -189,6 +172,9 @@ class MainWindow(
     WindowMixin,
 ):
     FIT_WINDOW, FIT_WIDTH, MANUAL_ZOOM = list(range(3))
+
+    def __init__(self):
+        QMainWindow.__init__(self)
 
 
     def _annotation_image_data(self, image_key):
@@ -202,10 +188,6 @@ class MainWindow(
     def file_path(self):
         return self.workbench_session.image_path
 
-    @file_path.setter
-    def file_path(self, value):
-        self.workbench_session.replace_active(ustr(value) if value else None)
-
     @property
     def system_trash(self):
         return self._system_trash
@@ -215,6 +197,8 @@ class MainWindow(
         self._system_trash = value
         if hasattr(self, 'file_operations'):
             self.file_operations.replace_trash_adapter(value)
+        if hasattr(self, 'image_processing_transaction'):
+            self.image_processing_transaction.replace_trash_adapter(value)
 
     def change_language(self, language):
         if not set_language(language):
@@ -378,10 +362,11 @@ class MainWindow(
     def status(self, message, delay=5000):
         self.statusBar().showMessage(message, delay)
 
-    def reset_state(self):
+    def reset_state(self, preserve_session=False):
         self.label_list.clear()
         self.label_filter.clear()
-        self.file_path = None
+        if not preserve_session:
+            self.workbench_session.clear()
         self.image_data = None
         self.annotation_document = None
         self.canvas.reset_state()
@@ -579,9 +564,6 @@ class MainWindow(
         ):
             return False
 
-        self.reset_state()
-        self.canvas.setEnabled(False)
-
         # Fix bug: An  index error after select a directory when open a new file.
         unicode_file_path = ustr(file_path)
         unicode_file_path = os.path.abspath(unicode_file_path)
@@ -618,6 +600,15 @@ class MainWindow(
                 )
                 return False
 
+        if not unicode_file_path or not os.path.exists(unicode_file_path):
+            return False
+        transition_ticket = getattr(
+            self, '_workbench_transition_ticket', None
+        )
+
+        self.reset_state(preserve_session=True)
+        self.canvas.setEnabled(False)
+
         # Tzutalin 20160906 : Add file list and dock to move faster
         # Keep file selection independent from the image being opened.
         if unicode_file_path and self.file_list_widget.count() > 0:
@@ -638,6 +629,7 @@ class MainWindow(
             else:
                 image = QImage.fromData(self.image_data)
             if image.isNull():
+                self.workbench_session.cancel_transition(transition_ticket)
                 self.error_message(
                     tr('open.fileTitle'),
                     u"<p>%s</p>" % tr('open.invalidImage', path=unicode_file_path),
@@ -646,7 +638,15 @@ class MainWindow(
                 return False
             self.status(tr('status.loaded', name=os.path.basename(unicode_file_path)))
             self.image = image
-            self.file_path = unicode_file_path
+            if (
+                transition_ticket is not None
+                and transition_ticket.target == unicode_file_path
+            ):
+                self.workbench_session.commit_transition(transition_ticket)
+            else:
+                self.workbench_session.cancel_transition(transition_ticket)
+                self.workbench_session.activate(unicode_file_path)
+            self._workbench_transition_ticket = None
             self.update_current_file_marker()
             self.canvas.load_pixmap(QPixmap.fromImage(image))
             if annotation_path is not None:
@@ -1174,6 +1174,7 @@ class MainWindow(
         self.annotation_editing.clear_workspace()
         self.annotation_scene.clear_workspace()
         self.file_operations.clear_recovery()
+        self.image_processing.clear_recovery()
         if self.file_path:
             self.clear_current_labels()
             if loaded is not None:
@@ -1271,6 +1272,9 @@ class MainWindow(
     def import_dir_images(self, dir_path, initial_index=0):
         if not self.may_continue() or not dir_path:
             return
+        self.workbench_session.commit_transition(
+            self._workbench_transition_ticket
+        )
 
         changing_workspace = (
             self.dir_name is None
@@ -1284,11 +1288,11 @@ class MainWindow(
             self.annotation_editing.clear_workspace()
             self.annotation_scene.clear_workspace()
             self.file_operations.clear_recovery()
+            self.image_processing.clear_recovery()
             self.file_list_controls.clear_filters(emit=False)
         self.last_open_dir = dir_path
         self.dir_name = dir_path
         self._sync_annotation_directory_ui()
-        self.file_path = None
         self.populate_file_list(self.scan_all_images(dir_path))
 
         if self.img_count:
@@ -1296,14 +1300,14 @@ class MainWindow(
             self.load_file(self.m_img_list[self.cur_img_idx])
         else:
             self.cur_img_idx = 0
-            self.reset_state()
+            self.reset_state(preserve_session=True)
             self.set_clean()
             self.toggle_actions(False)
             self.canvas.setEnabled(False)
             self.actions.saveAs.setEnabled(False)
 
     def populate_file_list(self, image_paths):
-        from labelimg.image_tools.ui.quality_panel import quality_finding_text
+        from labelimg.image_tools import quality_finding_text
         blocker = QSignalBlocker(self.file_list_widget)
         self.file_list_widget.clear()
         self.m_img_list = list(image_paths)
@@ -1501,9 +1505,12 @@ class MainWindow(
                 self.statusBar().show()
 
     def close_file(self, _value=False):
-        if not self.may_continue():
+        if not self.may_continue(target=None):
             return
-        self.reset_state()
+        self.workbench_session.commit_transition(
+            self._workbench_transition_ticket
+        )
+        self.reset_state(preserve_session=True)
         self.set_clean()
         self.toggle_actions(False)
         self.canvas.setEnabled(False)
@@ -1521,22 +1528,29 @@ class MainWindow(
             ['-m', 'labelimg'] + sys.argv[1:],
         )
 
-    def may_continue(self):
-        if not self._resolve_crop_before_leave():
+    def may_continue(self, target=None):
+        plan = self.workbench_session.plan_transition(
+            target,
+            self._transition_facts(),
+        )
+        requirements = set(plan.requirements)
+        if (
+            TransitionRequirement.RESOLVE_CROP in requirements
+            and not self._resolve_crop_before_leave()
+        ):
             return False
         if (
-            self.annotation_editing.pending
-            or self.annotation_editing.edit_open
+            TransitionRequirement.FINISH_ANNOTATION_EDIT in requirements
         ):
             self._cancel_annotation_edit_for_navigation()
         if (
-            self.annotation_persistence.conflicts
+            TransitionRequirement.RESOLVE_EXTERNAL_CONFLICTS in requirements
             and not self._resolve_conflicts_for_close()
         ):
             return False
         dirty_views = list(self.annotation_editing.dirty_views())
         if not dirty_views:
-            return True
+            return self._authorize_workbench_transition(target)
 
         dialog = QDialog(self)
         dialog.setWindowTitle(tr('unsaved.title'))
@@ -1598,6 +1612,32 @@ class MainWindow(
                 if not self._discard_history_view(view):
                     return False
         self._sync_annotation_history_ui()
+        return self._authorize_workbench_transition(target)
+
+    def _transition_facts(self):
+        return TransitionFacts(
+            crop_active=bool(self._crop_active),
+            annotation_edit_open=bool(
+                self.annotation_editing.pending
+                or self.annotation_editing.edit_open
+            ),
+            external_conflicts=tuple(
+                self.annotation_persistence.conflicts
+            ),
+            dirty_images=tuple(
+                view.image_key
+                for view in self.annotation_editing.dirty_views()
+            ),
+        )
+
+    def _authorize_workbench_transition(self, target):
+        facts = self._transition_facts()
+        plan = self.workbench_session.plan_transition(target, facts)
+        if not plan.ready:
+            return False
+        self._workbench_transition_ticket = (
+            self.workbench_session.authorize_transition(plan, facts)
+        )
         return True
 
     def _save_history_views(self, views):
@@ -1664,59 +1704,3 @@ class MainWindow(
 
     def current_path(self):
         return os.path.dirname(self.file_path) if self.file_path else '.'
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-def get_main_app(argv=[]):
-    """
-    Standard boilerplate Qt application code.
-    Do everything but app.exec_() -- so that we can test the application in one thread
-    """
-    app = QApplication(argv)
-    app.setApplicationName(__appname__)
-    app.setWindowIcon(new_icon("app"))
-    # Tzutalin 201705+: Accept extra agruments to change predefined class file
-    argparser = argparse.ArgumentParser()
-    argparser.add_argument("image_dir", nargs="?")
-    argparser.add_argument("class_file",
-                           default=os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "predefined_classes.txt"),
-                           nargs="?")
-    argparser.add_argument("save_dir", nargs="?")
-    args = argparser.parse_args(argv[1:])
-
-    args.image_dir = args.image_dir and os.path.normpath(args.image_dir)
-    args.class_file = args.class_file and os.path.normpath(args.class_file)
-    args.save_dir = args.save_dir and os.path.normpath(args.save_dir)
-
-    # Usage: labelImg image classFile saveDir
-    win = MainWindow(args.image_dir,
-                     args.class_file,
-                     args.save_dir)
-    win.show()
-    return app, win
-
-
-def main():
-    """construct main app and run it"""
-    app, _win = get_main_app(sys.argv)
-    return app.exec_()
-
-if __name__ == '__main__':
-    sys.exit(main())

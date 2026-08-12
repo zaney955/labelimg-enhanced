@@ -1,6 +1,7 @@
 """Executable dependency rules for the feature-first modular monolith."""
 
 import ast
+import importlib
 from pathlib import Path
 import unittest
 
@@ -61,7 +62,11 @@ class ModularArchitectureTest(unittest.TestCase):
             for path in python_files(PACKAGE_ROOT)
             for imported in imports(path)
         }
-        forbidden = {f"labelimg.{name[:-3]}" for name in LEGACY_MODULES}
+        forbidden = {
+            f"labelimg.{name[:-3]}"
+            for name in LEGACY_MODULES
+            if not (PACKAGE_ROOT / name[:-3]).is_dir()
+        }
         self.assertFalse(forbidden & all_imports)
 
     def test_domain_and_application_layers_are_qt_free(self):
@@ -86,6 +91,114 @@ class ModularArchitectureTest(unittest.TestCase):
             if "labelimg.workbench.main_window" in set(imports(path)):
                 importers.append(str(path.relative_to(PACKAGE_ROOT)))
         self.assertEqual(importers, ["workbench\\bootstrap.py"])
+
+    def test_feature_dependencies_are_acyclic_and_use_public_exports(self):
+        features = {"annotations", "canvas", "files", "image_tools"}
+        graph = {feature: set() for feature in features}
+        private_imports = []
+        for feature in features:
+            for path in python_files(PACKAGE_ROOT / feature):
+                for imported in imports(path):
+                    parts = imported.split(".")
+                    if len(parts) < 2 or parts[0] != "labelimg":
+                        continue
+                    dependency = parts[1]
+                    if dependency not in features or dependency == feature:
+                        continue
+                    graph[feature].add(dependency)
+                    if imported != "labelimg.%s" % dependency:
+                        private_imports.append(
+                            "%s -> %s"
+                            % (path.relative_to(PACKAGE_ROOT), imported)
+                        )
+        self.assertEqual(private_imports, [])
+
+        def reaches(start, current, visited):
+            for dependency in graph[current]:
+                if dependency == start:
+                    return True
+                if dependency not in visited and reaches(
+                    start, dependency, visited | {dependency}
+                ):
+                    return True
+            return False
+
+        cycles = sorted(
+            feature
+            for feature in features
+            if reaches(feature, feature, {feature})
+        )
+        self.assertEqual(cycles, [])
+
+    def test_public_feature_exports_are_resolvable(self):
+        for feature in ("annotations", "canvas", "files", "image_tools"):
+            module = importlib.import_module("labelimg.%s" % feature)
+            missing = [
+                name for name in module.__all__
+                if not hasattr(module, name)
+            ]
+            self.assertEqual(missing, [], feature)
+
+    def test_bootstrap_owns_launch_and_composer_is_not_a_window_mixin(self):
+        main_window = (
+            PACKAGE_ROOT / "workbench" / "main_window.py"
+        ).read_text(encoding="utf-8")
+        bootstrap = (
+            PACKAGE_ROOT / "workbench" / "bootstrap.py"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("def get_main_app(", main_window)
+        self.assertNotIn("def main(", main_window)
+        self.assertNotIn("WorkbenchCompositionMixin", main_window)
+        self.assertNotIn("WorkbenchComposer", main_window)
+        self.assertNotIn("@file_path.setter", main_window)
+        self.assertIn("def create_workbench(", bootstrap)
+        composer_importers = []
+        for path in python_files(PACKAGE_ROOT):
+            if "labelimg.workbench.composition" in set(imports(path)):
+                composer_importers.append(str(path.relative_to(PACKAGE_ROOT)))
+        self.assertEqual(composer_importers, ["workbench\\bootstrap.py"])
+
+    def test_recovery_coordination_uses_public_feature_interfaces(self):
+        recovery_ui = (
+            PACKAGE_ROOT / "workbench" / "recovery_ui.py"
+        )
+        self.assertFalse(any(
+            imported.startswith((
+                "labelimg.files.",
+                "labelimg.image_tools.",
+            ))
+            for imported in imports(recovery_ui)
+        ))
+        self.assertFalse(any(
+            imported.startswith("labelimg.annotations")
+            for imported in imports(PACKAGE_ROOT / "platform" / "recovery.py")
+        ))
+        composition_imports = set(imports(
+            PACKAGE_ROOT / "workbench" / "composition.py"
+        ))
+        self.assertFalse(any(
+            imported.startswith((
+                "labelimg.files.application.transaction",
+                "labelimg.files.application.recovery",
+                "labelimg.image_tools.application.transaction",
+                "labelimg.image_tools.application.recovery",
+            ))
+            for imported in composition_imports
+        ))
+
+    def test_file_list_projection_replaces_callback_compatibility_queries(self):
+        list_widget = (
+            PACKAGE_ROOT / "files" / "ui" / "list_widget.py"
+        ).read_text(encoding="utf-8")
+        for method in ("ordered_paths", "matches", "visible_paths"):
+            self.assertNotIn("def %s(" % method, list_widget)
+
+    def test_canvas_hover_is_observed_through_the_interaction_snapshot(self):
+        canvas = (
+            PACKAGE_ROOT / "canvas" / "widget.py"
+        ).read_text(encoding="utf-8")
+        for name in ("h_shape", "h_vertex", "h_edge"):
+            self.assertNotIn("def %s(" % name, canvas)
 
     def test_numeric_image_dependencies_are_owned_by_image_tools(self):
         violations = []
