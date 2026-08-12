@@ -34,7 +34,7 @@ classifiers = [
 ]
 
 [project.scripts]
-labelImg = "labelimg.app:main"
+labelImg = "labelimg.workbench.bootstrap:main"
 
 [project.urls]
 Repository = "https://github.com/zaney955/labelimg-enhanced"

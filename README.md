@@ -58,6 +58,8 @@ python -m pip wheel . --no-deps --no-build-isolation
 python tools/run_tests.py --installed
 ```
 
+源码采用功能优先的模块化单体：`annotations`、`canvas`、`files`、`image_tools` 分别拥有自身的领域、应用、基础设施和界面代码，`workbench` 只负责桌面壳与跨功能组合。根包仅保留版本和模块入口；AST 架构测试会阻止旧式平铺模块、Qt 反向渗透和跨边界依赖回归。完整设计与迁移映射见 [模块化架构设计](docs/design/modular-architecture-refactor.md)。
+
 双语目录使用稳定消息 ID；测试会校验中英文键和格式参数完全一致，并阻止界面代码重新引入硬编码应用文案。设计说明见 [双语界面设计](docs/design/bilingual-interface.md)。
 
 ## 来源与许可证

@@ -145,11 +145,11 @@ At rest, the controller's current immutable revision is the canonical annotation
   - captures rollback bytes only after acquiring the complete resource lease.
 - `src/labelimg/annotation_session.py`
   - transactionally migrates histories, baselines, active targets, shared-resource identities, and conflicts after synchronized rename.
-- `src/labelimg/canvas.py`
+- `src/labelimg/canvas/widget.py`
   - emits gesture lifecycle signals;
   - exposes cancel/restore hooks for an unfinished gesture;
   - does not own annotation history.
-- `src/labelimg/app.py`
+- `src/labelimg/workbench/main_window.py`
   - creates actions and dialogs;
   - delegates every document mutation to `AnnotationEditController`;
   - removes direct mutation-to-`set_dirty()` wiring.

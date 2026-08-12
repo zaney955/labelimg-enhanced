@@ -1,5 +1,6 @@
-"""Built-in image processing tools and recoverable commit support.
+"""Public image-processing contracts.
 
-Submodules are imported explicitly so ordinary LabelImg startup does not load
-the comparatively large OpenCV runtime before an image tool is requested.
+Submodules remain lazy so ordinary LabelImg startup does not load OpenCV.
 """
+
+__all__ = ()

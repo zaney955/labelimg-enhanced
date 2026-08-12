@@ -19,7 +19,7 @@ def main() -> int:
     arguments = argument_parser.parse_args()
 
     repository_root = Path(__file__).resolve().parents[1]
-    test_files = sorted((repository_root / "tests").glob("test_*.py"))
+    test_files = sorted((repository_root / "tests").rglob("test_*.py"))
     environment = os.environ.copy()
     environment.setdefault("QT_QPA_PLATFORM", "offscreen")
     test_config_dir = Path(environment.get(
@@ -35,7 +35,8 @@ def main() -> int:
 
     failed = []
     for test_file in test_files:
-        print(f"RUN {test_file.name}", flush=True)
+        relative_test_file = test_file.relative_to(repository_root / "tests")
+        print(f"RUN {relative_test_file}", flush=True)
         result = subprocess.run(
             [sys.executable, "-B", str(test_file)],
             cwd=repository_root,
@@ -43,7 +44,7 @@ def main() -> int:
             check=False,
         )
         if result.returncode:
-            failed.append(test_file.name)
+            failed.append(str(relative_test_file))
 
     if failed:
         print("FAILED_FILES=" + ",".join(failed))

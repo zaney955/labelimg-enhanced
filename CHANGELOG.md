@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.0.0
+
+- Reorganized the source as a feature-first modular monolith with explicit `annotations`, `canvas`, `files`, `image_tools`, `localization`, `platform`, `ui`, and `workbench` ownership.
+- Replaced the flat internal module layout without compatibility shims; `labelimg.app` is intentionally removed.
+- Moved the `labelImg` and `python -m labelimg` composition entry to `labelimg.workbench.bootstrap`.
+- Introduced Qt-free annotation domain models and workbench session state, with Qt projection isolated in feature UI adapters.
+- Added AST architecture tests for dependency direction, legacy paths, root-package hygiene, wildcard imports, and image-library ownership.
+- Mirrored the production feature packages in the test tree while retaining isolated-per-file Qt execution.
+
 ## 1.9.0
 
 - Added complete Simplified Chinese and English application interfaces with an immediate, persisted View → Language switch and system-locale first-launch mapping.

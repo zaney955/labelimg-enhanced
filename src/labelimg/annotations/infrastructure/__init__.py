@@ -1,0 +1,2 @@
+"""Annotation persistence adapters."""
+
