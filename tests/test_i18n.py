@@ -230,6 +230,12 @@ class RuntimeLanguageSwitchTest(unittest.TestCase):
     def test_switch_updates_visible_main_window_text_and_persists(self):
         self.window.change_language(SIMPLIFIED_CHINESE)
         self.assertEqual(self.window.menus.view.title(), "视图(&V)")
+        self.assertEqual(self.window.menus.settings.title(), "设置(&S)")
+        self.assertEqual(self.window.actions.labels.text(), "标注面板")
+        self.assertEqual(
+            self.window.actions.showInfo.text(),
+            "关于 LabelImg Enhanced",
+        )
         self.assertEqual(
             self.window.file_list_empty_label.text(),
             "没有符合筛选条件的文件",
@@ -244,6 +250,7 @@ class RuntimeLanguageSwitchTest(unittest.TestCase):
 
         self.window.change_language(ENGLISH)
         self.assertEqual(self.window.menus.view.title(), "&View")
+        self.assertEqual(self.window.menus.settings.title(), "&Settings")
         self.assertEqual(
             self.window.file_list_empty_label.text(),
             "No files match the filters",

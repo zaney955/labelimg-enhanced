@@ -168,6 +168,47 @@ class CommandSurfacesTest(unittest.TestCase):
             for button in self.window.review_control.buttons.values()
         ))
 
+    def test_top_bar_controls_share_one_height(self):
+        bar = self.window.top_commands
+        bar.update_responsive_layout(1100)
+
+        controls = [
+            bar.open_button,
+            bar.previous_button,
+            bar.counter_label,
+            bar.next_button,
+            *self.window.review_control.buttons.values(),
+            bar.rotate_button,
+            bar.flip_button,
+            self.window.format_selector,
+            bar.auto_save_button,
+            bar.save_button,
+        ]
+        self.assertEqual({control.height() for control in controls}, {44})
+
+    def test_dock_panel_rows_share_horizontal_edges(self):
+        self.window.resize(1180, 760)
+        self.window.show()
+        self.app.processEvents()
+
+        annotation_rows = [
+            self.window.annotation_header,
+            self.window.diffc_button,
+            self.window.default_label_row,
+            self.window.label_filter,
+            self.window.label_summary_label,
+            self.window.label_list,
+        ]
+        file_rows = [
+            self.window.annotation_directory_bar,
+            self.window.file_list_controls,
+            self.window.file_list_stack,
+            self.window.file_selection_count_label,
+        ]
+        for rows in (annotation_rows, file_rows):
+            self.assertEqual({row.x() for row in rows}, {6})
+            self.assertEqual({row.width() for row in rows}, {rows[0].width()})
+
     def test_one_shot_create_accept_returns_to_enabled_selection(self):
         self.load_image("accept.png")
         self.window.use_default_label_checkbox.setChecked(True)
@@ -228,6 +269,121 @@ class CommandSurfacesTest(unittest.TestCase):
         }
         self.assertNotIn(self.window.actions.copy, rail_actions)
         self.assertNotIn(self.window.actions.delete, rail_actions)
+
+    def test_settings_is_a_top_level_menu_for_application_preferences(self):
+        self.assertEqual(
+            self.window.menuBar().actions(),
+            [
+                self.window.menus.file.menuAction(),
+                self.window.menus.edit.menuAction(),
+                self.window.menus.image.menuAction(),
+                self.window.menus.view.menuAction(),
+                self.window.menus.settings.menuAction(),
+                self.window.menus.help.menuAction(),
+            ],
+        )
+        actions = self.window.menus.settings.actions()
+        self.assertEqual(
+            actions,
+            [
+                self.window.menus.language.menuAction(),
+                actions[1],
+                self.window.auto_saving,
+                self.window.single_class_mode,
+                actions[4],
+                self.window.actions.resetAll,
+            ],
+        )
+        self.assertTrue(actions[1].isSeparator())
+        self.assertTrue(actions[4].isSeparator())
+        self.assertTrue(self.window.single_class_mode.shortcut().isEmpty())
+
+    def test_file_and_edit_menus_have_distinct_command_ownership(self):
+        file_actions = self.window.menus.file.actions()
+        self.assertEqual(
+            file_actions,
+            [
+                self.window.actions.openDir,
+                self.window.actions.open,
+                self.window.menus.recentFiles.menuAction(),
+                file_actions[3],
+                self.window.menus.annotationDirectory.menuAction(),
+                file_actions[5],
+                self.window.actions.replaceAnnotation,
+                self.window.actions.save,
+                self.window.actions.saveAs,
+                self.window.actions.save_format,
+                self.window.actions.close,
+                file_actions[11],
+                self.window.actions.deleteImg,
+                self.window.actions.recentFileOperations,
+                file_actions[14],
+                self.window.actions.quit,
+            ],
+        )
+        for index in (3, 5, 11, 14):
+            self.assertTrue(file_actions[index].isSeparator())
+
+        edit_actions = self.window.menus.edit.actions()
+        self.assertEqual(
+            edit_actions,
+            [
+                self.window.actions.create,
+                self.window.actions.undoAnnotation,
+                self.window.actions.redoAnnotation,
+                edit_actions[3],
+                self.window.actions.edit,
+                self.window.actions.copyAnnotations,
+                self.window.actions.pasteAnnotations,
+                self.window.actions.copyPrevBounding,
+                self.window.actions.copy,
+                self.window.actions.delete,
+                edit_actions[10],
+                self.window.actions.lineColor,
+                self.window.draw_squares_option,
+            ],
+        )
+        self.assertTrue(edit_actions[3].isSeparator())
+        self.assertTrue(edit_actions[10].isSeparator())
+
+    def test_view_and_help_menus_use_clear_bounded_groups(self):
+        view_actions = self.window.menus.view.actions()
+        self.assertEqual(
+            view_actions,
+            [
+                self.window.display_label_option,
+                self.window.actions.labels,
+                view_actions[2],
+                self.window.actions.hideAll,
+                self.window.actions.showAll,
+                view_actions[5],
+                self.window.actions.zoomIn,
+                self.window.actions.zoomOut,
+                self.window.actions.zoomOrg,
+                view_actions[9],
+                self.window.actions.fitWindow,
+                self.window.actions.fitWidth,
+            ],
+        )
+        for index in (2, 5, 9):
+            self.assertTrue(view_actions[index].isSeparator())
+        self.assertEqual(self.window.actions.labels.text(), "Annotation Panel")
+
+        help_actions = self.window.menus.help.actions()
+        self.assertEqual(
+            help_actions,
+            [
+                self.window.actions.helpDefault,
+                self.window.actions.showShortcut,
+                help_actions[2],
+                self.window.actions.showInfo,
+            ],
+        )
+        self.assertTrue(help_actions[2].isSeparator())
+        self.assertEqual(
+            self.window.actions.showInfo.text(),
+            "About LabelImg Enhanced",
+        )
 
     def test_accessible_names_follow_live_language_changes(self):
         self.window.change_language(SIMPLIFIED_CHINESE)
