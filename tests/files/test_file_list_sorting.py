@@ -3,7 +3,8 @@ import tempfile
 import unittest
 from functools import cmp_to_key
 
-from labelimg.workbench.main_window import MainWindow, portable_logical_compare
+from labelimg.files.ui.controller import FileActionsMixin
+from labelimg.workbench.support import portable_logical_compare
 
 
 class FileListSortingTest(unittest.TestCase):
@@ -27,7 +28,7 @@ class FileListSortingTest(unittest.TestCase):
 
             actual_paths = [
                 os.path.relpath(path, temp_dir)
-                for path in MainWindow.scan_all_images(None, temp_dir)
+                for path in FileActionsMixin.scan_all_images(None, temp_dir)
             ]
 
             self.assertEqual(

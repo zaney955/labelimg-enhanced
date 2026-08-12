@@ -1,7 +1,7 @@
 
 from unittest import TestCase
 
-from labelimg.workbench.main_window import get_main_app
+from labelimg.workbench.bootstrap import get_main_app
 
 
 class TestMainWindow(TestCase):

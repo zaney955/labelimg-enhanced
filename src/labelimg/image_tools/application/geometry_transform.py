@@ -9,9 +9,12 @@ import os
 import cv2
 import numpy as np
 
-from labelimg.annotations.domain.history import AnnotationBoxState, AnnotationSnapshot
-from labelimg.annotations.infrastructure.storage import fingerprint_image
-from labelimg.annotations.infrastructure.storage import fingerprint_path
+from labelimg.annotations import (
+    AnnotationBoxState,
+    AnnotationSnapshot,
+    fingerprint_image,
+    fingerprint_path,
+)
 from labelimg.image_tools.infrastructure.image_codec import ImageFileCodec
 from labelimg.image_tools.infrastructure.recoverable_replacement import (
     PreparedImageReplacement,

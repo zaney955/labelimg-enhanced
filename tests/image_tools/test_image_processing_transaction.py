@@ -5,16 +5,15 @@ import tempfile
 import unittest
 
 from labelimg.annotations.infrastructure.storage import fingerprint_path
-from labelimg.files.application.transaction import FileOperationTransaction
-from labelimg.files.application.recovery import (
-    FileRecoveryCenter,
-    RecoveryOperation,
-    RecoveryStatus,
-    TrashIdentity,
+from labelimg.image_tools.application.recovery import (
+    ImageProcessingOperation,
+    ImageRecoveryCenter,
 )
+from labelimg.image_tools.application.transaction import ImageProcessingTransaction
 from labelimg.image_tools.infrastructure.recoverable_replacement import (
     PreparedImageReplacement,
 )
+from labelimg.platform.recovery import RecoveryStatus, TrashIdentity
 
 
 class FakeTrash:
@@ -40,17 +39,15 @@ class FakeTrash:
         shutil.move(identity.token, destination)
 
 
-class ImageProcessingFileTransactionTest(unittest.TestCase):
+class ImageProcessingTransactionTest(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = self.temporary.name
         trash_directory = os.path.join(self.root, "trash")
         os.makedirs(trash_directory)
         self.trash = FakeTrash(trash_directory)
-        self.center = FileRecoveryCenter()
-        self.transaction = FileOperationTransaction(
-            None,
-            None,
+        self.center = ImageRecoveryCenter()
+        self.transaction = ImageProcessingTransaction(
             None,
             None,
             None,
@@ -88,9 +85,9 @@ class ImageProcessingFileTransactionTest(unittest.TestCase):
             ),
         )
 
-        outcome = self.transaction.execute_image_processing(replacements)
+        outcome = self.transaction.execute(replacements)
 
-        self.assertEqual(outcome.operation, RecoveryOperation.IMAGE_PROCESSING)
+        self.assertEqual(outcome.operation, ImageProcessingOperation.PROCESS)
         self.assertEqual(outcome.recovery_entry.target_count, 2)
         self.assertEqual(self.read(first), b"first-processed")
         self.assertEqual(self.read(second), b"second-processed")
@@ -123,7 +120,7 @@ class ImageProcessingFileTransactionTest(unittest.TestCase):
         self.transaction.replace_trash_adapter(replacement_trash)
         path = self.create("image.jpg", b"original")
 
-        self.transaction.execute_image_processing((
+        self.transaction.execute((
             PreparedImageReplacement(
                 path,
                 fingerprint_path(path),
@@ -137,7 +134,7 @@ class ImageProcessingFileTransactionTest(unittest.TestCase):
     def test_geometry_processing_recovers_image_and_annotation_as_one_group(self):
         image = self.create("image.png", b"image-original")
         annotation = self.create("image.xml", b"annotation-original")
-        outcome = self.transaction.execute_grouped_image_processing(
+        outcome = self.transaction.execute_grouped(
             image,
             (
                 PreparedImageReplacement(
@@ -184,7 +181,7 @@ class ImageProcessingFileTransactionTest(unittest.TestCase):
             {"image": "first.png", "annotations": [{"label": "cropped"}]},
             {"image": "second.png", "annotations": []},
         ]).encode("utf8")
-        outcome = self.transaction.execute_grouped_image_processing(
+        outcome = self.transaction.execute_grouped(
             image,
             (
                 PreparedImageReplacement(
@@ -229,7 +226,7 @@ class ImageProcessingFileTransactionTest(unittest.TestCase):
             return json.dumps(records).encode("utf8")
 
         fingerprint = fingerprint_path(annotation)
-        outcome = self.transaction.execute_grouped_image_processing_batch((
+        outcome = self.transaction.execute_grouped_batch((
             (
                 first,
                 (

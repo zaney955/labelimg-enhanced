@@ -9,7 +9,6 @@ from labelimg.annotations.domain.model import (
     AnnotationStatus,
 )
 from labelimg.annotations.infrastructure.document import AnnotationDocument
-from labelimg.files.application.operations import move_to_recycle_bin
 from labelimg.annotations.infrastructure.formats.create_ml_collection import (
     CreateMLAnnotationCollection,
     CreateMLCollectionError,
@@ -848,13 +847,17 @@ class AnnotationWorkspace:
         except FileNotFoundError:
             self._resource_bytes[key] = None
 
-    def delete(self, image_path, remover=move_to_recycle_bin):
+    def delete(self, image_path, remover=None):
         """Remove active-location annotations and update label discovery.
 
         File-list operations use AnnotationFileService for the broader
         both-location and shared-CreateML policy. This method remains as the
         recoverable compatibility boundary for workspace callers.
         """
+        if remover is None:
+            raise ValueError(
+                "annotation deletion requires a recoverable remover"
+            )
         removed = []
         for annotation_path in self._paths_for_image(image_path):
             if os.path.isfile(annotation_path):

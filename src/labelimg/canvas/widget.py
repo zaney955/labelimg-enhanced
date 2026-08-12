@@ -157,17 +157,18 @@ class Canvas(QWidget):
         self.set_mode(self.EDIT if value else self.CREATE)
 
     def un_highlight(self):
-        if self.h_shape:
-            self.h_shape.highlight_clear()
+        hover = self.interaction_snapshot.hover
+        if hover.shape:
+            hover.shape.highlight_clear()
         self._set_hover()
 
     def selected_vertex(self):
-        return self.h_vertex is not None
+        return self.interaction_snapshot.hover.vertex is not None
 
     def vertex_cursor(self, index=None):
         if index is None:
-            index = self.h_vertex
-        shape = self.h_shape
+            index = self.interaction_snapshot.hover.vertex
+        shape = self.interaction_snapshot.hover.shape
         if (
             shape is not None
             and index is not None
@@ -189,7 +190,7 @@ class Canvas(QWidget):
         )
 
     def selected_edge(self):
-        return self.h_edge is not None
+        return self.interaction_snapshot.hover.edge is not None
 
     def selection_count(self):
         return len(self.selected_shapes)
@@ -207,94 +208,47 @@ class Canvas(QWidget):
         return self._selection.snapshot.active
 
     @property
-    def h_shape(self):
-        return self._interaction.hover_shape
-
-    @h_shape.setter
-    def h_shape(self, value):
-        self._interaction.hover_shape = value
-
-    @property
-    def h_vertex(self):
-        return self._interaction.hover_vertex
-
-    @h_vertex.setter
-    def h_vertex(self, value):
-        self._interaction.hover_vertex = value
-        if value is not None:
-            self._interaction.hover_edge = None
-
-    @property
-    def h_edge(self):
-        return self._interaction.hover_edge
-
-    @h_edge.setter
-    def h_edge(self, value):
-        self._interaction.hover_edge = value
-        if value is not None:
-            self._interaction.hover_vertex = None
+    def interaction_snapshot(self):
+        return self._interaction.snapshot
 
     @property
     def selection_press_pos(self):
         return self._interaction.selection_press_pos
 
-    @selection_press_pos.setter
-    def selection_press_pos(self, value):
-        self._interaction.selection_press_pos = value
-
     @property
     def selection_rect(self):
         return self._interaction.selection_rect
-
-    @selection_rect.setter
-    def selection_rect(self, value):
-        self._interaction.selection_rect = value
 
     @property
     def selection_before_drag(self):
         return list(self._interaction.selection_before_drag)
 
-    @selection_before_drag.setter
-    def selection_before_drag(self, value):
-        self._interaction.selection_before_drag = tuple(value)
-
     @property
     def selection_dragging(self):
         return self._interaction.selection_dragging
-
-    @selection_dragging.setter
-    def selection_dragging(self, value):
-        self._interaction.selection_dragging = bool(value)
 
     @property
     def right_press_pos(self):
         return self._interaction.right_press_pos
 
-    @right_press_pos.setter
-    def right_press_pos(self, value):
-        self._interaction.right_press_pos = value
-
     @property
     def right_press_shape(self):
         return self._interaction.right_press_shape
 
-    @right_press_shape.setter
-    def right_press_shape(self, value):
-        self._interaction.right_press_shape = value
-
     @property
     def right_dragging(self):
         return self._interaction.right_dragging
-
-    @right_dragging.setter
-    def right_dragging(self, value):
-        self._interaction.right_dragging = bool(value)
 
     def _set_hover(self, shape=None, vertex=None, edge=None):
         previous_shape = self._interaction.hover_shape
         self._interaction.set_hover(shape, vertex=vertex, edge=edge)
         if previous_shape is not shape:
             self.hoverShapeChanged.emit(shape)
+
+    def set_hover_target(self, shape=None, vertex=None, edge=None):
+        """Project one coherent hover transition and its Qt side effects."""
+        self._set_hover(shape, vertex, edge)
+        self.update()
 
     def set_external_hover_shape(self, shape):
         self.set_external_hover_shapes(() if shape is None else (shape,))
@@ -316,8 +270,8 @@ class Canvas(QWidget):
     def hover_shapes_for_paint(self):
         if self.selection_dragging:
             return tuple()
-        if self.h_shape is not None:
-            shapes = (self.h_shape,)
+        if self.interaction_snapshot.hover.shape is not None:
+            shapes = (self.interaction_snapshot.hover.shape,)
         else:
             shapes = self._external_hover_shapes
         return tuple(
@@ -362,8 +316,9 @@ class Canvas(QWidget):
         if self.current is not None:
             return
         if self.multi_selection_mode and self.current is None:
-            if self.h_shape is not None:
-                self.h_shape.highlight_clear()
+            hover_shape = self.interaction_snapshot.hover.shape
+            if hover_shape is not None:
+                hover_shape.highlight_clear()
             self.override_cursor(CURSOR_SELECT)
             self.update()
         elif not self.selection_dragging:
@@ -633,14 +588,18 @@ class Canvas(QWidget):
                 self.repaint()
 
                 # Display annotation width and height while moving vertex
-                self._emit_coordinates(pos, self.h_shape)
+                self._emit_coordinates(
+                    pos, self.interaction_snapshot.hover.shape
+                )
             elif self.selected_edge():
                 self.bounded_move_edge(pos)
                 self.shapeMoved.emit()
                 self.repaint()
 
                 # Display annotation width and height while moving edge
-                self._emit_coordinates(pos, self.h_shape)
+                self._emit_coordinates(
+                    pos, self.interaction_snapshot.hover.shape
+                )
             elif self.selected_shape and self.prev_point:
                 self.override_cursor(CURSOR_MOVE)
                 self.bounded_move_shape(self.selected_shape, pos)
@@ -781,7 +740,8 @@ class Canvas(QWidget):
                 self.override_cursor(self.vertex_cursor())
             elif self.selected_edge():
                 self.override_cursor(
-                    CURSOR_SIZE_VERTICAL if self.h_edge % 2 == 0
+                    CURSOR_SIZE_VERTICAL
+                    if self.interaction_snapshot.hover.edge % 2 == 0
                     else CURSOR_SIZE_HORIZONTAL
                 )
             else:
@@ -972,7 +932,8 @@ class Canvas(QWidget):
         return nearest
 
     def bounded_move_vertex(self, pos):
-        index, shape = self.h_vertex, self.h_shape
+        hover = self.interaction_snapshot.hover
+        index, shape = hover.vertex, hover.shape
         point = shape[index]
         if self.out_of_pixmap(pos):
             size = self.pixmap.size()
@@ -1009,7 +970,8 @@ class Canvas(QWidget):
 
     def bounded_move_edge(self, pos):
         """Move one rectangle edge while preserving its opposite edge."""
-        edge, shape = self.h_edge, self.h_shape
+        hover = self.interaction_snapshot.hover
+        edge, shape = hover.edge, hover.shape
         first_index = edge
         second_index = (edge + 1) % 4
         opposite_first = (edge + 2) % 4
@@ -1083,7 +1045,7 @@ class Canvas(QWidget):
         if not removed:
             return []
 
-        if self.h_shape in target_set:
+        if self.interaction_snapshot.hover.shape in target_set:
             self.un_highlight()
         if any(shape in target_set for shape in self._external_hover_shapes):
             self.set_external_hover_shapes(
@@ -1526,7 +1488,7 @@ class Canvas(QWidget):
     def set_shape_visible(self, shape, value):
         self.visible[shape] = value
         if not value:
-            if self.h_shape is shape:
+            if self.interaction_snapshot.hover.shape is shape:
                 self.un_highlight()
             if shape in self._external_hover_shapes:
                 self.set_external_hover_shapes(
@@ -1568,7 +1530,7 @@ class Canvas(QWidget):
         self.update()
 
     def _reset_transient_interaction(self):
-        previous_hover_shape = self.h_shape
+        previous_hover_shape = self.interaction_snapshot.hover.shape
         if previous_hover_shape is not None:
             previous_hover_shape.highlight_clear()
         self.selected_shape_copy = None

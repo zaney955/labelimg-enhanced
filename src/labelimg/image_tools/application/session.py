@@ -7,9 +7,12 @@ from enum import Enum
 import os
 import uuid
 
-from labelimg.annotations.domain.model import AnnotationFormat
-from labelimg.annotations.infrastructure.storage import fingerprint_image, fingerprint_path
-from labelimg.annotations.application.workspace import annotation_resources
+from labelimg.annotations import (
+    AnnotationFormat,
+    annotation_resources,
+    fingerprint_image,
+    fingerprint_path,
+)
 from labelimg.image_tools.application.crop_annotations import prepare_crop_annotations
 from labelimg.image_tools.application.crop import ImageCropProcessor
 from labelimg.image_tools.application.adjustment import ImageAdjustmentProcessor
@@ -164,7 +167,7 @@ class ImageProcessingSession:
         workspace,
         editing,
         persistence,
-        operations,
+        transaction,
         project,
         document_for_path,
         *,
@@ -173,7 +176,7 @@ class ImageProcessingSession:
         self._workspace = workspace
         self._editing = editing
         self._persistence = persistence
-        self._operations = operations
+        self._transaction = transaction
         self._project = project
         self._document_for_path = document_for_path
         self._codec = codec or ImageFileCodec()
@@ -181,7 +184,10 @@ class ImageProcessingSession:
 
     @property
     def recovery_entries(self):
-        return self._operations.recovery_entries
+        return self._transaction.recovery_entries
+
+    def clear_recovery(self):
+        self._transaction.clear_recovery()
 
     def replace_workspace(self, workspace):
         """Continue the session against a committed workspace replacement."""
@@ -349,7 +355,7 @@ class ImageProcessingSession:
     def _commit_pixel(self, replacements, *, target_count=None):
         """Commit pixel-only replacements and project every changed path."""
         replacements = tuple(replacements)
-        outcome = self._operations.execute_image_processing(
+        outcome = self._transaction.execute(
             replacements,
             target_count=target_count,
         )
@@ -382,7 +388,7 @@ class ImageProcessingSession:
 
         if preserve_current and len(plan.targets) == 1:
             target = current_target
-            outcome = self._operations.execute_grouped_image_processing(
+            outcome = self._transaction.execute_grouped(
                 target.path,
                 target.replacements,
                 mergeable_create_ml_paths=(
@@ -431,10 +437,10 @@ class ImageProcessingSession:
             )
             for target in plan.targets
         )
-        outcome = self._operations.execute_grouped_image_processing_batch(
+        outcome = self._transaction.execute_grouped_batch(
             groups
         )
-        self._operations.discard_image_histories(plan.paths)
+        self._transaction.discard_histories(plan.paths)
         self._project_and_finalize(ImageProcessingProjection(
             ImageProcessingProjectionKind.GEOMETRY_BATCH_COMMIT,
             plan.paths,
@@ -446,7 +452,7 @@ class ImageProcessingSession:
 
     def recover(self, entry_id, selected_paths=None):
         """Recover committed image processing through the same projection seam."""
-        outcome = self._operations.recover(
+        outcome = self._transaction.recover(
             entry_id,
             selected_paths=selected_paths,
         )

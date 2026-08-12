@@ -10,7 +10,7 @@ from PyQt5.QtGui import QKeySequence
 from PyQt5.QtGui import QColor, QImage
 from PyQt5.QtWidgets import QApplication, QDialog, QToolButton
 
-from labelimg.workbench.main_window import MainWindow
+from labelimg.workbench.bootstrap import WorkbenchLaunchOptions, create_workbench
 from labelimg.localization.runtime import ENGLISH, set_language
 
 
@@ -30,10 +30,10 @@ class FileEntryUiTest(unittest.TestCase):
         classes_path = os.path.join(self.temporary.name, "classes.txt")
         with open(classes_path, "w", encoding="utf-8"):
             pass
-        self.window = MainWindow(
-            default_prefdef_class_file=classes_path,
-            default_save_dir="",
-        )
+        self.window = create_workbench(WorkbenchLaunchOptions(
+            class_file=classes_path,
+            save_dir="",
+        ))
 
     def tearDown(self):
         self.window.deleteLater()
@@ -184,6 +184,27 @@ class FileEntryUiTest(unittest.TestCase):
             self.window.annotation_directory_label.toolTip(),
             os.path.abspath(self.temporary.name),
         )
+
+    def test_dynamic_recent_file_options_have_file_history_icons(self):
+        recent_paths = []
+        for name in ("recent-one.png", "recent-two.png"):
+            path = os.path.join(self.temporary.name, name)
+            image = QImage(4, 4, QImage.Format_RGB32)
+            image.fill(QColor("white"))
+            self.assertTrue(image.save(path))
+            recent_paths.append(path)
+
+        self.window.recent_files = recent_paths
+        self.window.update_file_menu()
+        actions = self.window.menus.recentFiles.actions()
+
+        self.assertEqual(len(actions), 2)
+        self.assertTrue(all(not action.icon().isNull() for action in actions))
+        first_image = actions[0].icon().pixmap(24, 24).toImage()
+        self.assertTrue(all(
+            action.icon().pixmap(24, 24).toImage() == first_image
+            for action in actions[1:]
+        ))
 
     def test_replace_annotations_preserves_unsaved_work_when_user_cancels(self):
         image_path = os.path.join(self.temporary.name, "sample.png")

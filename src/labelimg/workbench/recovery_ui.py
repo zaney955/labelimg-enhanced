@@ -12,17 +12,26 @@ from PyQt5.QtWidgets import QDialog, QDialogButtonBox, QHeaderView, QMessageBox,
 
 import labelimg.ui.generated_resources  # noqa: F401 - registers Qt resources
 from labelimg.localization.runtime import localize_dialog_buttons, question as localized_question, tr, warning as localized_warning
-from labelimg.files.application.transaction import FileRecoveryBlocked
-from labelimg.files.application.recovery import RecoveryOperation
+from labelimg.files import FileRecoveryBlocked
+from labelimg.image_tools import ImageProcessingOperation, ImageRecoveryBlocked
 
 
 class RecoveryActionsMixin:
+    def recovery_entries(self):
+        """Project feature-owned recovery ledgers as one chronological view."""
+        return tuple(sorted(
+            self.file_operations.recovery_entries
+            + self.image_processing.recovery_entries,
+            key=lambda entry: entry.created_at,
+            reverse=True,
+        ))
+
     def open_file_recovery_center(self, _checked=False):
         dialog = QDialog(self)
         dialog.setWindowTitle(tr('recovery.title'))
         layout = QVBoxLayout(dialog)
         table = QTableWidget(
-            len(self.file_operations.recovery_entries), 5, dialog
+            len(self.recovery_entries()), 5, dialog
         )
         table.setHorizontalHeaderLabels(
             (
@@ -38,7 +47,7 @@ class RecoveryActionsMixin:
         )
         table.horizontalHeader().setStretchLastSection(True)
         for row, entry in enumerate(
-            self.file_operations.recovery_entries
+            self.recovery_entries()
         ):
             values = (
                 entry.created_at.astimezone().strftime('%H:%M:%S'),
@@ -79,11 +88,11 @@ class RecoveryActionsMixin:
     ):
         entry = next(
             item
-            for item in self.file_operations.recovery_entries
+            for item in self.recovery_entries()
             if item.entry_id == entry_id
         )
         selected_paths = None
-        if entry.operation is RecoveryOperation.IMAGE_PROCESSING:
+        if entry.operation is ImageProcessingOperation.PROCESS:
             selected_paths = self._choose_image_recovery_paths(entry)
             if selected_paths is None:
                 return
@@ -109,10 +118,10 @@ class RecoveryActionsMixin:
                     entry_id,
                     selected_paths=selected_paths,
                 )
-                if entry.operation is RecoveryOperation.IMAGE_PROCESSING
+                if entry.operation is ImageProcessingOperation.PROCESS
                 else self.file_operations.recover(entry_id)
             )
-        except FileRecoveryBlocked as error:
+        except (FileRecoveryBlocked, ImageRecoveryBlocked) as error:
             localized_warning(
                 self,
                 tr('recovery.blocked'),
@@ -127,7 +136,7 @@ class RecoveryActionsMixin:
             )
             return
 
-        if entry.operation is RecoveryOperation.IMAGE_PROCESSING:
+        if entry.operation is ImageProcessingOperation.PROCESS:
             self.status(tr('recovery.completed'))
             if dialog is not None:
                 dialog.accept()
@@ -136,7 +145,7 @@ class RecoveryActionsMixin:
         selected_before = tuple(self.selected_file_paths())
         renamed = dict(outcome.renamed)
         if self.file_path in renamed:
-            self.file_path = renamed[self.file_path]
+            self.workbench_session.activate(renamed[self.file_path])
         if outcome.review_result is not None:
             self._project_review_recovery(outcome.review_result)
         restored_images = []

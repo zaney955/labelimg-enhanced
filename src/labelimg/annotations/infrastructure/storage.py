@@ -9,17 +9,7 @@ import threading
 import uuid
 
 from labelimg.annotations.infrastructure.document import save_document
-
-
-@dataclass(frozen=True)
-class ResourceFingerprint:
-    exists: bool
-    size: int = 0
-    modified_ns: int = 0
-    sha256: str = ""
-
-
-MISSING_FINGERPRINT = ResourceFingerprint(False)
+from labelimg.platform.recovery import MISSING_FINGERPRINT, ResourceFingerprint
 
 
 @dataclass(frozen=True)

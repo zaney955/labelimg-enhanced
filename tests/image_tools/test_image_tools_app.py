@@ -2,6 +2,7 @@ import os
 import shutil
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import patch, PropertyMock
 
@@ -12,7 +13,7 @@ from PyQt5.QtGui import QColor, QCursor, QImage, QKeySequence, QPixmap
 from PyQt5.QtTest import QSignalSpy, QTest
 from PyQt5.QtWidgets import QApplication, QDialog, QMessageBox, QToolButton
 
-from labelimg.workbench.main_window import MainWindow
+from labelimg.workbench.bootstrap import WorkbenchLaunchOptions, create_workbench
 from labelimg.annotations.domain.model import (
     AnnotationBox,
     AnnotationFormat,
@@ -22,7 +23,8 @@ from labelimg.files.application.recovery import (
     RecoveryOperation,
     TrashIdentity,
 )
-from labelimg.files.application.transaction import FileRecoveryBlocked
+from labelimg.image_tools.application.recovery import ImageProcessingOperation
+from labelimg.image_tools.application.transaction import ImageRecoveryBlocked
 from labelimg.files.ui.list_widget import FILE_QUALITY_FINDINGS_ROLE
 from labelimg.image_tools.application.crop import CropRegion
 from labelimg.image_tools.application.adjustment import ImageAdjustmentOptions
@@ -55,10 +57,10 @@ class ImageToolsAppTest(unittest.TestCase):
         classes_path = os.path.join(self.temporary.name, "classes.txt")
         with open(classes_path, "w", encoding="utf-8"):
             pass
-        self.window = MainWindow(
-            default_prefdef_class_file=classes_path,
-            default_save_dir="",
-        )
+        self.window = create_workbench(WorkbenchLaunchOptions(
+            class_file=classes_path,
+            save_dir="",
+        ))
         self.image_path = os.path.join(self.temporary.name, "sample.png")
         image = QImage(40, 40, QImage.Format_RGB32)
         image.fill(QColor("white"))
@@ -243,12 +245,12 @@ class ImageToolsAppTest(unittest.TestCase):
             entry_id="delete",
         )
         image_entry = SimpleNamespace(
-            operation=RecoveryOperation.IMAGE_PROCESSING,
+            operation=ImageProcessingOperation.PROCESS,
             recoverable=True,
             entry_id="image",
         )
         with patch.object(
-            type(self.window.file_operations),
+            type(self.window.image_processing),
             "recovery_entries",
             new_callable=PropertyMock,
             return_value=(ordinary, image_entry),
@@ -631,7 +633,7 @@ class ImageToolsAppTest(unittest.TestCase):
         entry = self.window._latest_image_processing_recovery()
         self.assertEqual(len(entry.payload[0].resources), 2)
 
-        recovery = self.window.file_operations.recover(
+        recovery = self.window.image_processing.recover(
             entry.entry_id,
             selected_paths=(self.image_path,),
         )
@@ -689,8 +691,8 @@ class ImageToolsAppTest(unittest.TestCase):
         )]
         self.window.paste_copied_bounding_boxes()
 
-        with self.assertRaises(FileRecoveryBlocked):
-            self.window.file_operations.recover(
+        with self.assertRaises(ImageRecoveryBlocked):
+            self.window.image_processing.recover(
                 entry.entry_id,
                 selected_paths=(self.image_path,),
             )
@@ -703,9 +705,10 @@ class ImageToolsAppTest(unittest.TestCase):
 
     def test_image_recovery_uses_explicit_subset_without_rescanning_annotations(self):
         entry = SimpleNamespace(
-            operation=RecoveryOperation.IMAGE_PROCESSING,
+            operation=ImageProcessingOperation.PROCESS,
             recoverable=True,
             entry_id="image",
+            created_at=datetime.now(timezone.utc),
             payload=(SimpleNamespace(original_path=self.image_path),),
             target_count=1,
         )
@@ -716,7 +719,7 @@ class ImageToolsAppTest(unittest.TestCase):
             reload_images=(),
         )
         with patch.object(
-            type(self.window.file_operations),
+            type(self.window.image_processing),
             "recovery_entries",
             new_callable=PropertyMock,
             return_value=(entry,),
@@ -725,7 +728,7 @@ class ImageToolsAppTest(unittest.TestCase):
             "_choose_image_recovery_paths",
             return_value=(self.image_path,),
         ), patch.object(
-            self.window.file_operations,
+            self.window.image_processing,
             "recover",
             return_value=outcome,
         ) as recover, patch.object(
@@ -745,13 +748,13 @@ class ImageToolsAppTest(unittest.TestCase):
 
     def test_failed_image_projection_blocks_editing_but_keeps_recovery(self):
         recovery_entry = SimpleNamespace(
-            operation=RecoveryOperation.IMAGE_PROCESSING,
+            operation=ImageProcessingOperation.PROCESS,
             recoverable=True,
         )
         self.window.actions.undoImageProcessing.setEnabled(False)
 
         with patch.object(
-            type(self.window.file_operations),
+            type(self.window.image_processing),
             "recovery_entries",
             new_callable=PropertyMock,
             return_value=(recovery_entry,),

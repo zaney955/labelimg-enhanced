@@ -7,14 +7,12 @@ import os
 import shutil
 import tempfile
 
-from labelimg.annotations.domain.model import (
+from labelimg.annotations import (
     AnnotationBox,
     AnnotationDocument,
     AnnotationFormat,
 )
-from labelimg.annotations.infrastructure.storage import fingerprint_path
-from labelimg.annotations.infrastructure.document import save_document
-from labelimg.annotations.application.workspace import annotation_resources
+from labelimg.annotations import annotation_resources, fingerprint_path, save_document
 from labelimg.image_tools.infrastructure.recoverable_replacement import (
     PreparedImageReplacement,
 )

@@ -15,7 +15,7 @@ from PyQt5.QtWidgets import QAbstractItemView, QAction, QApplication, QDialog, Q
 import labelimg.ui.generated_resources  # noqa: F401 - registers Qt resources
 from labelimg.ui.actions import new_icon
 from labelimg.localization.runtime import question as localized_question, tr, warning as localized_warning
-from labelimg.annotations.domain.model import AnnotationFormat
+from labelimg.annotations import AnnotationFormat
 from labelimg.platform.text import native_text as ustr
 from labelimg.files.ui.list_widget import BatchRenameDialog, CURRENT_IMAGE_ROLE, FILE_ANNOTATION_STATE_ROLE, FILE_PERSISTENCE_FLAGS_ROLE, FILE_QUALITY_FINDINGS_ROLE, FILE_REVIEW_STATE_ROLE, compare_relative_image_paths, validate_base_name, validate_rename_mapping
 from labelimg.files.application.operations import FileOperationError
@@ -33,7 +33,7 @@ class FileActionsMixin:
         files = [f for f in self.recent_files if f !=
                  curr_file_path and exists(f)]
         for i, f in enumerate(files):
-            icon = new_icon('labels')
+            icon = new_icon('recent-file')
             action = QAction(
                 icon, '&%d %s' % (i + 1, QFileInfo(f).fileName()), self)
             action.triggered.connect(partial(self.load_recent, f))
@@ -96,12 +96,17 @@ class FileActionsMixin:
             path: tuple(item.data(FILE_QUALITY_FINDINGS_ROLE) or ())
             for path, item in items.items()
         }
-        ordered = state.ordered_paths(
+        projection = state.project(
             paths,
             self.dir_name,
             annotation_state_for=annotation_states.get,
             review_state_for=review_states.get,
+            persistence_flags_for=persistence_flags.get,
+            quality_findings_for=quality_findings.get,
         )
+        ordered = projection.ordered_paths
+        self._file_list_projection = projection
+        visible_paths = set(projection.visible_paths)
         selected_paths = {
             item.data(Qt.UserRole)
             for item in self.file_list_widget.selectedItems()
@@ -125,14 +130,7 @@ class FileActionsMixin:
         focused_item = None
         for row, path in enumerate(self.m_img_list):
             item = self.file_list_widget.item(row)
-            matches = state.matches(
-                path,
-                self.dir_name,
-                annotation_state_for=annotation_states.get,
-                review_state_for=review_states.get,
-                persistence_flags_for=persistence_flags.get,
-                quality_findings_for=quality_findings.get,
-            )
+            matches = path in visible_paths
             item.setHidden(not matches)
             if matches:
                 visible_count += 1
@@ -200,29 +198,11 @@ class FileActionsMixin:
 
 
     def _adjacent_visible_file(self, direction):
-        visible = set(self.visible_file_paths())
-        if not visible:
-            return None
-        if self.file_path not in self.m_img_list:
-            if direction > 0:
-                return next(
-                    (path for path in self.m_img_list if path in visible),
-                    None,
-                )
-            return None
-        start = self.m_img_list.index(self.file_path)
-        indexes = (
-            range(start + 1, len(self.m_img_list))
-            if direction > 0
-            else range(start - 1, -1, -1)
-        )
-        return next(
-            (
-                self.m_img_list[index]
-                for index in indexes
-                if self.m_img_list[index] in visible
-            ),
-            None,
+        projection = getattr(self, '_file_list_projection', None)
+        return (
+            projection.adjacent_visible(self.file_path, direction)
+            if projection is not None
+            else None
         )
 
 
@@ -879,7 +859,7 @@ class FileActionsMixin:
         flags = self.file_persistence_flags(image_path)
         item.setData(FILE_PERSISTENCE_FLAGS_ROLE, flags)
         quality_result = self._quality_result_for_path(image_path)
-        from labelimg.image_tools.ui.quality_panel import quality_finding_text
+        from labelimg.image_tools import quality_finding_text
         quality_findings = tuple(
             {
                 'code': finding.code,

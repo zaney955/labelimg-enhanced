@@ -1,6 +1,6 @@
 """Transient Canvas interaction state and transitions."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 try:
     from PyQt5.QtCore import QPointF, QRectF
@@ -14,18 +14,85 @@ class HoverTarget:
     vertex: int | None = None
     edge: int | None = None
 
+
+@dataclass(frozen=True)
+class CanvasInteractionSnapshot:
+    """Immutable observable state for all transient Canvas gestures."""
+
+    selection_press_pos: object = None
+    selection_rect: object = None
+    selection_before_drag: tuple = ()
+    selection_dragging: bool = False
+    selection_target: HoverTarget = HoverTarget()
+    right_press_pos: object = None
+    right_press_shape: object = None
+    right_dragging: bool = False
+    hover: HoverTarget = HoverTarget()
+
+
 class CanvasInteraction:
     """Keep Canvas gesture, drag, hover, and reset invariants local."""
 
     def __init__(self):
-        self.reset()
+        self._snapshot = CanvasInteractionSnapshot()
+
+    @property
+    def snapshot(self):
+        return self._snapshot
+
+    @property
+    def selection_press_pos(self):
+        return self._snapshot.selection_press_pos
+
+    @property
+    def selection_rect(self):
+        return self._snapshot.selection_rect
+
+    @property
+    def selection_before_drag(self):
+        return self._snapshot.selection_before_drag
+
+    @property
+    def selection_dragging(self):
+        return self._snapshot.selection_dragging
+
+    @property
+    def selection_target(self):
+        return self._snapshot.selection_target
+
+    @property
+    def right_press_pos(self):
+        return self._snapshot.right_press_pos
+
+    @property
+    def right_press_shape(self):
+        return self._snapshot.right_press_shape
+
+    @property
+    def right_dragging(self):
+        return self._snapshot.right_dragging
+
+    @property
+    def hover_shape(self):
+        return self._snapshot.hover.shape
+
+    @property
+    def hover_vertex(self):
+        return self._snapshot.hover.vertex
+
+    @property
+    def hover_edge(self):
+        return self._snapshot.hover.edge
 
     def begin_selection(self, position, selected, target=None):
-        self.selection_press_pos = QPointF(position)
-        self.selection_rect = None
-        self.selection_before_drag = tuple(selected)
-        self.selection_dragging = False
-        self.selection_target = target or HoverTarget()
+        self._snapshot = replace(
+            self._snapshot,
+            selection_press_pos=QPointF(position),
+            selection_rect=None,
+            selection_before_drag=tuple(selected),
+            selection_dragging=False,
+            selection_target=target or HoverTarget(),
+        )
 
     def update_selection(self, position, scale, drag_distance):
         if self.selection_press_pos is None:
@@ -34,12 +101,16 @@ class CanvasInteraction:
         distance = delta.manhattanLength() * max(scale, 0.01)
         if not self.selection_dragging and distance < drag_distance:
             return None
-        self.selection_dragging = True
-        self.selection_rect = QRectF(
+        selection_rect = QRectF(
             self.selection_press_pos,
             position,
         ).normalized()
-        return self.selection_rect
+        self._snapshot = replace(
+            self._snapshot,
+            selection_dragging=True,
+            selection_rect=selection_rect,
+        )
+        return selection_rect
 
     def finish_selection(self):
         was_dragging = self.selection_dragging
@@ -52,16 +123,22 @@ class CanvasInteraction:
         return previous
 
     def _clear_selection(self):
-        self.selection_press_pos = None
-        self.selection_rect = None
-        self.selection_before_drag = ()
-        self.selection_dragging = False
-        self.selection_target = HoverTarget()
+        self._snapshot = replace(
+            self._snapshot,
+            selection_press_pos=None,
+            selection_rect=None,
+            selection_before_drag=(),
+            selection_dragging=False,
+            selection_target=HoverTarget(),
+        )
 
     def begin_right_press(self, position, shape):
-        self.right_press_pos = QPointF(position)
-        self.right_press_shape = shape
-        self.right_dragging = False
+        self._snapshot = replace(
+            self._snapshot,
+            right_press_pos=QPointF(position),
+            right_press_shape=shape,
+            right_dragging=False,
+        )
 
     def update_right_drag(self, position, scale, drag_distance):
         if self.right_press_shape is None or self.right_dragging:
@@ -72,31 +149,31 @@ class CanvasInteraction:
             < drag_distance
         ):
             return False
-        self.right_dragging = True
+        self._snapshot = replace(self._snapshot, right_dragging=True)
         return True
 
     def finish_right_press(self):
-        self.right_press_pos = None
-        self.right_press_shape = None
-        self.right_dragging = False
+        self._snapshot = replace(
+            self._snapshot,
+            right_press_pos=None,
+            right_press_shape=None,
+            right_dragging=False,
+        )
 
     def set_hover(self, shape=None, vertex=None, edge=None):
         if vertex is not None and edge is not None:
             raise ValueError("hover target cannot be a vertex and an edge")
-        self.hover_shape = shape
-        self.hover_vertex = vertex
-        self.hover_edge = edge
+        self._snapshot = replace(
+            self._snapshot,
+            hover=HoverTarget(shape, vertex, edge),
+        )
 
     def set_hover_target(self, target):
         self.set_hover(target.shape, target.vertex, target.edge)
 
     @property
     def hover(self):
-        return HoverTarget(
-            self.hover_shape,
-            self.hover_vertex,
-            self.hover_edge,
-        )
+        return self._snapshot.hover
 
     def update_hover(
         self,
@@ -254,6 +331,4 @@ class CanvasInteraction:
         return previous
 
     def reset(self):
-        self._clear_selection()
-        self.finish_right_press()
-        self.set_hover()
+        self._snapshot = CanvasInteractionSnapshot()

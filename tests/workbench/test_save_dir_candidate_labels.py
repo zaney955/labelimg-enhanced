@@ -10,7 +10,7 @@ from PyQt5.QtGui import QColor, QImage
 from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication
 
-from labelimg.workbench.main_window import MainWindow
+from labelimg.workbench.bootstrap import WorkbenchLaunchOptions, create_workbench
 from labelimg.annotations.infrastructure.formats.pascal_voc import PascalVocReader
 
 
@@ -72,10 +72,10 @@ class SaveDirCandidateLabelsTest(unittest.TestCase):
         ) as broken_file:
             broken_file.write("not xml")
 
-        self.window = MainWindow(
-            default_prefdef_class_file=classes_path,
-            default_save_dir="",
-        )
+        self.window = create_workbench(WorkbenchLaunchOptions(
+            class_file=classes_path,
+            save_dir="",
+        ))
 
     def tearDown(self):
         self.window.deleteLater()
@@ -114,13 +114,13 @@ class SaveDirCandidateLabelsTest(unittest.TestCase):
         )
 
     def test_startup_save_dir_preloads_existing_xml_labels(self):
-        startup_window = MainWindow(
-            default_prefdef_class_file=os.path.join(
+        startup_window = create_workbench(WorkbenchLaunchOptions(
+            class_file=os.path.join(
                 self.temp_dir.name,
                 "classes.txt",
             ),
-            default_save_dir=self.annotation_dir,
-        )
+            save_dir=self.annotation_dir,
+        ))
         try:
             candidate_names = [
                 startup_window.candidate_label_dialog.list_widget.item(

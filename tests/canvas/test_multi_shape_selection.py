@@ -9,7 +9,7 @@ from PyQt5.QtGui import QColor, QImage, QKeyEvent, QMouseEvent, QPixmap
 from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication, QLabel, QWidget, QAbstractItemView
 
-from labelimg.workbench.main_window import MainWindow
+from labelimg.workbench.bootstrap import WorkbenchLaunchOptions, create_workbench
 from labelimg.canvas.widget import Canvas
 from labelimg.canvas.shape import Shape
 
@@ -121,7 +121,7 @@ class CanvasMultiSelectionTest(unittest.TestCase):
 
         self.assertEqual(self.canvas.selected_shapes, [inside])
         self.assertIsNone(self.canvas.selection_rect)
-        self.assertIs(self.canvas.h_shape, partial)
+        self.assertIs(self.canvas.interaction_snapshot.hover.shape, partial)
 
     def test_escape_cancels_marquee_and_restores_previous_selection(self):
         first = rectangle("first", 10, 10, 30, 30)
@@ -215,7 +215,7 @@ class CanvasMultiSelectionTest(unittest.TestCase):
         self.canvas.load_shapes([inner, outer])
 
         self.canvas.mouseMoveEvent(mouse_event(QEvent.MouseMove, (50, 50)))
-        self.assertIs(self.canvas.h_shape, inner)
+        self.assertIs(self.canvas.interaction_snapshot.hover.shape, inner)
 
         self.ctrl_click((50, 50))
         self.assertEqual(self.canvas.selected_shapes, [inner])
@@ -230,7 +230,7 @@ class CanvasMultiSelectionTest(unittest.TestCase):
             modifiers=Qt.ControlModifier,
         ))
 
-        self.assertIs(self.canvas.h_shape, shape)
+        self.assertIs(self.canvas.interaction_snapshot.hover.shape, shape)
         self.assertIsNone(shape._highlight_index)
         self.assertEqual(self.canvas.current_cursor(), Qt.CrossCursor)
 
@@ -245,7 +245,7 @@ class CanvasMultiSelectionTest(unittest.TestCase):
             Qt.Key_Control,
             Qt.ControlModifier,
         ))
-        self.assertIs(self.canvas.h_shape, shape)
+        self.assertIs(self.canvas.interaction_snapshot.hover.shape, shape)
         self.assertIsNone(shape._highlight_index)
         self.assertEqual(self.canvas.current_cursor(), Qt.CrossCursor)
 
@@ -267,7 +267,7 @@ class CanvasMultiSelectionTest(unittest.TestCase):
 
         self.canvas.mouseMoveEvent(mouse_event(QEvent.MouseMove, (50, 50)))
 
-        self.assertIsNone(self.canvas.h_shape)
+        self.assertIsNone(self.canvas.interaction_snapshot.hover.shape)
 
     def test_right_click_preserves_selected_member_and_collapses_on_other(self):
         first = rectangle("first", 10, 10, 30, 30)
@@ -307,7 +307,7 @@ class CanvasMultiSelectionTest(unittest.TestCase):
         self.canvas.load_shapes([nearer, farther_top])
 
         self.canvas.mouseMoveEvent(mouse_event(QEvent.MouseMove, (45, 50)))
-        self.assertIs(self.canvas.h_shape, nearer)
+        self.assertIs(self.canvas.interaction_snapshot.hover.shape, nearer)
 
         self.canvas.mousePressEvent(mouse_event(
             QEvent.MouseButtonPress,
@@ -365,7 +365,7 @@ class CanvasMultiSelectionTest(unittest.TestCase):
         pixmap.fill(QColor("white"))
         self.canvas.load_pixmap(pixmap)
         self.canvas.load_shapes([shape])
-        self.canvas.h_shape = shape
+        self.canvas.set_hover_target(shape)
         image = QImage(120, 120, QImage.Format_ARGB32)
         image.fill(Qt.transparent)
 
@@ -379,7 +379,7 @@ class CanvasMultiSelectionTest(unittest.TestCase):
         pixmap.fill(QColor("white"))
         self.canvas.load_pixmap(pixmap)
         self.canvas.load_shapes([shape])
-        self.canvas.h_shape = shape
+        self.canvas.set_hover_target(shape)
         outline_styles = []
         original_paint = shape.paint
 
@@ -439,13 +439,13 @@ class MainWindowMultiSelectionTest(unittest.TestCase):
         classes_path = os.path.join(self.temp_dir.name, "classes.txt")
         with open(classes_path, "w", encoding="utf-8"):
             pass
-        self.window = MainWindow(
-            default_prefdef_class_file=classes_path,
-        )
-        self.window.file_path = os.path.join(
+        self.window = create_workbench(WorkbenchLaunchOptions(
+            class_file=classes_path,
+        ))
+        self.window.workbench_session.activate(os.path.join(
             self.temp_dir.name,
             "image.png",
-        )
+        ))
         self.window.canvas.resize(120, 120)
         self.window.canvas.load_pixmap(QPixmap(120, 120))
 
@@ -531,7 +531,10 @@ class MainWindowMultiSelectionTest(unittest.TestCase):
             self.window.label_list.projected_hover_shape(),
             shape,
         )
-        self.assertIs(self.window.canvas.h_shape, shape)
+        self.assertIs(
+            self.window.canvas.interaction_snapshot.hover.shape,
+            shape,
+        )
         self.assertIs(
             self.window.canvas.selection_snapshot,
             before_selection,

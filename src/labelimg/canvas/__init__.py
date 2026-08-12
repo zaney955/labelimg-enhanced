@@ -5,6 +5,7 @@ from importlib import import_module
 __all__ = (
     "Canvas",
     "CanvasInteraction",
+    "CanvasInteractionSnapshot",
     "HoverTarget",
     "SelectionSet",
     "Shape",
@@ -13,6 +14,7 @@ __all__ = (
 _EXPORT_MODULES = {
     "Canvas": "labelimg.canvas.widget",
     "CanvasInteraction": "labelimg.canvas.interaction",
+    "CanvasInteractionSnapshot": "labelimg.canvas.interaction",
     "HoverTarget": "labelimg.canvas.interaction",
     "SelectionSet": "labelimg.canvas.selection",
     "Shape": "labelimg.canvas.shape",

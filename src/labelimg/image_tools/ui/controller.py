@@ -11,8 +11,8 @@ from PyQt5.QtWidgets import QApplication, QDialog, QMessageBox, QProgressDialog
 
 import labelimg.ui.generated_resources  # noqa: F401 - registers Qt resources
 from labelimg.localization.runtime import question as localized_question, tr, warning as localized_warning
-from labelimg.annotations.infrastructure.storage import fingerprint_path
-from labelimg.files.application.recovery import RecoveryOperation
+from labelimg.annotations import fingerprint_path
+from labelimg.image_tools.application.recovery import ImageProcessingOperation
 from labelimg.image_tools.application.session import AdjustmentChange, CropChange, GeometryTransformChange, ImageProcessingProjectionKind, PreparedPixelChange
 from labelimg.workbench.support import read_image as read
 
@@ -768,7 +768,7 @@ class ImageToolsActionsMixin:
             (
                 entry
                 for entry in self.image_processing.recovery_entries
-                if entry.operation is RecoveryOperation.IMAGE_PROCESSING
+                if entry.operation is ImageProcessingOperation.PROCESS
                 and entry.recoverable
             ),
             None,

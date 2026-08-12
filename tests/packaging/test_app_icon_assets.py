@@ -7,7 +7,7 @@ import xml.etree.ElementTree as ElementTree
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PIL import Image
-from PyQt5.QtGui import QGuiApplication, QIcon
+from PyQt5.QtGui import QGuiApplication, QIcon, QImage
 
 import labelimg
 import labelimg.ui.generated_resources  # noqa: F401 - registers the compiled Qt resources
@@ -114,6 +114,43 @@ class TestAppIconAssets(unittest.TestCase):
                         paint = element.get(attribute)
                         if paint is not None:
                             self.assertIn(paint, allowed_paints)
+
+    def test_operation_svgs_render_cleanly_and_uniquely_at_menu_size(self):
+        signatures = {}
+        for path in sorted(ICON_DIRECTORY.glob("*.svg")):
+            if path.name == "app.svg":
+                continue
+            icon = QIcon(str(path))
+            with self.subTest(path=path.name):
+                self.assertFalse(icon.isNull())
+                for size in (16, 20, 24):
+                    image = icon.pixmap(size, size).toImage()
+                    opaque_points = [
+                        (x, y)
+                        for y in range(size)
+                        for x in range(size)
+                        if image.pixelColor(x, y).alpha()
+                    ]
+                    self.assertTrue(opaque_points)
+                    bounds = (
+                        min(x for x, _y in opaque_points),
+                        min(y for _x, y in opaque_points),
+                        max(x for x, _y in opaque_points),
+                        max(y for _x, y in opaque_points),
+                    )
+                    self.assertGreater(bounds[0], 0)
+                    self.assertGreater(bounds[1], 0)
+                    self.assertLess(bounds[2], size - 1)
+                    self.assertLess(bounds[3], size - 1)
+
+                image = icon.pixmap(24, 24).toImage().convertToFormat(
+                    QImage.Format_ARGB32
+                )
+                signatures[path.name] = hashlib.sha256(
+                    image.bits().asstring(image.byteCount())
+                ).digest()
+
+        self.assertEqual(len(set(signatures.values())), len(signatures))
 
     def test_compiled_qt_icon_renders_at_windows_sizes(self):
         icon = QIcon(":/app")

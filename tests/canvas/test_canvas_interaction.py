@@ -2,7 +2,7 @@ import unittest
 
 from PyQt5.QtCore import QPointF
 
-from labelimg.canvas.interaction import CanvasInteraction
+from labelimg.canvas.interaction import CanvasInteraction, HoverTarget
 
 
 class CanvasInteractionTest(unittest.TestCase):
@@ -37,6 +37,23 @@ class CanvasInteractionTest(unittest.TestCase):
         self.assertTrue(was_dragging)
         self.assertIsNone(self.interaction.selection_press_pos)
         self.assertIsNone(self.interaction.selection_rect)
+
+    def test_snapshot_is_immutable_and_transitions_replace_it(self):
+        initial = self.interaction.snapshot
+
+        self.interaction.begin_selection(
+            QPointF(10, 20),
+            (self.first,),
+            HoverTarget(self.second, vertex=1),
+        )
+        active = self.interaction.snapshot
+
+        self.assertIsNot(active, initial)
+        self.assertIsNone(initial.selection_press_pos)
+        self.assertEqual(active.selection_before_drag, (self.first,))
+        self.assertIs(active.selection_target.shape, self.second)
+        with self.assertRaises(AttributeError):
+            self.interaction.selection_dragging = True
 
     def test_cancel_selection_returns_original_selection(self):
         self.interaction.begin_selection(

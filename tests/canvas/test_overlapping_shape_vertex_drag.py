@@ -64,8 +64,11 @@ class OverlappingShapeVertexDragTest(unittest.TestCase):
         self.canvas.mouseMoveEvent(
             mouse_event(QEvent.MouseMove, covered_vertex)
         )
-        self.assertIs(self.canvas.h_shape, self.lower_shape)
-        self.assertEqual(self.canvas.h_vertex, 2)
+        self.assertIs(
+            self.canvas.interaction_snapshot.hover.shape,
+            self.lower_shape,
+        )
+        self.assertEqual(self.canvas.interaction_snapshot.hover.vertex, 2)
 
         self.canvas.mousePressEvent(
             mouse_event(
@@ -117,7 +120,10 @@ class OverlappingShapeVertexDragTest(unittest.TestCase):
                 self.canvas.mouseMoveEvent(
                     mouse_event(QEvent.MouseMove, start)
                 )
-                self.assertEqual(self.canvas.h_vertex, vertex)
+                self.assertEqual(
+                    self.canvas.interaction_snapshot.hover.vertex,
+                    vertex,
+                )
                 self.assertEqual(
                     self.canvas.current_cursor(),
                     expected_cursor,
@@ -162,9 +168,9 @@ class OverlappingShapeVertexDragTest(unittest.TestCase):
             mouse_event(QEvent.MouseMove, (46, 46))
         )
 
-        self.assertIs(self.canvas.h_shape, shape)
-        self.assertIsNone(self.canvas.h_vertex)
-        self.assertIsNone(self.canvas.h_edge)
+        self.assertIs(self.canvas.interaction_snapshot.hover.shape, shape)
+        self.assertIsNone(self.canvas.interaction_snapshot.hover.vertex)
+        self.assertIsNone(self.canvas.interaction_snapshot.hover.edge)
         self.assertEqual(
             self.canvas.current_cursor(),
             Qt.OpenHandCursor,
@@ -177,7 +183,7 @@ class OverlappingShapeVertexDragTest(unittest.TestCase):
         self.canvas.mouseMoveEvent(
             mouse_event(QEvent.MouseMove, (40, 40))
         )
-        self.assertEqual(self.canvas.h_vertex, 0)
+        self.assertEqual(self.canvas.interaction_snapshot.hover.vertex, 0)
         self.assertEqual(
             self.canvas.current_cursor(),
             Qt.SizeFDiagCursor,
@@ -186,8 +192,8 @@ class OverlappingShapeVertexDragTest(unittest.TestCase):
         self.canvas.mouseMoveEvent(
             mouse_event(QEvent.MouseMove, (46, 40))
         )
-        self.assertIsNone(self.canvas.h_vertex)
-        self.assertEqual(self.canvas.h_edge, 0)
+        self.assertIsNone(self.canvas.interaction_snapshot.hover.vertex)
+        self.assertEqual(self.canvas.interaction_snapshot.hover.edge, 0)
         self.assertEqual(
             self.canvas.current_cursor(),
             Qt.SizeVerCursor,
@@ -245,7 +251,10 @@ class OverlappingShapeVertexDragTest(unittest.TestCase):
                     self.canvas.mouseMoveEvent(
                         mouse_event(QEvent.MouseMove, start)
                     )
-                    self.assertEqual(self.canvas.h_vertex, vertex)
+                    self.assertEqual(
+                        self.canvas.interaction_snapshot.hover.vertex,
+                        vertex,
+                    )
                     self.canvas.mousePressEvent(
                         mouse_event(
                             QEvent.MouseButtonPress,
@@ -288,8 +297,11 @@ class OverlappingShapeVertexDragTest(unittest.TestCase):
         original_lower_points = list(self.lower_shape.points)
 
         self.canvas.mouseMoveEvent(mouse_event(QEvent.MouseMove, start))
-        self.assertIs(self.canvas.h_shape, self.upper_shape)
-        self.assertIsNone(self.canvas.h_vertex)
+        self.assertIs(
+            self.canvas.interaction_snapshot.hover.shape,
+            self.upper_shape,
+        )
+        self.assertIsNone(self.canvas.interaction_snapshot.hover.vertex)
 
         self.canvas.mousePressEvent(
             mouse_event(
@@ -345,9 +357,17 @@ class OverlappingShapeVertexDragTest(unittest.TestCase):
                 self.canvas.mouseMoveEvent(
                     mouse_event(QEvent.MouseMove, start)
                 )
-                self.assertIs(self.canvas.h_shape, shape)
-                self.assertIsNone(self.canvas.h_vertex)
-                self.assertEqual(self.canvas.h_edge, edge)
+                self.assertIs(
+                    self.canvas.interaction_snapshot.hover.shape,
+                    shape,
+                )
+                self.assertIsNone(
+                    self.canvas.interaction_snapshot.hover.vertex
+                )
+                self.assertEqual(
+                    self.canvas.interaction_snapshot.hover.edge,
+                    edge,
+                )
 
                 self.canvas.mousePressEvent(
                     mouse_event(

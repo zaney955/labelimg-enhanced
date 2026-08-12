@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import re
-from functools import cmp_to_key
 
 from PyQt5.QtCore import (
     QEvent,
@@ -47,6 +46,13 @@ from PyQt5.QtWidgets import (
 )
 
 from labelimg.files.application.operations import exact_annotation_paths
+from labelimg.files.model import (
+    FileListItemState,
+    FileListProjection,
+    FileListQuery,
+    compare_relative_image_paths,
+    portable_logical_compare,
+)
 from labelimg.localization.runtime import language_changed, localize_dialog_buttons, tr
 
 
@@ -68,85 +74,10 @@ WINDOWS_RESERVED_NAMES = {
 }
 
 
-def _quality_value(finding, field):
-    if isinstance(finding, dict):
-        return finding.get(field)
-    if hasattr(finding, field):
-        return getattr(finding, field)
-    return finding if field == "code" else None
-
-
-def portable_logical_compare(left_name, right_name):
-    """Compare text using case-insensitive natural numeric chunks."""
-    left_parts = re.split(r"(\d+)", str(left_name).casefold())
-    right_parts = re.split(r"(\d+)", str(right_name).casefold())
-    for left_part, right_part in zip(left_parts, right_parts):
-        left_is_number = left_part.isdigit()
-        right_is_number = right_part.isdigit()
-        if left_is_number and right_is_number:
-            left_number = int(left_part)
-            right_number = int(right_part)
-            if left_number != right_number:
-                return (left_number > right_number) - (
-                    left_number < right_number
-                )
-            if len(left_part) != len(right_part):
-                return (len(right_part) > len(left_part)) - (
-                    len(right_part) < len(left_part)
-                )
-        elif left_is_number != right_is_number:
-            return -1 if left_is_number else 1
-        elif left_part != right_part:
-            return (left_part > right_part) - (
-                left_part < right_part
-            )
-    return (len(left_parts) > len(right_parts)) - (
-        len(left_parts) < len(right_parts)
-    )
-
-
-def _relative_path_parts(path, root):
-    absolute = os.path.abspath(path)
-    if root:
-        try:
-            relative = os.path.relpath(absolute, os.path.abspath(root))
-        except ValueError:
-            relative = os.path.basename(absolute)
-    else:
-        relative = os.path.basename(absolute)
-    normalized = relative.replace("\\", "/")
-    return tuple(part for part in normalized.split("/") if part)
-
-
-def compare_relative_image_paths(left_path, right_path, root=None):
-    """Keep relative directories grouped, then naturally order names."""
-    left_parts = _relative_path_parts(left_path, root)
-    right_parts = _relative_path_parts(right_path, root)
-    left_dirs, left_name = left_parts[:-1], left_parts[-1:]
-    right_dirs, right_name = right_parts[:-1], right_parts[-1:]
-    for left_part, right_part in zip(left_dirs, right_dirs):
-        comparison = portable_logical_compare(left_part, right_part)
-        if comparison:
-            return comparison
-    if len(left_dirs) != len(right_dirs):
-        return (len(left_dirs) > len(right_dirs)) - (
-            len(left_dirs) < len(right_dirs)
-        )
-    comparison = portable_logical_compare(
-        left_name[0] if left_name else "",
-        right_name[0] if right_name else "",
-    )
-    if comparison:
-        return comparison
-    left_key = os.path.abspath(left_path).casefold()
-    right_key = os.path.abspath(right_path).casefold()
-    return (left_key > right_key) - (left_key < right_key)
-
-
 class FileListViewState(object):
-    SORT_KEYS = ("name", "modified", "annotation", "review")
-    ANNOTATION_ORDER = {"unannotated": 0, "annotated": 1}
-    REVIEW_ORDER = {"unreviewed": 0, "questioned": 1, "verified": 2}
+    """Mutable Qt control adapter for the immutable file-list query."""
+
+    SORT_KEYS = FileListQuery.SORT_KEYS
 
     def __init__(self, sort_key="name", descending=False):
         self.sort_key = (
@@ -157,12 +88,18 @@ class FileListViewState(object):
 
     @property
     def filter_active(self):
-        return bool(
-            self.text_filter
-            or self.annotation_filter != "all"
-            or self.review_filter != "all"
-            or self.alert_filter != "all"
-            or self.quality_filter != "all"
+        return self.query.filter_active
+
+    @property
+    def query(self):
+        return FileListQuery(
+            sort_key=self.sort_key,
+            descending=self.descending,
+            text=self.text_filter,
+            annotation=self.annotation_filter,
+            review=self.review_filter,
+            alert=self.alert_filter,
+            quality=self.quality_filter,
         )
 
     def set_filter(
@@ -186,116 +123,31 @@ class FileListViewState(object):
         self.alert_filter = "all"
         self.quality_filter = "all"
 
-    def ordered_paths(
+    def project(
         self,
         paths,
         root,
         annotation_state_for,
         review_state_for,
+        persistence_flags_for,
+        quality_findings_for=lambda _path: (),
         modified_time_for=os.path.getmtime,
     ):
-        def path_compare(left, right):
-            return compare_relative_image_paths(left, right, root)
-
-        def primary(path):
-            if self.sort_key == "annotation":
-                return self.ANNOTATION_ORDER.get(
-                    annotation_state_for(path), -1
-                )
-            if self.sort_key == "review":
-                return self.REVIEW_ORDER.get(review_state_for(path), -1)
-            if self.sort_key == "modified":
-                try:
-                    return float(modified_time_for(path))
-                except (OSError, TypeError, ValueError):
-                    return float("-inf")
-            return 0
-
-        def compare(left, right):
-            if self.sort_key == "name":
-                comparison = path_compare(left, right)
-                return -comparison if self.descending else comparison
-            left_primary = primary(left)
-            right_primary = primary(right)
-            comparison = (left_primary > right_primary) - (
-                left_primary < right_primary
-            )
-            if comparison:
-                return -comparison if self.descending else comparison
-            return path_compare(left, right)
-
-        return sorted(list(paths), key=cmp_to_key(compare))
-
-    def matches(
-        self,
-        path,
-        root,
-        annotation_state_for,
-        review_state_for,
-        persistence_flags_for,
-        quality_findings_for=lambda _path: (),
-    ):
-        if self.text_filter:
-            parts = _relative_path_parts(path, root)
-            display_path = "/".join(parts).casefold()
-            query = self.text_filter.replace("\\", "/").casefold()
-            if query not in display_path:
-                return False
-        if (
-            self.annotation_filter != "all"
-            and annotation_state_for(path) != self.annotation_filter
-        ):
-            return False
-        if (
-            self.review_filter != "all"
-            and review_state_for(path) != self.review_filter
-        ):
-            return False
-        flags = tuple(persistence_flags_for(path) or ())
-        if self.alert_filter == "any" and not flags:
-            return False
-        if self.alert_filter == "none" and flags:
-            return False
-        quality = tuple(quality_findings_for(path) or ())
-        if self.quality_filter == "issues" and not quality:
-            return False
-        if self.quality_filter == "passed" and quality:
-            return False
-        if self.quality_filter in ("error", "warning") and not any(
-            _quality_value(item, "severity") == self.quality_filter
-            for item in quality
-        ):
-            return False
-        if self.quality_filter not in (
-            "all", "issues", "passed", "error", "warning"
-        ) and not any(
-            _quality_value(item, "code") == self.quality_filter
-            for item in quality
-        ):
-            return False
-        return True
-
-    def visible_paths(
-        self,
-        paths,
-        root,
-        annotation_state_for,
-        review_state_for,
-        persistence_flags_for,
-        quality_findings_for=lambda _path: (),
-    ):
-        return [
-            path
-            for path in paths
-            if self.matches(
-                path,
-                root,
-                annotation_state_for,
-                review_state_for,
-                persistence_flags_for,
-                quality_findings_for,
-            )
-        ]
+        items = []
+        for path in paths:
+            try:
+                modified_time = modified_time_for(path)
+            except (OSError, TypeError, ValueError):
+                modified_time = None
+            items.append(FileListItemState(
+                path=path,
+                modified_time=modified_time,
+                annotation_state=annotation_state_for(path),
+                review_state=review_state_for(path),
+                persistence_flags=persistence_flags_for(path),
+                quality_findings=quality_findings_for(path),
+            ))
+        return FileListProjection.create(root, items, self.query)
 
 
 class FileListControlButton(QToolButton):

@@ -7,7 +7,7 @@ import os
 
 import numpy as np
 
-from labelimg.annotations.infrastructure.storage import fingerprint_path
+from labelimg.annotations import fingerprint_path
 from labelimg.image_tools.domain.colored_frame_removal import (
     ColoredFrameRemover,
     FrameRemovalOptions,

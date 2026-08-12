@@ -11,12 +11,12 @@ import tempfile
 import uuid
 from xml.etree import ElementTree
 
-from labelimg.annotations.infrastructure.storage import (
+from labelimg.annotations import (
     MISSING_FINGERPRINT,
     fingerprint_path,
 )
 from labelimg.files.application.recovery import TrashIdentity, TrashedResource
-from labelimg.annotations.infrastructure.formats.create_ml_collection import (
+from labelimg.annotations import (
     CreateMLAnnotationCollection,
     CreateMLCollectionError,
     CreateMLCollectionFormatError,

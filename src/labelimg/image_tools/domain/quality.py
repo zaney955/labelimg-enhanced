@@ -11,7 +11,7 @@ import tempfile
 import cv2
 import numpy as np
 
-from labelimg.annotations.infrastructure.storage import ResourceFingerprint, fingerprint_path
+from labelimg.annotations import ResourceFingerprint, fingerprint_path
 from labelimg.image_tools.infrastructure.image_codec import ImageFileCodec
 
 

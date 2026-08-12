@@ -13,7 +13,7 @@ from PyQt5.QtGui import QColor, QImage, QKeySequence
 from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication, QMessageBox
 
-from labelimg.workbench.main_window import MainWindow
+from labelimg.workbench.bootstrap import WorkbenchLaunchOptions, create_workbench
 from labelimg.localization.runtime import SIMPLIFIED_CHINESE, set_language
 from labelimg.annotations.domain.model import AnnotationFormat
 from labelimg.annotations.infrastructure.document import AnnotationDocument
@@ -21,9 +21,9 @@ FORMAT_YOLO = AnnotationFormat.YOLO.display_name
 from labelimg.canvas.shape import Shape
 from labelimg.files.application.recovery import (
     FileRecoveryError,
-    ReviewRecoveryRecord,
     TrashIdentity,
 )
+from labelimg.annotations.application.review import ReviewRecoveryRecord
 from labelimg.files.ui.list_widget import (
     FILE_ANNOTATION_STATE_ROLE,
     FILE_REVIEW_STATE_ROLE,
@@ -127,10 +127,10 @@ class FileListAnnotationStatusTest(unittest.TestCase):
         with open(classes_path, "w", encoding="utf-8"):
             pass
 
-        self.window = MainWindow(
-            default_prefdef_class_file=classes_path,
-            default_save_dir=self.annotation_dir,
-        )
+        self.window = create_workbench(WorkbenchLaunchOptions(
+            class_file=classes_path,
+            save_dir=self.annotation_dir,
+        ))
         set_language(SIMPLIFIED_CHINESE)
         trash_dir = os.path.join(self.temp_dir.name, "trash")
         os.makedirs(trash_dir)
