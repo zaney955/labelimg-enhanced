@@ -254,6 +254,10 @@ class FileOperationTransaction:
             recovery_entry=entry,
         )
 
+    def discard_image_histories(self, image_paths):
+        """Discard geometry-dependent retained state after replacement."""
+        self._discard_histories(tuple(image_paths))
+
     def recover(self, entry_id, selected_paths=None):
         """Recover one complete recorded operation."""
         entry = self._recovery.entry(entry_id)

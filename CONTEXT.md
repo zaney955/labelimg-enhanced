@@ -12,6 +12,10 @@ _Avoid_: Upstream LabelImg, GitHub fork, `libs` distribution
 The user-selected language used for all visible LabelImg interface text. It is either Simplified Chinese or English, persists across launches, initially maps every `zh-*` system locale to Simplified Chinese and every other locale to English, and immediately updates the current application surface when changed without requiring a restart.
 _Avoid_: Annotation language, label language, system-locale lock
 
+**Application settings menu**:
+The stable top-level Settings menu that owns application preferences: language, automatic saving, single-class mode, and resetting all settings. View owns only visible presentation and Canvas scale, while File and Edit retain file/workspace commands and annotation-editing commands respectively.
+_Avoid_: View-menu preferences, File-menu reset command, duplicated settings entry
+
 **Interface text**:
 Application-authored text visible during operation, including commands, panels, status and guidance, validation, confirmations, recovery, conflicts, and application-owned buttons. It excludes user-authored labels, file names and paths, annotation-format names, and verbatim operating-system diagnostics.
 _Avoid_: User data, translated path, rewritten system error

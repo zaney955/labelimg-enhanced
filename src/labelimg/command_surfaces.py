@@ -152,7 +152,7 @@ class ReviewControl(QFrame):
             )
             self.group.addAction(action)
             button = _tool_button(action)
-            button.setFixedSize(98, 36)
+            button.setFixedSize(98, BUTTON_SIZE.height())
             button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
             button.setObjectName("review_%s" % state)
             layout.addWidget(button)
@@ -183,7 +183,10 @@ class ReviewControl(QFrame):
 
     def set_compact(self, compact):
         for button in self.buttons.values():
-            button.setFixedSize(44 if compact else 98, 36)
+            button.setFixedSize(
+                BUTTON_SIZE.width() if compact else 98,
+                BUTTON_SIZE.height(),
+            )
             button.setToolButtonStyle(
                 Qt.ToolButtonIconOnly if compact
                 else Qt.ToolButtonTextBesideIcon
@@ -212,7 +215,7 @@ class FormatSelector(QToolButton):
         self.setIconSize(ICON_SIZE)
         self.setPopupMode(QToolButton.InstantPopup)
         self.setFixedWidth(132)
-        self.setFixedHeight(36)
+        self.setFixedHeight(BUTTON_SIZE.height())
         self.menu = QMenu(self)
         self.group = QActionGroup(self.menu)
         self.group.setExclusive(True)
@@ -283,6 +286,7 @@ class TopCommandBar(QToolBar):
         self.counter_label.setObjectName("imageCounter")
         self.counter_label.setAlignment(Qt.AlignCenter)
         self.counter_label.setMinimumWidth(62)
+        self.counter_label.setFixedHeight(BUTTON_SIZE.height())
         self.addWidget(self.counter_label)
         self.next_button = _tool_button(next_action)
         self.next_button.setObjectName("nextImageButton")

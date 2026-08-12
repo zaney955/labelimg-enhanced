@@ -27,7 +27,7 @@ The historic `StringBundle` API remains as a compatibility facade, but the Qt re
 
 ## Runtime behavior
 
-`src/labelimg/i18n.py` owns locale normalization, the selected language, catalog lookup, and the language-change signal. The main window loads the saved preference before constructing visible controls. Choosing View → Language updates persistent settings immediately and retranslates long-lived widgets, actions, menus, panels, summaries, and tooltips without recreating the annotation workspace.
+`src/labelimg/i18n.py` owns locale normalization, the selected language, catalog lookup, and the language-change signal. The main window loads the saved preference before constructing visible controls. Choosing Settings → Language updates persistent settings immediately and retranslates long-lived widgets, actions, menus, panels, summaries, and tooltips without recreating the annotation workspace.
 
 Transient context menus and dialogs translate their text when opened. Application-owned dialog and message-box buttons receive explicit bilingual labels because the supported PyQt bundle lacks `qtbase_zh_CN`; standard buttons therefore use the same language without relying on platform translation availability. Native operating-system dialogs remain operating-system text by design. User data and active annotation state are untouched by a language switch.
 

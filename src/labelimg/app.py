@@ -110,6 +110,14 @@ from labelimg.file_operation_transaction import (
 )
 from labelimg.file_recovery import RecoveryOperation
 from labelimg.label_group_list import LabelGroupListWidget
+from labelimg.image_tools.session import (
+    AdjustmentChange,
+    CropChange,
+    GeometryTransformChange,
+    ImageProcessingProjectionKind,
+    ImageProcessingSession,
+    PreparedPixelChange,
+)
 
 __appname__ = 'labelImg'
 
@@ -645,17 +653,20 @@ class MainWindow(QMainWindow, WindowMixin):
         self.prev_label_text = ''
 
         list_layout = QVBoxLayout()
-        list_layout.setContentsMargins(0, 0, 0, 0)
+        list_layout.setContentsMargins(6, 4, 6, 6)
+        list_layout.setSpacing(6)
 
         # Create a widget for using default label
         self.use_default_label_checkbox = QCheckBox(get_str('useDefaultLabel'))
         self.use_default_label_checkbox.setChecked(False)
         self.default_label_text_line = QLineEdit()
         use_default_label_qhbox_layout = QHBoxLayout()
+        use_default_label_qhbox_layout.setContentsMargins(0, 0, 0, 0)
+        use_default_label_qhbox_layout.setSpacing(6)
         use_default_label_qhbox_layout.addWidget(self.use_default_label_checkbox)
         use_default_label_qhbox_layout.addWidget(self.default_label_text_line)
-        use_default_label_container = QWidget()
-        use_default_label_container.setLayout(use_default_label_qhbox_layout)
+        self.default_label_row = QWidget()
+        self.default_label_row.setLayout(use_default_label_qhbox_layout)
 
         # Create a widget for edit and diffc button
         self.diffc_button = QCheckBox(get_str('useDifficult'))
@@ -670,10 +681,10 @@ class MainWindow(QMainWindow, WindowMixin):
         self.delete_button.setObjectName('annotationDeleteButton')
         self.visibility_button = QToolButton()
         self.visibility_button.setObjectName('annotationVisibilityButton')
-        annotation_header = QWidget()
-        annotation_header_layout = QHBoxLayout(annotation_header)
-        annotation_header_layout.setContentsMargins(4, 2, 4, 2)
-        annotation_header_layout.setSpacing(2)
+        self.annotation_header = QWidget()
+        annotation_header_layout = QHBoxLayout(self.annotation_header)
+        annotation_header_layout.setContentsMargins(0, 0, 0, 0)
+        annotation_header_layout.setSpacing(4)
         for button in (
             self.edit_button,
             self.copy_button,
@@ -686,9 +697,9 @@ class MainWindow(QMainWindow, WindowMixin):
         annotation_header_layout.addStretch(1)
 
         # Add some of widgets to list_layout
-        list_layout.addWidget(annotation_header)
+        list_layout.addWidget(self.annotation_header)
         list_layout.addWidget(self.diffc_button)
-        list_layout.addWidget(use_default_label_container)
+        list_layout.addWidget(self.default_label_row)
 
         self.label_filter = QLineEdit()
         self.label_filter.setPlaceholderText(tr('labels.filter'))
@@ -762,12 +773,13 @@ class MainWindow(QMainWindow, WindowMixin):
             self.pop_file_list_menu
         )
         file_list_layout = QVBoxLayout()
-        file_list_layout.setContentsMargins(0, 0, 0, 0)
+        file_list_layout.setContentsMargins(6, 4, 6, 6)
+        file_list_layout.setSpacing(6)
         self.annotation_directory_bar = QWidget()
         annotation_directory_layout = QHBoxLayout(
             self.annotation_directory_bar
         )
-        annotation_directory_layout.setContentsMargins(6, 4, 4, 4)
+        annotation_directory_layout.setContentsMargins(0, 0, 0, 0)
         annotation_directory_layout.setSpacing(4)
         self.annotation_directory_label = QLabel()
         self.annotation_directory_label.setTextInteractionFlags(
@@ -917,6 +929,15 @@ class MainWindow(QMainWindow, WindowMixin):
             self.review_state_transaction,
             self.system_trash,
         )
+        self.image_processing = ImageProcessingSession(
+            self.annotation_workspace,
+            self.annotation_editing,
+            self.annotation_persistence,
+            self.file_operations,
+            self._project_image_processing,
+            self.annotation_document_for_path,
+        )
+        self._image_processing_projection_blocked = False
         self.canvas.newShape.connect(self.new_shape)
         self.canvas.shapeMoved.connect(self._legacy_shape_moved)
         self.canvas.selectionChanged.connect(self.shape_selection_changed)
@@ -1252,7 +1273,7 @@ class MainWindow(QMainWindow, WindowMixin):
         self.draw_squares_option.triggered.connect(self.toggle_draw_square)
 
         # Store actions for further handling.
-        self.actions = Struct(save=save, save_format=save_format, saveAs=save_as, open=open, close=close, resetAll=reset_all, deleteImg=delete_image,
+        self.actions = Struct(save=save, save_format=save_format, saveAs=save_as, open=open, close=close, quit=quit, resetAll=reset_all, deleteImg=delete_image,
                               openDir=open_dir, changeSaveDir=change_save_dir,
                               replaceAnnotation=open_annotation,
                               verify=verify, question=question,
@@ -1274,17 +1295,23 @@ class MainWindow(QMainWindow, WindowMixin):
                               lineColor=color1, selectTool=select_tool,
                               panTool=pan_tool, create=create, delete=delete,
                               edit=edit, copy=copy,
-                              copyAnnotations=copy_annotations, pasteAnnotations=paste_annotations,
+                               copyAnnotations=copy_annotations, pasteAnnotations=paste_annotations,
+                               copyPrevBounding=copy_prev_bounding,
                               shapeLineColor=shape_line_color, shapeFillColor=shape_fill_color,
                               hideAll=hide_all, showAll=show_all,
-                              toggleVisibility=toggle_visibility,
-                              zoom=zoom, zoomIn=zoom_in, zoomOut=zoom_out, zoomOrg=zoom_org,
+                               toggleVisibility=toggle_visibility,
+                               labels=labels,
+                               helpDefault=help_default,
+                               showInfo=show_info,
+                               showShortcut=show_shortcut,
+                               zoom=zoom, zoomIn=zoom_in, zoomOut=zoom_out, zoomOrg=zoom_org,
                               fitWindow=fit_window, fitWidth=fit_width,
                               zoomActions=zoom_actions,
                               fileMenuActions=(
-                                  open, open_dir, save, save_as, close, reset_all, quit),
+                                  open, open_dir, save, save_as, close, quit),
                               editMenu=(undo_annotation, redo_annotation, None,
-                                        edit, copy_annotations, paste_annotations, copy, delete,
+                                        edit, copy_annotations, paste_annotations,
+                                        copy_prev_bounding, copy, delete,
                                         None, color1, self.draw_squares_option),
                               canvasContext=(create, edit, copy, delete),
                                onLoadActive=(
@@ -1301,6 +1328,7 @@ class MainWindow(QMainWindow, WindowMixin):
             edit=self.menu(get_str('menu_edit')),
             image=self.menu(tr('menu_image')),
             view=self.menu(get_str('menu_view')),
+            settings=self.menu(tr('menu_settings')),
             help=self.menu(get_str('menu_help')),
             recentFiles=QMenu(get_str('menu_openRecent')),
             labelList=label_menu)
@@ -1376,7 +1404,6 @@ class MainWindow(QMainWindow, WindowMixin):
         self.auto_save_timer.timeout.connect(self.save_dirty_annotations)
         # Sync single class mode from PR#106
         self.single_class_mode = QAction(get_str('singleClsMode'), self)
-        self.single_class_mode.setShortcut("Ctrl+Shift+S")
         self.single_class_mode.setCheckable(True)
         self.single_class_mode.setChecked(settings.get(SETTING_SINGLE_CLASS, False))
         self.lastLabel = None
@@ -1391,24 +1418,33 @@ class MainWindow(QMainWindow, WindowMixin):
                     (open_dir, open, self.menus.recentFiles, None,
                      self.menus.annotationDirectory, None,
                      open_annotation, save, save_as, save_format, close, None,
-                     copy_annotations, paste_annotations, copy_prev_bounding,
-                     delete_image, recent_file_operations, reset_all, None, quit))
+                     delete_image, recent_file_operations, None, quit))
         add_actions(self.menus.image, (
             crop_image,
             self.menus.geometry,
             transform_image,
+            None,
             adjust_image,
+            None,
             check_image_quality,
+            None,
             self.menus.specializedRepair,
             None,
             undo_image_processing,
         ))
-        add_actions(self.menus.help, (help_default, show_info, show_shortcut))
-        add_actions(self.menus.view, (
+        add_actions(self.menus.settings, (
             self.menus.language,
             None,
             self.auto_saving,
             self.single_class_mode,
+            None,
+            reset_all,
+        ))
+        add_actions(
+            self.menus.help,
+            (help_default, show_shortcut, None, show_info),
+        )
+        add_actions(self.menus.view, (
             self.display_label_option,
             labels, None,
             hide_all, show_all, None,
@@ -1687,10 +1723,12 @@ class MainWindow(QMainWindow, WindowMixin):
         self.dock.setWindowTitle(tr('boxLabelText'))
         self.file_dock.setWindowTitle(tr('fileList'))
         self.image_quality_dock.setWindowTitle(tr('quality.panelTitle'))
+        set_action_copy(self.actions.labels, tr('showHide'))
         self.menus.file.setTitle(tr('menu_file'))
         self.menus.edit.setTitle(tr('menu_edit'))
         self.menus.image.setTitle(tr('menu_image'))
         self.menus.view.setTitle(tr('menu_view'))
+        self.menus.settings.setTitle(tr('menu_settings'))
         self.menus.help.setTitle(tr('menu_help'))
         self.menus.recentFiles.setTitle(tr('menu_openRecent'))
         self.menus.annotationDirectory.setTitle(
@@ -2439,6 +2477,183 @@ class MainWindow(QMainWindow, WindowMixin):
             self._latest_image_processing_recovery() is not None
         )
 
+    def _project_image_processing(self, request):
+        """Project one committed image-processing result into Qt state."""
+        if request.kind is ImageProcessingProjectionKind.PIXEL_COMMIT:
+            self._invalidate_image_quality(request.paths)
+            self._refresh_current_image_pixels(request.paths)
+            self.actions.undoImageProcessing.setEnabled(True)
+            return None
+
+        if (
+            request.kind
+            is ImageProcessingProjectionKind.CURRENT_GEOMETRY_COMMIT
+        ):
+            target = request.current_target
+            old_scroll = {
+                orientation: bar.value()
+                for orientation, bar in self.scroll_bars.items()
+            }
+            zoom = self.zoom_widget.value()
+            self.image_data = target.prepared.image_replacement.content
+            self.image = QImage.fromData(self.image_data)
+            self.canvas.replace_pixmap(QPixmap.fromImage(self.image))
+            self.annotation_scene.project(
+                self._history_projection_request(
+                    request.snapshot,
+                    direction=request.direction,
+                    preserve_selection=True,
+                )
+            )
+            if target.annotation_preparation is not None:
+                self.annotation_document = (
+                    target.annotation_preparation.document
+                )
+            self.zoom_widget.setValue(zoom)
+            self.paint_canvas()
+            if request.direction == 'crop':
+                QApplication.processEvents()
+                scale = 0.01 * zoom
+                region = target.prepared.region
+                self.scroll_bars[Qt.Horizontal].setValue(
+                    max(0, round(
+                        old_scroll[Qt.Horizontal] - region.x * scale
+                    ))
+                )
+                self.scroll_bars[Qt.Vertical].setValue(
+                    max(0, round(
+                        old_scroll[Qt.Vertical] - region.y * scale
+                    ))
+                )
+            self._invalidate_image_quality(request.paths)
+
+            def finalize_current_geometry():
+                if request.direction == 'crop':
+                    self._finish_crop_mode()
+                self.rescan_annotation_workspace()
+                self.update_file_list_item_status(self.file_path)
+                self.actions.undoImageProcessing.setEnabled(True)
+                self._sync_annotation_history_ui()
+
+            return finalize_current_geometry
+
+        if (
+            request.kind
+            is ImageProcessingProjectionKind.GEOMETRY_BATCH_COMMIT
+        ):
+            self._invalidate_image_quality(request.paths)
+            self.rescan_annotation_workspace()
+            current_key = (
+                os.path.normcase(os.path.abspath(self.file_path))
+                if self.file_path
+                else None
+            )
+            changed = {
+                os.path.normcase(os.path.abspath(path))
+                for path in request.paths
+            }
+            if current_key in changed:
+                if not self.load_file(self.file_path):
+                    raise RuntimeError(
+                        "the transformed current image could not reload"
+                    )
+            else:
+                self.refresh_file_list_statuses()
+            self.actions.undoImageProcessing.setEnabled(True)
+            return None
+
+        if request.kind is ImageProcessingProjectionKind.RECOVERY:
+            outcome = request.outcome
+            selected_before = tuple(self.selected_file_paths())
+            image_extensions = {
+                '.%s' % value.data().decode('ascii').lower()
+                for value in QImageReader.supportedImageFormats()
+            }
+            restored_images = tuple(
+                path
+                for path in request.paths
+                if os.path.splitext(path)[1].lower() in image_extensions
+            )
+            if self.dir_name and os.path.isdir(self.dir_name):
+                self.populate_file_list(self.scan_all_images(self.dir_name))
+                selected_after = set(selected_before)
+                selected_after.update(restored_images)
+                for row in range(self.file_list_widget.count()):
+                    item = self.file_list_widget.item(row)
+                    if item.data(Qt.UserRole) in selected_after:
+                        item.setSelected(True)
+            geometry_images = tuple(outcome.reload_images)
+            if geometry_images:
+                self.annotation_persistence.propagate_resource_fingerprints(
+                    tuple(
+                        (path, fingerprint_path(path))
+                        for path in outcome.restored_paths
+                    )
+                )
+                self.rescan_annotation_workspace()
+            self._invalidate_image_quality(restored_images)
+            self.refresh_file_list_statuses()
+            current_key = (
+                os.path.normcase(os.path.abspath(self.file_path))
+                if self.file_path
+                else None
+            )
+            geometry_keys = {
+                os.path.normcase(os.path.abspath(path))
+                for path in geometry_images
+            }
+            if current_key in geometry_keys:
+                self.load_file(self.file_path)
+            else:
+                self._refresh_current_image_pixels(restored_images)
+            if self.file_path is None and restored_images:
+                self.load_file(restored_images[0])
+            self.actions.undoImageProcessing.setEnabled(
+                self._latest_image_processing_recovery() is not None
+            )
+            if self._image_processing_projection_blocked:
+                self._image_processing_projection_blocked = False
+                has_image = bool(self.file_path)
+                self.canvas.setEnabled(has_image)
+                self.toggle_actions(has_image)
+                if has_image:
+                    self.set_edit_mode()
+                self.update_file_navigation_actions()
+                self.update_image_menu()
+                self._sync_annotation_history_ui()
+            return None
+
+        if request.kind is ImageProcessingProjectionKind.PROJECTION_FAILED:
+            self._image_processing_projection_blocked = True
+            self.canvas.setEnabled(False)
+            for name in (
+                'create',
+                'delete',
+                'copy',
+                'pasteAnnotations',
+                'undoAnnotation',
+                'redoAnnotation',
+                'save',
+                'saveAs',
+                'openPrev',
+                'openNext',
+                'cropImage',
+                'transformImage',
+                'adjustImage',
+                'removeColoredFrames',
+            ):
+                action = getattr(self.actions, name, None)
+                if action is not None:
+                    action.setEnabled(False)
+            self.actions.undoImageProcessing.setEnabled(
+                self._latest_image_processing_recovery() is not None
+            )
+            return None
+
+        raise ValueError(
+            "unsupported image-processing projection: %s" % request.kind
+        )
+
     def open_transform_image(self, _checked=False, preselected=None):
         if not self.file_path or self._crop_active:
             return False
@@ -2514,112 +2729,17 @@ class MainWindow(QMainWindow, WindowMixin):
             return False
 
     def _apply_geometry_transform_batch(self, request):
-        from labelimg.image_tools.crop_annotation import (
-            prepare_crop_annotations,
-        )
-        from labelimg.image_tools.geometry_transform import (
-            ImageGeometryProcessor,
-            annotation_snapshot_from_document,
-        )
-        from labelimg.image_tools.image_file_codec import ImageFileCodec
-
-        processor = ImageGeometryProcessor()
-        codec = ImageFileCodec()
-        groups = []
-        for path in request.paths:
-            loaded_image = codec.load(path)
-            if path == self.file_path:
-                view = self.annotation_editing.view
-                snapshot = view.snapshot
-                annotation_target = view.current_target
-                document = self.annotation_document_for_path(path)
-            else:
-                image_data = read(path, None)
-                loaded_document = self.annotation_workspace.load_for_image(
-                    path,
-                    image_data,
-                )
-                if loaded_document is None:
-                    document = AnnotationDocument(
-                        image_path=path,
-                        image_data=image_data,
-                        boxes=(),
-                        class_names=tuple(self.label_hist),
-                    )
-                    annotation_target = None
-                else:
-                    document = loaded_document.document
-                    annotation_target = loaded_document.annotation_path
-                snapshot = annotation_snapshot_from_document(
-                    document,
-                    loaded_image.size,
-                )
-            output_size = None
-            if request.operation.value == 'resize':
-                scale = request.resize_percent / 100.0
-                output_size = (
-                    max(1, round(loaded_image.size[0] * scale)),
-                    max(1, round(loaded_image.size[1] * scale)),
-                )
-            prepared = processor.prepare(
-                path,
-                request.operation,
-                snapshot,
-                output_size=output_size,
-            )
-            annotation_preparation = None
-            if annotation_target and os.path.isfile(annotation_target):
-                annotation_preparation = prepare_crop_annotations(
-                    prepared.snapshot,
-                    prepared.image_replacement.content,
-                    annotation_target,
-                    class_names=(
-                        self.annotation_workspace.yolo_vocabulary
-                        or document.class_names
-                    ),
-                    create_ml_record_name=document.create_ml_record_name,
-                )
-            replacements = (prepared.image_replacement,) + (
-                annotation_preparation.replacements
-                if annotation_preparation is not None
-                else ()
-            )
-            groups.append((
-                path,
-                replacements,
-                (
-                    (annotation_target,)
-                    if (
-                        annotation_preparation is not None
-                        and AnnotationFormat.from_path(annotation_target)
-                        is AnnotationFormat.CREATE_ML
-                    )
-                    else ()
-                ),
-            ))
-
-        current_path = self.file_path
-        self.file_operations.execute_grouped_image_processing_batch(groups)
-        self._invalidate_image_quality(request.paths)
-        retained_paths = tuple(
-            path for path in request.paths
-            if self.annotation_editing.has_image(path)
-        )
-        for path in request.paths:
-            if path in retained_paths:
-                self.annotation_persistence.release(
-                    self.annotation_editing.view_image(path, touch=False)
-                )
-            self.annotation_scene.forget_image(path)
-        if retained_paths:
-            self.annotation_editing.remove_images(retained_paths)
-        self.rescan_annotation_workspace()
-        if current_path in request.paths:
-            if not self.load_file(current_path):
-                raise RuntimeError("the transformed current image could not reload")
-        else:
-            self.refresh_file_list_statuses()
-        self.actions.undoImageProcessing.setEnabled(True)
+        plan = self.image_processing.prepare(GeometryTransformChange(
+            paths=tuple(request.paths),
+            operation=request.operation,
+            current_path=self.file_path,
+            resize_percent=(
+                request.resize_percent
+                if request.operation.value == 'resize'
+                else None
+            ),
+        ))
+        self.image_processing.commit(plan)
         self.status(tr('imageTools.completed', count=len(request.paths)))
         return True
 
@@ -2632,7 +2752,6 @@ class MainWindow(QMainWindow, WindowMixin):
         ):
             self.status(tr('imageTools.pendingAnnotation'))
             return False
-        from labelimg.image_tools.adjustment import ImageAdjustmentProcessor
         from labelimg.image_tools.adjustment_dialog import ImageAdjustmentDialog
 
         dialog = ImageAdjustmentDialog(
@@ -2643,22 +2762,13 @@ class MainWindow(QMainWindow, WindowMixin):
         if dialog.exec_() != QDialog.Accepted or dialog.request is None:
             return False
         try:
-            processor = ImageAdjustmentProcessor()
-            prepared = tuple(
-                processor.prepare(path, dialog.request.options)
-                for path in dialog.request.paths
-            )
-            replacements = tuple(
-                result.replacement
-                for result in prepared
-                if result.replacement is not None
-            )
-            if not replacements:
+            plan = self.image_processing.prepare(AdjustmentChange(
+                paths=tuple(dialog.request.paths),
+                options=dialog.request.options,
+            ))
+            if plan is None:
                 return False
-            self.file_operations.execute_image_processing(
-                replacements,
-                target_count=len(replacements),
-            )
+            self.image_processing.commit(plan)
         except Exception as error:
             localized_warning(
                 self,
@@ -2666,13 +2776,9 @@ class MainWindow(QMainWindow, WindowMixin):
                 tr('adjustment.failed', error=error),
             )
             return False
-        processed_paths = tuple(
-            replacement.path for replacement in replacements
+        self.status(
+            tr('imageTools.completed', count=len(plan.target_paths))
         )
-        self._invalidate_image_quality(processed_paths)
-        self._refresh_current_image_pixels(processed_paths)
-        self.actions.undoImageProcessing.setEnabled(True)
-        self.status(tr('imageTools.completed', count=len(processed_paths)))
         return True
 
     def open_image_quality_check(self, _checked=False):
@@ -2854,53 +2960,14 @@ class MainWindow(QMainWindow, WindowMixin):
                 return False
 
         try:
-            from labelimg.image_tools.crop_annotation import (
-                prepare_crop_annotations,
-            )
-            from labelimg.image_tools.geometry_transform import (
-                ImageGeometryProcessor,
-            )
-
-            view = self.annotation_editing.view
-            prepared = ImageGeometryProcessor().prepare(
-                self.file_path,
-                operation,
-                view.snapshot,
+            plan = self.image_processing.prepare(GeometryTransformChange(
+                paths=(self.file_path,),
+                operation=operation,
+                current_path=self.file_path,
                 output_size=output_size,
-            )
-            annotation_preparation = None
-            annotation_target = view.current_target
-            if annotation_target and os.path.isfile(annotation_target):
-                annotation_preparation = prepare_crop_annotations(
-                    prepared.snapshot,
-                    prepared.image_replacement.content,
-                    annotation_target,
-                    class_names=self.annotation_workspace.yolo_vocabulary,
-                    create_ml_record_name=(
-                        self.annotation_document.create_ml_record_name
-                        if self.annotation_document is not None
-                        else None
-                    ),
-                )
-            replacements = (prepared.image_replacement,) + (
-                annotation_preparation.replacements
-                if annotation_preparation is not None
-                else ()
-            )
-            self.file_operations.execute_grouped_image_processing(
-                self.file_path,
-                replacements,
-                mergeable_create_ml_paths=(
-                    (annotation_target,)
-                    if (
-                        annotation_preparation is not None
-                        and AnnotationFormat.from_path(annotation_target)
-                        is AnnotationFormat.CREATE_ML
-                    )
-                    else ()
-                ),
-            )
-            self._invalidate_image_quality((self.file_path,))
+                preserve_current=True,
+            ))
+            self.image_processing.commit(plan)
         except Exception as error:
             localized_warning(
                 self,
@@ -2909,45 +2976,6 @@ class MainWindow(QMainWindow, WindowMixin):
             )
             return False
 
-        zoom = self.zoom_widget.value()
-        self.image_data = prepared.image_replacement.content
-        self.image = QImage.fromData(self.image_data)
-        self.canvas.replace_pixmap(QPixmap.fromImage(self.image))
-        projected = replace(
-            prepared.snapshot,
-            image_fingerprint=fingerprint_image(
-                self.file_path,
-                prepared.snapshot.image_size,
-            ),
-        )
-        self.annotation_scene.project(self._history_projection_request(
-            projected,
-            direction='geometry-transform',
-            preserve_selection=True,
-        ))
-        if annotation_preparation is not None:
-            self.annotation_document = annotation_preparation.document
-        baseline = (
-            self._annotation_baseline(annotation_target)
-            if annotation_target
-            else None
-        )
-        self.annotation_editing.rebase_image(
-            self.file_path,
-            projected,
-            baseline=baseline,
-        )
-        self.annotation_editing.select_image(self.file_path)
-        if baseline is not None:
-            self.annotation_persistence.propagate_resource_fingerprints(
-                baseline[1]
-            )
-        self.zoom_widget.setValue(zoom)
-        self.paint_canvas()
-        self.rescan_annotation_workspace()
-        self.update_file_list_item_status(self.file_path)
-        self.actions.undoImageProcessing.setEnabled(True)
-        self._sync_annotation_history_ui()
         self.status(tr('geometry.completed'))
         self.update_image_menu()
         return True
@@ -3029,70 +3057,26 @@ class MainWindow(QMainWindow, WindowMixin):
             return False
 
         try:
-            from labelimg.image_tools.crop import ImageCropProcessor
-            from labelimg.image_tools.crop_annotation import (
-                prepare_crop_annotations,
-            )
-
-            view = self.annotation_editing.view
-            prepared = ImageCropProcessor().prepare(
-                self.file_path,
-                region,
-                view.snapshot,
-            )
-            if prepared.clipped_count or prepared.removed_count:
+            plan = self.image_processing.prepare(CropChange(
+                path=self.file_path,
+                region=region,
+            ))
+            impact = plan.impact
+            if impact.clipped_annotations or impact.removed_annotations:
                 answer = localized_question(
                     self,
                     tr('crop.confirmTitle'),
                     tr(
                         'crop.confirmImpact',
-                        clipped=prepared.clipped_count,
-                        removed=prepared.removed_count,
+                        clipped=impact.clipped_annotations,
+                        removed=impact.removed_annotations,
                     ),
                     QMessageBox.Yes | QMessageBox.No,
                     QMessageBox.No,
                 )
                 if answer != QMessageBox.Yes:
                     return False
-
-            annotation_preparation = None
-            annotation_target = view.current_target
-            if annotation_target and os.path.isfile(annotation_target):
-                annotation_preparation = prepare_crop_annotations(
-                    prepared.snapshot,
-                    prepared.image_replacement.content,
-                    annotation_target,
-                    class_names=self.annotation_workspace.yolo_vocabulary,
-                    create_ml_record_name=(
-                        self.annotation_document.create_ml_record_name
-                        if self.annotation_document is not None
-                        else None
-                    ),
-                )
-            replacements = (prepared.image_replacement,) + (
-                annotation_preparation.replacements
-                if annotation_preparation is not None
-                else ()
-            )
-            old_scroll = {
-                orientation: bar.value()
-                for orientation, bar in self.scroll_bars.items()
-            }
-            zoom = self.zoom_widget.value()
-            self.file_operations.execute_grouped_image_processing(
-                self.file_path,
-                replacements,
-                mergeable_create_ml_paths=(
-                    (annotation_target,)
-                    if (
-                        annotation_preparation is not None
-                        and AnnotationFormat.from_path(annotation_target)
-                        is AnnotationFormat.CREATE_ML
-                    )
-                    else ()
-                ),
-            )
-            self._invalidate_image_quality((self.file_path,))
+            self.image_processing.commit(plan)
         except Exception as error:
             localized_warning(
                 self,
@@ -3101,58 +3085,6 @@ class MainWindow(QMainWindow, WindowMixin):
             )
             self.crop_overlay.setFocus(Qt.OtherFocusReason)
             return False
-
-        self.image_data = prepared.image_replacement.content
-        self.image = QImage.fromData(self.image_data)
-        self.canvas.replace_pixmap(QPixmap.fromImage(self.image))
-        projected = replace(
-            prepared.snapshot,
-            image_fingerprint=fingerprint_image(
-                self.file_path,
-                prepared.snapshot.image_size,
-            ),
-        )
-        self.annotation_scene.project(self._history_projection_request(
-            projected,
-            direction='crop',
-            preserve_selection=True,
-        ))
-        if annotation_preparation is not None:
-            self.annotation_document = annotation_preparation.document
-        baseline = (
-            self._annotation_baseline(annotation_target)
-            if annotation_target
-            else None
-        )
-        self.annotation_editing.rebase_image(
-            self.file_path,
-            projected,
-            baseline=baseline,
-        )
-        self.annotation_editing.select_image(self.file_path)
-        if baseline is not None:
-            self.annotation_persistence.propagate_resource_fingerprints(
-                baseline[1]
-            )
-        self.zoom_widget.setValue(zoom)
-        self.paint_canvas()
-        QApplication.processEvents()
-        scale = 0.01 * zoom
-        self.scroll_bars[Qt.Horizontal].setValue(
-            max(0, round(
-                old_scroll[Qt.Horizontal] - region.x * scale
-            ))
-        )
-        self.scroll_bars[Qt.Vertical].setValue(
-            max(0, round(
-                old_scroll[Qt.Vertical] - region.y * scale
-            ))
-        )
-        self._finish_crop_mode()
-        self.rescan_annotation_workspace()
-        self.update_file_list_item_status(self.file_path)
-        self.actions.undoImageProcessing.setEnabled(True)
-        self._sync_annotation_history_ui()
         self.status(tr('crop.completed'))
         return True
 
@@ -3214,10 +3146,17 @@ class MainWindow(QMainWindow, WindowMixin):
 
         from labelimg.image_tools.dialog import ImageToolsDialog
 
+        def commit(replacements, *, target_count=None):
+            plan = self.image_processing.prepare(PreparedPixelChange(
+                tuple(replacements),
+                target_count=target_count,
+            ))
+            return self.image_processing.commit(plan)
+
         dialog = ImageToolsDialog(
             self.file_path,
             tuple(self.selected_file_paths()),
-            commit=self.file_operations.execute_image_processing,
+            commit=commit,
             parent=self,
         )
         if dialog.exec_() != QDialog.Accepted or dialog.outcome is None:
@@ -3226,9 +3165,6 @@ class MainWindow(QMainWindow, WindowMixin):
         processed_paths = tuple(
             resource.original_path for resource in resources
         )
-        self._invalidate_image_quality(processed_paths)
-        self._refresh_current_image_pixels(processed_paths)
-        self.actions.undoImageProcessing.setEnabled(True)
         self.status(tr('imageTools.completed', count=len(processed_paths)))
 
     def undo_last_image_processing(self, _checked=False):
@@ -3244,7 +3180,7 @@ class MainWindow(QMainWindow, WindowMixin):
         return next(
             (
                 entry
-                for entry in self.file_operations.recovery_entries
+                for entry in self.image_processing.recovery_entries
                 if entry.operation is RecoveryOperation.IMAGE_PROCESSING
                 and entry.recoverable
             ),
@@ -3414,11 +3350,14 @@ class MainWindow(QMainWindow, WindowMixin):
             )
             if answer != QMessageBox.Yes:
                 return
-        selected_before = tuple(self.selected_file_paths())
         try:
-            outcome = self.file_operations.recover(
-                entry_id,
-                selected_paths=selected_paths,
+            outcome = (
+                self.image_processing.recover(
+                    entry_id,
+                    selected_paths=selected_paths,
+                )
+                if entry.operation is RecoveryOperation.IMAGE_PROCESSING
+                else self.file_operations.recover(entry_id)
             )
         except FileRecoveryBlocked as error:
             localized_warning(
@@ -3435,6 +3374,13 @@ class MainWindow(QMainWindow, WindowMixin):
             )
             return
 
+        if entry.operation is RecoveryOperation.IMAGE_PROCESSING:
+            self.status(tr('recovery.completed'))
+            if dialog is not None:
+                dialog.accept()
+            return
+
+        selected_before = tuple(self.selected_file_paths())
         renamed = dict(outcome.renamed)
         if self.file_path in renamed:
             self.file_path = renamed[self.file_path]
@@ -3465,37 +3411,9 @@ class MainWindow(QMainWindow, WindowMixin):
                 item = self.file_list_widget.item(row)
                 if item.data(Qt.UserRole) in selected_after:
                     item.setSelected(True)
-        geometry_images = tuple(
-            getattr(outcome, 'reload_images', ())
-        )
-        if geometry_images:
-            self.annotation_persistence.propagate_resource_fingerprints(
-                tuple(
-                    (path, fingerprint_path(path))
-                    for path in outcome.restored_paths
-                )
-            )
-        if (
-            entry.operation is not RecoveryOperation.IMAGE_PROCESSING
-            or geometry_images
-        ):
-            self.rescan_annotation_workspace()
-        if entry.operation is RecoveryOperation.IMAGE_PROCESSING:
-            self._invalidate_image_quality(restored_images)
+        self.rescan_annotation_workspace()
         self.refresh_file_list_statuses()
-        current_key = (
-            os.path.normcase(os.path.abspath(self.file_path))
-            if self.file_path
-            else None
-        )
-        geometry_keys = {
-            os.path.normcase(os.path.abspath(path))
-            for path in geometry_images
-        }
-        if current_key in geometry_keys:
-            self.load_file(self.file_path)
-        else:
-            self._refresh_current_image_pixels(restored_images)
+        self._refresh_current_image_pixels(restored_images)
         if self.file_path is None and restored_images:
             self.load_file(restored_images[0])
         elif (
@@ -4167,7 +4085,7 @@ class MainWindow(QMainWindow, WindowMixin):
 
     def annotation_document_for_path(self, image_path):
         if image_path == self.file_path:
-            return AnnotationDocument.from_shapes(
+            document = AnnotationDocument.from_shapes(
                 image_path=self.file_path,
                 image_data=self.image_data,
                 shapes=self.canvas.shapes,
@@ -4175,6 +4093,11 @@ class MainWindow(QMainWindow, WindowMixin):
                 verified=self.canvas.verified,
                 questioned=self.canvas.questioned,
             )
+            if self.annotation_document is not None:
+                document.create_ml_record_name = (
+                    self.annotation_document.create_ml_record_name
+                )
+            return document
         image_data = read(image_path, None)
         loaded = self.annotation_workspace.load_for_image(
             image_path,
@@ -5782,6 +5705,7 @@ class MainWindow(QMainWindow, WindowMixin):
         self.annotation_workspace = replacement
         self.review_state_transaction.replace_workspace(replacement)
         self.file_operations.replace_workspace(replacement)
+        self.image_processing.replace_workspace(replacement)
         self._default_save_dir = directory
         for label in replacement.candidate_labels:
             if label not in self.label_hist:

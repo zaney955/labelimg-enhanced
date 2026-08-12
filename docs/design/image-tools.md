@@ -26,7 +26,7 @@ Image quality checking is one analysis-only capability covering unreadable or co
 
 Specialized repair currently includes red and yellow frame removal. New specialized repairs require representative real samples and explicit acceptance criteria before they enter the capability catalog. Manual region blur or mosaic, watermark removal, background removal, denoising, and super-resolution are not planned speculatively.
 
-The Image menu presents Crop first, followed by a Rotate / Flip submenu containing every quick transform, Transform Image… for previewed or batch geometry work, Adjust Image…, Check Image Quality…, a Specialized Repair submenu containing Remove Red/Yellow Borders…, and Undo Last Image Processing…. This menu remains the complete catalog even when toolbar shortcuts exist.
+The Image menu presents Crop first, followed by a Rotate / Flip submenu containing every quick transform and Batch Geometry Transform… for previewed current-image or selected-image geometry work. Separators then distinguish pixel correction through Adjust Image…, analysis through Check Image Quality…, specialized repair through its submenu containing Remove Red/Yellow Borders…, and committed image-processing recovery through Undo Last Image Processing…. This menu remains the complete catalog even when toolbar shortcuts exist.
 
 ## Target selection
 
@@ -46,7 +46,7 @@ Settings return to safe defaults whenever the workspace opens. They are not pers
 
 ## Geometry transforms
 
-Image → Transform Image… provides the preview workspace for rotation, flip, and proportional resize. It supports the current image or explicitly selected images and requires an explicit Apply action. Specific menu commands may enter that shared workspace with their corresponding operation preselected.
+Image → Batch Geometry Transform… provides the preview workspace for rotation, flip, and proportional resize. It supports the current image or explicitly selected images and requires an explicit Apply action. Specific menu commands may enter that shared workspace with their corresponding operation preselected.
 
 Rotation and flip additionally provide quick transforms for the current image. Rotate clockwise 90 degrees, rotate counter-clockwise 90 degrees, rotate 180 degrees, flip horizontally, and flip vertically skip the workspace and confirmation, then immediately transform the image and annotations and commit them atomically. Each invocation creates its own recoverable image-processing entry. Quick transforms are disabled during a pending annotation gesture, unresolved annotation conflict, or active crop session; selected files never become an implicit quick-transform target.
 

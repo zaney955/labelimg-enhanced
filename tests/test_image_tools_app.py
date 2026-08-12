@@ -31,6 +31,10 @@ from labelimg.image_tools.geometry_dialog import GeometryTransformRequest
 from labelimg.image_tools.geometry_transform import GeometryOperation
 from labelimg.image_tools.quality import ImageQualityPolicy
 from labelimg.image_tools.quality_ui import ImageQualityRequest
+from labelimg.image_tools.session import (
+    ImageProcessingProjectionKind,
+    PreparedPixelChange,
+)
 from labelimg.i18n import ENGLISH, SIMPLIFIED_CHINESE, set_language
 from labelimg.shape import Shape
 
@@ -78,14 +82,18 @@ class ImageToolsAppTest(unittest.TestCase):
                 self.window.actions.cropImage,
                 self.window.menus.geometry.menuAction(),
                 self.window.actions.transformImage,
+                actions[3],
                 self.window.actions.adjustImage,
+                actions[5],
                 self.window.actions.checkImageQuality,
+                actions[7],
                 self.window.menus.specializedRepair.menuAction(),
-                actions[6],
+                actions[9],
                 self.window.actions.undoImageProcessing,
             ],
         )
-        self.assertTrue(actions[6].isSeparator())
+        for index in (3, 5, 7, 9):
+            self.assertTrue(actions[index].isSeparator())
         self.assertEqual(
             self.window.menus.specializedRepair.actions(),
             [self.window.actions.removeColoredFrames],
@@ -114,6 +122,10 @@ class ImageToolsAppTest(unittest.TestCase):
             self.window.actions.undoImageProcessing.text(),
             "Undo Last Image Processing…",
         )
+        self.assertEqual(
+            self.window.actions.transformImage.text(),
+            "Batch Geometry Transform…",
+        )
         self.assertIsNot(
             self.window.actions.undoImageProcessing,
             self.window.actions.undoAnnotation,
@@ -129,6 +141,10 @@ class ImageToolsAppTest(unittest.TestCase):
             "去除红色/黄色边框…",
         )
         self.assertEqual(self.window.actions.cropImage.text(), "裁剪…")
+        self.assertEqual(
+            self.window.actions.transformImage.text(),
+            "批量几何变换…",
+        )
         self.assertEqual(
             self.window.actions.undoImageProcessing.text(),
             "撤销上次图像处理…",
@@ -153,7 +169,27 @@ class ImageToolsAppTest(unittest.TestCase):
         args, kwargs = dialog_type.call_args
         self.assertEqual(args[0], self.image_path)
         self.assertEqual(args[1], selected)
-        self.assertIs(kwargs["commit"].__self__, self.window.file_operations)
+        plan = object()
+        outcome = object()
+        replacement = object()
+        with patch.object(
+            self.window.image_processing,
+            "prepare",
+            return_value=plan,
+        ) as prepare, patch.object(
+            self.window.image_processing,
+            "commit",
+            return_value=outcome,
+        ) as commit:
+            self.assertIs(
+                kwargs["commit"]((replacement,), target_count=1),
+                outcome,
+            )
+        change = prepare.call_args.args[0]
+        self.assertIsInstance(change, PreparedPixelChange)
+        self.assertEqual(change.replacements, (replacement,))
+        self.assertEqual(change.target_count, 1)
+        commit.assert_called_once_with(plan)
         self.assertIs(kwargs["parent"], self.window)
 
     def test_pending_annotation_gesture_blocks_workspace_entry(self):
@@ -677,6 +713,7 @@ class ImageToolsAppTest(unittest.TestCase):
             restored_paths=(self.image_path,),
             renamed=(),
             review_result=None,
+            reload_images=(),
         )
         with patch.object(
             type(self.window.file_operations),
@@ -705,6 +742,48 @@ class ImageToolsAppTest(unittest.TestCase):
             selected_paths=(self.image_path,),
         )
         rescan.assert_not_called()
+
+    def test_failed_image_projection_blocks_editing_but_keeps_recovery(self):
+        recovery_entry = SimpleNamespace(
+            operation=RecoveryOperation.IMAGE_PROCESSING,
+            recoverable=True,
+        )
+        self.window.actions.undoImageProcessing.setEnabled(False)
+
+        with patch.object(
+            type(self.window.file_operations),
+            "recovery_entries",
+            new_callable=PropertyMock,
+            return_value=(recovery_entry,),
+        ):
+            self.window._project_image_processing(SimpleNamespace(
+                kind=ImageProcessingProjectionKind.PROJECTION_FAILED,
+            ))
+
+            self.assertFalse(self.window.canvas.isEnabled())
+            for action in (
+                self.window.actions.create,
+                self.window.actions.save,
+                self.window.actions.openNext,
+                self.window.actions.cropImage,
+                self.window.actions.transformImage,
+            ):
+                self.assertFalse(action.isEnabled())
+            self.assertTrue(
+                self.window.actions.undoImageProcessing.isEnabled()
+            )
+
+            self.window._project_image_processing(SimpleNamespace(
+                kind=ImageProcessingProjectionKind.RECOVERY,
+                outcome=SimpleNamespace(
+                    restored_paths=(),
+                    reload_images=(),
+                ),
+                paths=(),
+            ))
+
+            self.assertTrue(self.window.canvas.isEnabled())
+            self.assertTrue(self.window.actions.create.isEnabled())
 
 
 class _FakeTrash:
