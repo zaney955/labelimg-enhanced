@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 import json
 import ntpath
 import os
+import posixpath
 
 
 class CreateMLCollectionError(ValueError):
@@ -33,6 +34,12 @@ def normalize_image_reference(value):
     return ntpath.normpath(text).casefold()
 
 
+def is_absolute_image_reference(value):
+    """Recognize absolute image references from either path convention."""
+    text = os.fspath(value)
+    return ntpath.isabs(text) or posixpath.isabs(text)
+
+
 @dataclass(frozen=True)
 class CreateMLRecordIdentity:
     collection_path: str
@@ -59,10 +66,13 @@ class CreateMLRecordIdentity:
 
     def matches(self, image_path):
         reference_key = self.reference_key
+        image_path = os.fspath(image_path)
         image_key = normalize_image_reference(
-            os.path.abspath(os.fspath(image_path))
+            image_path
+            if is_absolute_image_reference(image_path)
+            else os.path.abspath(image_path)
         )
-        if ntpath.isabs(reference_key):
+        if is_absolute_image_reference(self.reference):
             return reference_key == image_key
         if "\\" not in reference_key:
             return ntpath.basename(image_key) == reference_key
@@ -508,7 +518,7 @@ def _annotation_from_shape(shape):
 def _renamed_reference(reference, target):
     reference = os.fspath(reference)
     normalized = reference.replace("\\", "/")
-    if os.path.isabs(reference):
+    if is_absolute_image_reference(reference):
         return os.path.abspath(target)
     if "/" not in normalized:
         return os.path.basename(target)

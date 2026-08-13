@@ -16,6 +16,7 @@ from labelimg.annotations.infrastructure.formats.create_ml_collection import (
     CreateMLCollectionError,
     CreateMLCollectionFormatError,
     CreateMLRecordIdentity,
+    is_absolute_image_reference,
     normalize_image_reference,
 )
 from labelimg.annotations.infrastructure.storage import (
@@ -912,7 +913,7 @@ class AnnotationWorkspace:
             self._create_ml_paths_by_image_name.setdefault(
                 image_name_key, set()
             ).add(path)
-            for match_key in _create_ml_match_keys(path, image_name_key):
+            for match_key in _create_ml_match_keys(path, record.reference):
                 self._create_ml_paths_by_match_key.setdefault(
                     match_key, set()
                 ).add(path)
@@ -927,7 +928,7 @@ class AnnotationWorkspace:
                 record.questioned,
                 frozenset(record.labels),
             )
-            for match_key in _create_ml_match_keys(path, image_name_key):
+            for match_key in _create_ml_match_keys(path, record.reference):
                 self._create_ml_status_by_record[
                     (path_key, match_key)
                 ] = self._create_ml_status_by_record[
@@ -1127,7 +1128,7 @@ def _cache_key(path):
 
 def _create_ml_match_keys(collection_path, reference):
     reference_key = normalize_image_reference(reference)
-    if os.path.isabs(reference):
+    if is_absolute_image_reference(reference):
         return (("absolute", reference_key),)
     if "\\" not in reference_key:
         return (("basename", reference_key),)
