@@ -13,6 +13,7 @@ from PyQt5.QtWidgets import (
     QApplication,
     QDialogButtonBox,
     QMenu,
+    QMessageBox,
     QStyle,
     QStyleOptionViewItem,
 )
@@ -101,6 +102,13 @@ class FileListSelectionTest(unittest.TestCase):
 
     def selected_paths(self):
         return self.window.selected_file_paths()
+
+    @staticmethod
+    def clipboard_file_paths():
+        return tuple(
+            os.path.normcase(os.path.normpath(url.toLocalFile()))
+            for url in QApplication.clipboard().mimeData().urls()
+        )
 
     def render_file_item(self, state):
         option = QStyleOptionViewItem()
@@ -614,6 +622,214 @@ class FileListSelectionTest(unittest.TestCase):
         self.assertEqual(
             [action.text() for action in review_menu.actions()],
             ["未复核", "待复核", "已验证"],
+        )
+
+    def test_file_context_copy_menu_exposes_file_clipboard_commands(self):
+        self.click_row(0)
+        point = self.window.file_list_widget.visualItemRect(
+            self.window.file_list_widget.item(0)
+        ).center()
+        captured = []
+
+        with patch.object(
+            QMenu,
+            "exec_",
+            new=lambda menu, *_arguments: captured.append(menu),
+        ):
+            self.window.pop_file_list_menu(point)
+
+        copy_menu = next(
+            action.menu()
+            for action in captured[0].actions()
+            if action.text() == "复制"
+        )
+        self.assertEqual(
+            [
+                action.text()
+                for action in copy_menu.actions()
+                if not action.isSeparator()
+            ],
+            [
+                "图像文件",
+                "标签文件",
+                "图像文件和标签文件",
+                "文件名",
+                "相对路径",
+                "完整路径",
+            ],
+        )
+
+    def test_copy_image_files_places_selected_images_on_clipboard(self):
+        self.click_row(0)
+        self.click_row(2, Qt.ControlModifier)
+        annotation = os.path.splitext(self.paths[0])[0] + ".xml"
+        with open(annotation, "w", encoding="utf8") as output:
+            output.write("annotation")
+
+        self.assertTrue(self.window.copy_selected_image_files())
+
+        clipboard_paths = self.clipboard_file_paths()
+        self.assertEqual(
+            clipboard_paths,
+            tuple(
+                os.path.normcase(os.path.normpath(path))
+                for path in (self.paths[0], self.paths[2])
+            ),
+        )
+        self.assertNotIn(
+            os.path.normcase(os.path.normpath(annotation)),
+            clipboard_paths,
+        )
+        self.assertEqual(
+            self.window.statusBar().currentMessage(),
+            "已复制 2 个图像文件",
+        )
+
+    def test_copy_images_and_labels_reports_images_without_labels(self):
+        self.click_row(0)
+        self.click_row(1, Qt.ControlModifier)
+        annotation = os.path.splitext(self.paths[0])[0] + ".xml"
+        with open(annotation, "w", encoding="utf8") as output:
+            output.write("annotation")
+
+        self.assertTrue(
+            self.window.copy_selected_image_and_label_files()
+        )
+
+        clipboard_paths = self.clipboard_file_paths()
+        self.assertEqual(
+            clipboard_paths,
+            tuple(
+                os.path.normcase(os.path.normpath(path))
+                for path in (self.paths[0], self.paths[1], annotation)
+            ),
+        )
+        self.assertEqual(
+            self.window.statusBar().currentMessage(),
+            "已复制 2 个图像文件和 1 个标签文件；1 个图像没有标签文件",
+        )
+
+    def test_copy_label_files_omits_images_and_reports_missing_labels(self):
+        self.click_row(0)
+        self.click_row(1, Qt.ControlModifier)
+        annotation = os.path.splitext(self.paths[0])[0] + ".xml"
+        with open(annotation, "w", encoding="utf8") as output:
+            output.write("annotation")
+
+        self.assertTrue(self.window.copy_selected_label_files())
+
+        self.assertEqual(
+            self.clipboard_file_paths(),
+            (os.path.normcase(os.path.normpath(annotation)),),
+        )
+        self.assertEqual(
+            self.window.statusBar().currentMessage(),
+            "已复制 1 个标签文件；1 个图像没有标签文件",
+        )
+
+    def test_copy_label_files_with_no_resources_preserves_clipboard(self):
+        self.click_row(1)
+        self.click_row(2, Qt.ControlModifier)
+        QApplication.clipboard().setText("existing clipboard")
+
+        self.assertFalse(self.window.copy_selected_label_files())
+
+        self.assertEqual(
+            QApplication.clipboard().text(),
+            "existing clipboard",
+        )
+        self.assertEqual(
+            self.window.statusBar().currentMessage(),
+            "所选图像没有可复制的标签文件",
+        )
+
+    def test_copy_saved_annotations_keeps_current_dirty_state(self):
+        self.click_row(0)
+        annotation = os.path.splitext(self.paths[0])[0] + ".xml"
+        with open(annotation, "w", encoding="utf8") as output:
+            output.write("annotation")
+        self.window.dirty = True
+
+        with patch.object(
+            self.window,
+            "_prompt_unsaved_file_clipboard_transfer",
+            return_value=QMessageBox.Discard,
+        ):
+            self.assertTrue(
+                self.window.copy_selected_image_and_label_files()
+            )
+
+        self.assertTrue(self.window.dirty)
+        self.assertIn(
+            os.path.normcase(os.path.normpath(annotation)),
+            self.clipboard_file_paths(),
+        )
+
+    def test_save_and_copy_writes_current_annotations_first(self):
+        self.click_row(0)
+        annotation = os.path.splitext(self.paths[0])[0] + ".xml"
+        self.window.dirty = True
+
+        def save_annotations():
+            with open(annotation, "w", encoding="utf8") as output:
+                output.write("saved annotation")
+            self.window.dirty = False
+            return True
+
+        with patch.object(
+            self.window,
+            "_prompt_unsaved_file_clipboard_transfer",
+            return_value=QMessageBox.Save,
+        ), patch.object(
+            self.window,
+            "save_current_annotations_directly",
+            side_effect=save_annotations,
+        ) as save:
+            self.assertTrue(
+                self.window.copy_selected_image_and_label_files()
+            )
+
+        save.assert_called_once_with()
+        self.assertFalse(self.window.dirty)
+        self.assertIn(
+            os.path.normcase(os.path.normpath(annotation)),
+            self.clipboard_file_paths(),
+        )
+
+    def test_cancel_dirty_copy_preserves_clipboard(self):
+        self.click_row(0)
+        self.window.dirty = True
+        QApplication.clipboard().setText("existing clipboard")
+
+        with patch.object(
+            self.window,
+            "_prompt_unsaved_file_clipboard_transfer",
+            return_value=QMessageBox.Cancel,
+        ):
+            self.assertFalse(
+                self.window.copy_selected_image_and_label_files()
+            )
+
+        self.assertTrue(self.window.dirty)
+        self.assertEqual(
+            QApplication.clipboard().text(),
+            "existing clipboard",
+        )
+
+    def test_unavailable_selected_image_preserves_clipboard(self):
+        self.click_row(3)
+        QApplication.clipboard().setText("existing clipboard")
+        os.remove(self.paths[3])
+
+        with patch(
+            "labelimg.files.ui.controller.localized_warning"
+        ) as warning:
+            self.assertFalse(self.window.copy_selected_image_files())
+
+        warning.assert_called_once()
+        self.assertEqual(
+            QApplication.clipboard().text(),
+            "existing clipboard",
         )
 
     def test_filter_preserves_hidden_current_and_selection_with_summary(self):

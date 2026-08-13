@@ -79,6 +79,11 @@ class FileOperationTransaction:
     def annotation_count(self, image_paths):
         return self._file_service().annotation_count(image_paths)
 
+    def associated_annotation_resources(self, image_paths):
+        return self._file_service().associated_annotation_resources(
+            image_paths
+        )
+
     def execute(self, operation, targets, should_continue=None):
         """Execute clear, delete, or rename and record its recovery."""
         operation = RecoveryOperation(operation)

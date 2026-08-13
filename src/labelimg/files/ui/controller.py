@@ -8,13 +8,13 @@ import subprocess
 
 from functools import partial
 
-from PyQt5.QtCore import QFileInfo, QItemSelectionModel, QModelIndex, QSignalBlocker, Qt
+from PyQt5.QtCore import QFileInfo, QItemSelectionModel, QModelIndex, QMimeData, QSignalBlocker, Qt, QUrl
 from PyQt5.QtGui import QImageReader
 from PyQt5.QtWidgets import QAbstractItemView, QAction, QApplication, QDialog, QInputDialog, QLineEdit, QMenu, QMessageBox, QProgressDialog
 
 import labelimg.ui.generated_resources  # noqa: F401 - registers Qt resources
 from labelimg.ui.actions import new_icon
-from labelimg.localization.runtime import question as localized_question, tr, warning as localized_warning
+from labelimg.localization.runtime import localize_message_box_buttons, question as localized_question, tr, warning as localized_warning
 from labelimg.annotations import AnnotationFormat
 from labelimg.files import discover_images
 from labelimg.platform.text import native_text as ustr
@@ -374,6 +374,17 @@ class FileActionsMixin:
         )
 
         copy_menu = menu.addMenu(tr('fileMenu.copy'))
+        copy_images = copy_menu.addAction(tr('fileMenu.imageFiles'))
+        copy_images.triggered.connect(self.copy_selected_image_files)
+        copy_labels = copy_menu.addAction(tr('fileMenu.labelFiles'))
+        copy_labels.triggered.connect(self.copy_selected_label_files)
+        copy_images_and_labels = copy_menu.addAction(
+            tr('fileMenu.imageAndLabelFiles')
+        )
+        copy_images_and_labels.triggered.connect(
+            self.copy_selected_image_and_label_files
+        )
+        copy_menu.addSeparator()
         for title, representation in (
             (tr('fileMenu.fileName'), 'name'),
             (tr('fileMenu.relativePath'), 'relative'),
@@ -455,6 +466,171 @@ class FileActionsMixin:
                 value = os.path.abspath(path)
             values.append(value)
         QApplication.clipboard().setText('\n'.join(values))
+
+
+    def copy_selected_image_files(self, _checked=False):
+        return self._copy_selected_files_to_clipboard(
+            include_images=True,
+            include_annotations=False,
+        )
+
+
+    def copy_selected_label_files(self, _checked=False):
+        return self._copy_selected_files_to_clipboard(
+            include_images=False,
+            include_annotations=True,
+        )
+
+
+    def copy_selected_image_and_label_files(self, _checked=False):
+        return self._copy_selected_files_to_clipboard(
+            include_images=True,
+            include_annotations=True,
+        )
+
+
+    def _copy_selected_files_to_clipboard(
+        self,
+        *,
+        include_images,
+        include_annotations,
+    ):
+        image_paths = self.selected_file_paths()
+        if not image_paths:
+            return False
+        unavailable = self._unavailable_clipboard_images(image_paths)
+        if unavailable:
+            localized_warning(
+                self,
+                tr('fileClipboard.unavailableTitle'),
+                tr(
+                    'fileClipboard.unavailableImages',
+                    paths='\n'.join(unavailable),
+                ),
+            )
+            return False
+
+        resources = ()
+        images_without_resources = ()
+        if include_annotations:
+            if (
+                self.annotation_persistence.conflicts
+                and not self._resolve_conflicts_for_close()
+            ):
+                return False
+            if self._selected_current_image_is_dirty(image_paths):
+                answer = self._prompt_unsaved_file_clipboard_transfer()
+                if answer == QMessageBox.Cancel:
+                    return False
+                if answer == QMessageBox.Save:
+                    if not self.save_current_annotations_directly():
+                        return False
+                    if self.dirty:
+                        return False
+            selection = self.file_operations.associated_annotation_resources(
+                image_paths
+            )
+            resources = selection.resources
+            images_without_resources = selection.images_without_resources
+
+        if include_annotations and not resources and not include_images:
+            self.status(tr('status.noLabelFilesToCopy'))
+            return False
+
+        mime_data = QMimeData()
+        mime_data.setUrls([
+            QUrl.fromLocalFile(os.path.abspath(path))
+            for path in (
+                *(image_paths if include_images else ()),
+                *resources,
+            )
+        ])
+        QApplication.clipboard().setMimeData(mime_data)
+        if not include_annotations:
+            self.status(tr(
+                'status.copiedImageFiles',
+                count=len(image_paths),
+            ))
+        elif not include_images and images_without_resources:
+            self.status(tr(
+                'status.copiedLabelFilesMissing',
+                labels=len(resources),
+                missing=len(images_without_resources),
+            ))
+        elif not include_images:
+            self.status(tr(
+                'status.copiedLabelFiles',
+                count=len(resources),
+            ))
+        elif images_without_resources:
+            self.status(tr(
+                'status.copiedImageAndLabelFilesMissing',
+                images=len(image_paths),
+                labels=len(resources),
+                missing=len(images_without_resources),
+            ))
+        else:
+            self.status(tr(
+                'status.copiedImageAndLabelFiles',
+                images=len(image_paths),
+                labels=len(resources),
+            ))
+        return True
+
+
+    def _selected_current_image_is_dirty(self, image_paths):
+        if not self.file_path or not self.dirty:
+            return False
+        current_key = os.path.normcase(os.path.abspath(self.file_path))
+        return any(
+            os.path.normcase(os.path.abspath(path)) == current_key
+            for path in image_paths
+        )
+
+
+    @staticmethod
+    def _unavailable_clipboard_images(image_paths):
+        unavailable = []
+        for path in image_paths:
+            try:
+                if not os.path.isfile(path):
+                    raise FileNotFoundError(path)
+                with open(path, 'rb'):
+                    pass
+            except OSError:
+                unavailable.append(os.path.abspath(path))
+        return tuple(unavailable)
+
+
+    def _prompt_unsaved_file_clipboard_transfer(self):
+        box = QMessageBox(
+            QMessageBox.Warning,
+            tr('fileClipboard.unsavedTitle'),
+            tr(
+                'fileClipboard.unsavedPrompt',
+                image=os.path.basename(self.file_path),
+            ),
+            QMessageBox.NoButton,
+            self,
+        )
+        box.setStandardButtons(
+            QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel
+        )
+        box.setDefaultButton(QMessageBox.Cancel)
+        localize_message_box_buttons(box)
+        box.button(QMessageBox.Save).setText(
+            tr('fileClipboard.saveAndCopy')
+        )
+        box.button(QMessageBox.Discard).setText(
+            tr('fileClipboard.copySaved')
+        )
+        box.exec_()
+        answer = box.standardButton(box.clickedButton())
+        return (
+            answer
+            if answer in (QMessageBox.Save, QMessageBox.Discard)
+            else QMessageBox.Cancel
+        )
 
 
     def reveal_selected_file(self):
