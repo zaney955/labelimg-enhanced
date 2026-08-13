@@ -49,5 +49,14 @@ class WheelContractTest(unittest.TestCase):
         self.assertNotIn("labelimg/resources.py", self.names)
 
 
+class ContinuousIntegrationContractTest(unittest.TestCase):
+    def test_ci_installs_the_project_dependency_contract(self):
+        workflow = (
+            REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("python -m pip install .", workflow)
+
+
 if __name__ == "__main__":
     unittest.main()

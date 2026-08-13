@@ -23,6 +23,18 @@ def annotation(label):
 
 
 class CreateMLAnnotationCollectionTest(unittest.TestCase):
+    def test_posix_absolute_record_identity_is_platform_independent(self):
+        collection = "/tmp/labelimg/annotations.json"
+        image = "/tmp/labelimg/right/same.png"
+        model = CreateMLAnnotationCollection.read(
+            collection,
+            content=json.dumps(
+                [{"image": image, "annotations": []}]
+            ),
+        )
+
+        self.assertEqual(model.resolve(image).reference, image)
+
     def test_resolve_preserves_qualified_record_identity(self):
         with tempfile.TemporaryDirectory() as directory:
             collection = os.path.join(directory, "annotations.json")
