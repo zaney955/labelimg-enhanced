@@ -41,6 +41,10 @@ def python_files(root):
     return tuple(sorted(root.rglob("*.py")))
 
 
+def package_relative_path(path):
+    return path.relative_to(PACKAGE_ROOT).as_posix()
+
+
 def imports(path):
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     for node in ast.walk(tree):
@@ -89,8 +93,8 @@ class ModularArchitectureTest(unittest.TestCase):
         importers = []
         for path in python_files(PACKAGE_ROOT):
             if "labelimg.workbench.main_window" in set(imports(path)):
-                importers.append(str(path.relative_to(PACKAGE_ROOT)))
-        self.assertEqual(importers, ["workbench\\bootstrap.py"])
+                importers.append(package_relative_path(path))
+        self.assertEqual(importers, ["workbench/bootstrap.py"])
 
     def test_feature_dependencies_are_acyclic_and_use_public_exports(self):
         features = {"annotations", "canvas", "files", "image_tools"}
@@ -155,8 +159,8 @@ class ModularArchitectureTest(unittest.TestCase):
         composer_importers = []
         for path in python_files(PACKAGE_ROOT):
             if "labelimg.workbench.composition" in set(imports(path)):
-                composer_importers.append(str(path.relative_to(PACKAGE_ROOT)))
-        self.assertEqual(composer_importers, ["workbench\\bootstrap.py"])
+                composer_importers.append(package_relative_path(path))
+        self.assertEqual(composer_importers, ["workbench/bootstrap.py"])
 
     def test_recovery_coordination_uses_public_feature_interfaces(self):
         recovery_ui = (

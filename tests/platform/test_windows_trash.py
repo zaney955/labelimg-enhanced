@@ -17,6 +17,7 @@ from labelimg.platform.trash import (
 
 
 class WindowsTrashSafetyTest(unittest.TestCase):
+    @unittest.skipUnless(os.name == "nt", "requires Windows shell APIs")
     def test_operation_flags_request_recycle_and_undo_identity(self):
         operation = mock.Mock()
         with mock.patch(
@@ -29,6 +30,7 @@ class WindowsTrashSafetyTest(unittest.TestCase):
         self.assertTrue(flags & FOF_ALLOWUNDO)
         self.assertTrue(flags & FOFX_ADDUNDORECORD)
 
+    @unittest.skipUnless(os.name == "nt", "requires Windows shell APIs")
     def test_progress_callback_copies_pidl_before_item_expires(self):
         _guid, _item, _operation, progress_sink = _interfaces()
         sink = progress_sink()
