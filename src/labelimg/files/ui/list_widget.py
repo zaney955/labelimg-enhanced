@@ -6,12 +6,15 @@ import os
 import re
 
 from PyQt5.QtCore import (
+    QAbstractListModel,
     QEvent,
     QItemSelectionModel,
+    QModelIndex,
     QPointF,
     QRect,
     QRectF,
     QSignalBlocker,
+    QSortFilterProxyModel,
     QTimer,
     Qt,
     pyqtSignal,
@@ -29,7 +32,7 @@ from PyQt5.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
-    QListWidget,
+    QListView,
     QMenu,
     QPushButton,
     QSpinBox,
@@ -132,13 +135,16 @@ class FileListViewState(object):
         persistence_flags_for,
         quality_findings_for=lambda _path: (),
         modified_time_for=os.path.getmtime,
+        presorted=False,
     ):
         items = []
         for path in paths:
-            try:
-                modified_time = modified_time_for(path)
-            except (OSError, TypeError, ValueError):
-                modified_time = None
+            modified_time = None
+            if self.sort_key == "modified":
+                try:
+                    modified_time = modified_time_for(path)
+                except (OSError, TypeError, ValueError):
+                    pass
             items.append(FileListItemState(
                 path=path,
                 modified_time=modified_time,
@@ -147,7 +153,9 @@ class FileListViewState(object):
                 persistence_flags=persistence_flags_for(path),
                 quality_findings=quality_findings_for(path),
             ))
-        return FileListProjection.create(root, items, self.query)
+        return FileListProjection.create(
+            root, items, self.query, presorted=presorted
+        )
 
 
 class FileListControlButton(QToolButton):
@@ -485,6 +493,13 @@ class FileListControlBar(QWidget):
         if not available:
             self.filter_panel.hide()
 
+    def set_index_complete(self, complete):
+        self.filter_button.setEnabled(
+            bool(complete and self.state is not None)
+        )
+        if not complete:
+            self.filter_panel.hide()
+
     def eventFilter(self, watched, event):
         if watched in (self.sort_button, self.filter_button):
             if (
@@ -627,15 +642,163 @@ class FileListControlBar(QWidget):
         self.filter_panel.show_for(self.filter_button)
 
 
-class FileListWidget(QListWidget):
+class FileListItem:
+    """Lightweight QListWidgetItem-compatible row owned by FileListWidget."""
+
+    def __init__(self, text=""):
+        self._text = str(text)
+        self._tooltip = ""
+        self._data = {}
+        self._hidden = False
+        self._selected = False
+        self._widget = None
+        self._row = -1
+
+    def text(self):
+        return self._text
+
+    def setText(self, text):
+        text = str(text)
+        if text == self._text:
+            return
+        self._text = text
+        self._changed((Qt.DisplayRole,))
+
+    def toolTip(self):
+        return self._tooltip
+
+    def setToolTip(self, text):
+        text = str(text)
+        if text == self._tooltip:
+            return
+        self._tooltip = text
+        self._changed((Qt.ToolTipRole,))
+
+    def data(self, role):
+        if role == Qt.DisplayRole:
+            return self._text
+        if role == Qt.ToolTipRole:
+            return self._tooltip
+        return self._data.get(role)
+
+    def setData(self, role, value):
+        if self.data(role) == value:
+            return
+        if role == Qt.DisplayRole:
+            self._text = str(value)
+        elif role == Qt.ToolTipRole:
+            self._tooltip = str(value)
+        else:
+            self._data[role] = value
+        self._changed((role,))
+
+    def isHidden(self):
+        return self._hidden
+
+    def setHidden(self, hidden):
+        hidden = bool(hidden)
+        if hidden == self._hidden:
+            return
+        self._hidden = hidden
+        if self._widget is not None:
+            self._widget._item_visibility_changed(self)
+
+    def isSelected(self):
+        return self._selected
+
+    def setSelected(self, selected):
+        if self._widget is not None:
+            self._widget._set_item_selected(self, bool(selected))
+
+    def _changed(self, roles):
+        if self._widget is not None:
+            self._widget._item_changed(self, roles)
+
+
+class _FileListModel(QAbstractListModel):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.items = []
+
+    def rowCount(self, parent=QModelIndex()):
+        return 0 if parent.isValid() else len(self.items)
+
+    def data(self, index, role=Qt.DisplayRole):
+        if not index.isValid() or not 0 <= index.row() < len(self.items):
+            return None
+        return self.items[index.row()].data(role)
+
+    def flags(self, index):
+        if not index.isValid():
+            return Qt.NoItemFlags
+        return Qt.ItemIsEnabled | Qt.ItemIsSelectable
+
+    def reset_items(self, items):
+        self.beginResetModel()
+        self.items = list(items)
+        for row, item in enumerate(self.items):
+            item._row = row
+        self.endResetModel()
+
+    def append(self, item):
+        row = len(self.items)
+        self.beginInsertRows(QModelIndex(), row, row)
+        self.items.append(item)
+        item._row = row
+        self.endInsertRows()
+
+    def extend(self, items):
+        items = list(items)
+        if not items:
+            return
+        first = len(self.items)
+        last = first + len(items) - 1
+        self.beginInsertRows(QModelIndex(), first, last)
+        for row, item in enumerate(items, start=first):
+            item._row = row
+            self.items.append(item)
+        self.endInsertRows()
+
+    def take(self, row):
+        if not 0 <= row < len(self.items):
+            return None
+        self.beginRemoveRows(QModelIndex(), row, row)
+        item = self.items.pop(row)
+        item._row = -1
+        for current_row in range(row, len(self.items)):
+            self.items[current_row]._row = current_row
+        self.endRemoveRows()
+        return item
+
+
+class _VisibleFileListProxy(QSortFilterProxyModel):
+    def filterAcceptsRow(self, source_row, source_parent):
+        source = self.sourceModel()
+        return (
+            source is not None
+            and 0 <= source_row < len(source.items)
+            and not source.items[source_row].isHidden()
+        )
+
+
+class FileListWidget(QListView):
     openRequested = pyqtSignal()
     itemOpenRequested = pyqtSignal(object)
     renameRequested = pyqtSignal()
     deleteRequested = pyqtSignal()
     filterRequested = pyqtSignal()
+    itemSelectionChanged = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._source_model = _FileListModel(self)
+        self._proxy_model = _VisibleFileListProxy(self)
+        self._proxy_model.setSourceModel(self._source_model)
+        self.setModel(self._proxy_model)
+        self.selectionModel().selectionChanged.connect(
+            self._selection_changed
+        )
+        self.setUniformItemSizes(True)
         self.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self._selection_before_press = ()
         self._range_anchor_row = None
@@ -646,6 +809,131 @@ class FileListWidget(QListWidget):
         self._preserved_selection_timer.timeout.connect(
             self._clear_preserved_selection_appearance
         )
+
+    def count(self):
+        return len(self._source_model.items)
+
+    def item(self, row):
+        if 0 <= row < self.count():
+            return self._source_model.items[row]
+        return None
+
+    def row(self, item):
+        row = getattr(item, "_row", -1)
+        return row if 0 <= row < self.count() and self.item(row) is item else -1
+
+    def clear(self):
+        for item in self._source_model.items:
+            item._widget = None
+            item._row = -1
+        self._source_model.reset_items(())
+
+    def addItem(self, item):
+        if not isinstance(item, FileListItem):
+            item = FileListItem(item.text() if hasattr(item, "text") else item)
+        item._widget = self
+        self._source_model.append(item)
+
+    def setItems(self, items):
+        for current in self._source_model.items:
+            current._widget = None
+        items = list(items)
+        for item in items:
+            item._widget = self
+        self._source_model.reset_items(items)
+        self._proxy_model.invalidateFilter()
+
+    def addItems(self, items):
+        items = list(items)
+        for item in items:
+            item._widget = self
+        self._source_model.extend(items)
+
+    def takeItem(self, row):
+        item = self._source_model.take(row)
+        if item is not None:
+            item._widget = None
+        return item
+
+    def indexFromItem(self, item):
+        row = self.row(item)
+        if row < 0:
+            return QModelIndex()
+        return self._proxy_model.mapFromSource(
+            self._source_model.index(row, 0)
+        )
+
+    def itemFromIndex(self, index):
+        if not index.isValid():
+            return None
+        source = self._proxy_model.mapToSource(index)
+        return self.item(source.row())
+
+    def itemAt(self, point):
+        return self.itemFromIndex(self.indexAt(point))
+
+    def selectedItems(self):
+        return [item for item in self._source_model.items if item._selected]
+
+    def clearSelection(self):
+        for item in self._source_model.items:
+            item._selected = False
+        super().clearSelection()
+
+    def currentItem(self):
+        return self.itemFromIndex(self.currentIndex())
+
+    def setCurrentItem(self, item):
+        self.setCurrentIndex(
+            self.indexFromItem(item) if item is not None else QModelIndex()
+        )
+
+    def currentRow(self):
+        current = self.currentItem()
+        return self.row(current) if current is not None else -1
+
+    def visualItemRect(self, item):
+        return self.visualRect(self.indexFromItem(item))
+
+    def scrollToItem(self, item, hint=QAbstractItemView.EnsureVisible):
+        index = self.indexFromItem(item)
+        if index.isValid():
+            self.scrollTo(index, hint)
+
+    def _item_changed(self, item, roles):
+        row = self.row(item)
+        if row >= 0:
+            index = self._source_model.index(row, 0)
+            self._source_model.dataChanged.emit(index, index, list(roles))
+
+    def _item_visibility_changed(self, item):
+        self._proxy_model.invalidateFilter()
+        if not item.isHidden() and item._selected:
+            self._set_item_selected(item, True)
+
+    def _item_is_selected(self, item):
+        return item._selected
+
+    def _set_item_selected(self, item, selected):
+        item._selected = selected
+        index = self.indexFromItem(item)
+        if not index.isValid():
+            return
+        self.selectionModel().select(
+            index,
+            QItemSelectionModel.Select if selected else QItemSelectionModel.Deselect,
+        )
+
+    def _selection_changed(self, selected, deselected):
+        for index in selected.indexes():
+            item = self.itemFromIndex(index)
+            if item is not None:
+                item._selected = True
+        for index in deselected.indexes():
+            item = self.itemFromIndex(index)
+            if item is not None and not item.isHidden():
+                item._selected = False
+        self.itemSelectionChanged.emit()
 
     def _set_preserved_selection_appearance(self, paths):
         selected_paths = set(paths)
@@ -1551,3 +1839,4 @@ def _relative_or_absolute(path, root):
     if relative == os.pardir or relative.startswith(os.pardir + os.sep):
         return path
     return relative
+    QSortFilterProxyModel,

@@ -85,35 +85,86 @@ class TestAppIconAssets(unittest.TestCase):
                 self.assertEqual(svg_root.get("height"), "24")
                 self.assertEqual(svg_root.get("viewBox"), "0 0 24 24")
 
-    def test_operation_svg_style_is_uniform_and_font_independent(self):
+    def test_operation_svg_style_is_uniform_color_safe_and_font_independent(self):
         expected_root_attributes = {
             "width": "24",
             "height": "24",
             "viewBox": "0 0 24 24",
             "fill": "none",
-            "stroke": "#3c4043",
             "stroke-width": "1.8",
             "stroke-linecap": "round",
             "stroke-linejoin": "round",
         }
         forbidden_elements = {"foreignObject", "image", "script", "text"}
-        allowed_paints = {"#3c4043", "none"}
+        functional_strokes = {
+            "#4F8582",  # image processing
+            "#5677A6",  # files and navigation
+            "#5F8468",  # success
+            "#64788F",  # view and history
+            "#756B9E",  # annotation editing
+            "#7B6F94",  # language and guidance
+            "#9A7640",  # warning
+            "#A65F5F",  # destructive
+        }
+        allowed_paints = functional_strokes | {
+            "#455468",  # passive internal structure
+            "#DCE6F2",  # file tint
+            "#DCEBE8",  # image tint
+            "#DFEADF",  # success tint
+            "#E2E8EE",  # view tint
+            "#E6E2F0",  # annotation tint
+            "#E8E2EE",  # preference tint
+            "#F0E6D4",  # warning tint
+            "#F1DEDE",  # destructive tint
+            "none",
+        }
 
-        for path in sorted(ICON_DIRECTORY.glob("*.svg")):
-            if path.name == "app.svg":
-                continue
+        operation_paths = [
+            path
+            for path in sorted(ICON_DIRECTORY.glob("*.svg"))
+            if path.name != "app.svg"
+        ]
+        self.assertEqual(len(operation_paths), 76)
+        for path in operation_paths:
             root = ElementTree.parse(path).getroot()
             with self.subTest(path=path.name):
                 for name, value in expected_root_attributes.items():
                     self.assertEqual(root.get(name), value)
+                self.assertIn(root.get("stroke"), functional_strokes)
                 for element in root.iter():
                     tag = element.tag.rsplit("}", 1)[-1]
                     self.assertNotIn(tag, forbidden_elements)
                     self.assertNotIn("style", element.attrib)
+                    self.assertNotIn("stroke-dasharray", element.attrib)
                     for attribute in ("fill", "stroke"):
                         paint = element.get(attribute)
                         if paint is not None:
                             self.assertIn(paint, allowed_paints)
+
+    def test_compiled_operation_resources_match_source_svgs(self):
+        resource_tree = ElementTree.parse(REPOSITORY_ROOT / "resources.qrc")
+        checked_paths = set()
+        for element in resource_tree.iter("file"):
+            relative_path = element.text
+            if relative_path.endswith("/app.svg") or relative_path in checked_paths:
+                continue
+            checked_paths.add(relative_path)
+            alias = element.get("alias")
+            source_icon = QIcon(str(REPOSITORY_ROOT / relative_path))
+            compiled_icon = QIcon(":/" + alias)
+            with self.subTest(path=relative_path, alias=alias):
+                for size in (16, 24):
+                    source_image = source_icon.pixmap(size, size).toImage().convertToFormat(
+                        QImage.Format_ARGB32
+                    )
+                    compiled_image = compiled_icon.pixmap(size, size).toImage().convertToFormat(
+                        QImage.Format_ARGB32
+                    )
+                    self.assertEqual(source_image.size(), compiled_image.size())
+                    self.assertEqual(
+                        source_image.bits().asstring(source_image.byteCount()),
+                        compiled_image.bits().asstring(compiled_image.byteCount()),
+                    )
 
     def test_operation_svgs_render_cleanly_and_uniquely_at_menu_size(self):
         signatures = {}

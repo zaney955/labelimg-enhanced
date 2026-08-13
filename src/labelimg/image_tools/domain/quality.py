@@ -211,6 +211,21 @@ class ImageQualityCache:
             return None
         return self._deserialize(value)
 
+    def summaries(self, image_paths, policy):
+        """Bulk-load cache summaries without hashing image contents."""
+        data = self._read()
+        results = {}
+        for image_path in image_paths:
+            image_path = os.path.abspath(os.fspath(image_path))
+            value = data.get(self._key(image_path))
+            if not value or value.get("policy_key") != policy.key:
+                continue
+            try:
+                results[image_path] = self._deserialize(value)
+            except (KeyError, TypeError, ValueError):
+                continue
+        return results
+
     def put(self, result):
         data = self._read()
         data[self._key(result.path)] = self._serialize(result)

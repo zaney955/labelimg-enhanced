@@ -93,6 +93,57 @@ class AnnotationDocument(DomainAnnotationDocument):
         except (AnnotationDocumentError, OSError, ValueError, KeyError):
             return AnnotationStatus(False, False, False, frozenset())
 
+    @classmethod
+    def inspect_content(
+        cls,
+        annotation_path,
+        content,
+        *,
+        related_content=None,
+    ):
+        """Inspect already-read bytes without reopening physical resources."""
+        annotation_format = AnnotationFormat.from_path(annotation_path)
+        try:
+            if annotation_format is AnnotationFormat.PASCAL_VOC:
+                root = ElementTree.fromstring(content)
+                review = root.attrib.get("verified")
+                labels = frozenset(
+                    value.strip()
+                    for value in (
+                        item.findtext("name", "")
+                        for item in root.findall("object")
+                    )
+                    if value.strip()
+                )
+                return AnnotationStatus(
+                    bool(root.findall("object")),
+                    review == "yes",
+                    review == "no",
+                    labels,
+                )
+            if annotation_format is AnnotationFormat.YOLO:
+                classes = (related_content or {}).get("classes.txt", b"")
+                return _inspect_yolo_content(content, classes)
+            collection = CreateMLAnnotationCollection.read(
+                annotation_path,
+                content=content,
+            )
+            return AnnotationStatus(
+                collection.has_annotations,
+                collection.verified,
+                collection.questioned,
+                frozenset(collection.labels),
+            )
+        except (
+            AnnotationDocumentError,
+            OSError,
+            UnicodeError,
+            ValueError,
+            KeyError,
+            ElementTree.ParseError,
+        ):
+            return AnnotationStatus(False, False, False, frozenset())
+
 
     def save(self, annotation_path, annotation_format):
         target_path = _with_extension(
@@ -467,6 +518,58 @@ def _inspect_yolo(annotation_path):
         has_annotations,
         verified,
         questioned,
+    )
+
+
+def _inspect_yolo_content(annotation_content, classes_content):
+    classes = [
+        line.strip()
+        for line in classes_content.decode("utf8").splitlines()
+        if line.strip()
+    ]
+    used_indexes = set()
+    has_annotations = False
+    verified = False
+    questioned = False
+    for line_number, line in enumerate(
+        annotation_content.decode("utf8").splitlines(), start=1
+    ):
+        fields = line.split()
+        if not fields:
+            continue
+        if line.lstrip().startswith("#"):
+            text = line.strip().casefold()
+            if text.startswith("# labelimg-review:"):
+                state = text.partition(":")[2].strip()
+                verified = state == "verified"
+                questioned = state == "questioned"
+            continue
+        if len(fields) != 5:
+            raise ValueError("Invalid YOLO annotation at line %d" % line_number)
+        class_index = int(fields[0])
+        coordinates = tuple(float(value) for value in fields[1:])
+        x_center, y_center, width, height = coordinates
+        if (
+            class_index < 0
+            or class_index >= len(classes)
+            or not all(math.isfinite(value) for value in coordinates)
+            or not 0 <= x_center <= 1
+            or not 0 <= y_center <= 1
+            or not 0 < width <= 1
+            or not 0 < height <= 1
+        ):
+            raise ValueError("Invalid YOLO annotation at line %d" % line_number)
+        used_indexes.add(class_index)
+        has_annotations = True
+    return AnnotationStatus(
+        has_annotations,
+        verified,
+        questioned,
+        frozenset(
+            label
+            for index, label in enumerate(classes)
+            if index in used_indexes
+        ),
     )
 
 

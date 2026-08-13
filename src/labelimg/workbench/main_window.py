@@ -118,6 +118,7 @@ from labelimg.files.ui.list_widget import (
     FILE_PERSISTENCE_FLAGS_ROLE,
     FILE_QUALITY_FINDINGS_ROLE,
     FILE_REVIEW_STATE_ROLE,
+    FileListItem,
     FileListControlBar,
     FileListItemDelegate,
     FileListWidget,
@@ -142,6 +143,7 @@ from labelimg.workbench.support import (
 from labelimg.annotations.ui.workbench_controller import AnnotationActionsMixin
 from labelimg.canvas.workbench_controller import CanvasActionsMixin
 from labelimg.files.ui.controller import FileActionsMixin
+from labelimg.files.ui.loading import DirectoryLoadingMixin
 from labelimg.image_tools.ui.controller import ImageToolsActionsMixin
 from labelimg.workbench.recovery_ui import RecoveryActionsMixin
 
@@ -166,6 +168,7 @@ class MainWindow(
     AnnotationActionsMixin,
     CanvasActionsMixin,
     FileActionsMixin,
+    DirectoryLoadingMixin,
     ImageToolsActionsMixin,
     RecoveryActionsMixin,
     QMainWindow,
@@ -1191,6 +1194,50 @@ class MainWindow(
         self._sync_annotation_directory_ui()
         return True
 
+    def commit_indexed_annotation_directory(self, directory, replacement):
+        """Atomically install an annotation workspace built off the UI thread."""
+        if not self.may_continue():
+            return False
+        try:
+            loaded = (
+                replacement.load_for_image(self.file_path, self.image_data)
+                if self.file_path else None
+            )
+        except Exception as error:
+            self.error_message(
+                tr('error.changeAnnotationDir'), '<p>%s</p>' % error
+            )
+            return False
+        self.annotation_persistence.clear_conflicts(
+            tuple(self.annotation_persistence.conflicts)
+        )
+        self.annotation_persistence.replace_workspace(replacement)
+        self.annotation_workspace = replacement
+        self.review_state_transaction.replace_workspace(replacement)
+        self.file_operations.replace_workspace(replacement)
+        self.image_processing.replace_workspace(replacement)
+        self._default_save_dir = directory
+        for label in replacement.candidate_labels:
+            if label not in self.label_hist:
+                self.label_hist.append(label)
+        self.annotation_editing.clear_workspace()
+        self.annotation_scene.clear_workspace()
+        self.file_operations.clear_recovery()
+        self.image_processing.clear_recovery()
+        if self.file_path:
+            self.clear_current_labels()
+            if loaded is not None:
+                self.set_format(document_format_name(loaded.annotation_format))
+                self.load_annotation_document(loaded.document)
+            else:
+                self.canvas.verified = False
+                self.canvas.questioned = False
+            self._activate_annotation_history()
+        self.refresh_candidate_labels()
+        self.refresh_file_list_statuses()
+        self._sync_annotation_directory_ui()
+        return True
+
     def change_save_dir_dialog(self, _value=False):
         if self.default_save_dir is not None:
             path = ustr(self.default_save_dir)
@@ -1208,7 +1255,12 @@ class MainWindow(
                 and os.path.abspath(self.default_save_dir) == dir_path
             ):
                 return
-            if self._switch_annotation_directory(dir_path):
+            switched = (
+                self.start_annotation_directory_load(dir_path)
+                if self.isVisible()
+                else self._switch_annotation_directory(dir_path)
+            )
+            if switched:
                 self.statusBar().showMessage(tr(
                     'status.saveDirectoryChanged',
                     path=self.default_save_dir,
@@ -1218,7 +1270,12 @@ class MainWindow(
     def use_image_directory_for_annotations(self, _value=False):
         if not self.default_save_dir:
             return
-        if self._switch_annotation_directory(None):
+        switched = (
+            self.start_annotation_directory_load(None)
+            if self.isVisible()
+            else self._switch_annotation_directory(None)
+        )
+        if switched:
             self.statusBar().showMessage(
                 tr('status.annotationDirectoryUsesImage')
             )
@@ -1267,7 +1324,10 @@ class MainWindow(
         else:
             target_dir_path = ustr(default_open_dir_path)
         self.last_open_dir = target_dir_path
-        self.import_dir_images(target_dir_path)
+        if self.isVisible():
+            self.start_directory_load(target_dir_path)
+        else:
+            self.import_dir_images(target_dir_path)
 
     def import_dir_images(self, dir_path, initial_index=0):
         if not self.may_continue() or not dir_path:
@@ -1293,7 +1353,18 @@ class MainWindow(
         self.last_open_dir = dir_path
         self.dir_name = dir_path
         self._sync_annotation_directory_ui()
-        self.populate_file_list(self.scan_all_images(dir_path))
+        image_paths = self.scan_all_images(dir_path)
+        annotation_directory = self.default_save_dir or dir_path
+        if annotation_directory and os.path.isdir(annotation_directory):
+            self.annotation_workspace.scan(annotation_directory, force=False)
+            self.refresh_candidate_labels()
+        from labelimg.image_tools.domain.quality import ImageQualityPolicy
+        self.image_quality_results.update(
+            self.image_quality_cache.summaries(
+                image_paths, ImageQualityPolicy.standard()
+            )
+        )
+        self.populate_file_list(image_paths)
 
         if self.img_count:
             self.cur_img_idx = min(max(initial_index, 0), self.img_count - 1)
@@ -1306,46 +1377,150 @@ class MainWindow(
             self.canvas.setEnabled(False)
             self.actions.saveAs.setEnabled(False)
 
-    def populate_file_list(self, image_paths):
+    def commit_discovered_directory(
+        self, dir_path, image_paths, initial_index=0
+    ):
+        """Commit directory-ready state without waiting for annotation index."""
+        if not self.may_continue() or not dir_path:
+            return False
+        self.workbench_session.commit_transition(
+            self._workbench_transition_ticket
+        )
+        changing_workspace = (
+            self.dir_name is None
+            or os.path.abspath(self.dir_name) != os.path.abspath(dir_path)
+        )
+        if changing_workspace:
+            self.annotation_persistence.clear_conflicts(
+                tuple(self.annotation_persistence.conflicts)
+            )
+            replacement = AnnotationWorkspace(save_dir=self.default_save_dir)
+            self.annotation_persistence.replace_workspace(replacement)
+            self.annotation_workspace = replacement
+            self.review_state_transaction.replace_workspace(replacement)
+            self.file_operations.replace_workspace(replacement)
+            self.image_processing.replace_workspace(replacement)
+            self.annotation_editing.clear_workspace()
+            self.annotation_scene.clear_workspace()
+            self.file_operations.clear_recovery()
+            self.image_processing.clear_recovery()
+            self.file_list_controls.clear_filters(emit=False)
+        self.last_open_dir = dir_path
+        self.dir_name = dir_path
+        self._sync_annotation_directory_ui()
+        from labelimg.image_tools.domain.quality import ImageQualityPolicy
+        self.image_quality_results.update(
+            self.image_quality_cache.summaries(
+                image_paths, ImageQualityPolicy.standard()
+            )
+        )
+        initial_paths = tuple(image_paths[:64])
+        self.populate_file_list(initial_paths, indexed=False)
+        all_paths = tuple(image_paths)
+        self.m_img_list = list(all_paths)
+        self.img_count = len(all_paths)
+        from labelimg.files import FileListProjection
+        self._file_list_projection = FileListProjection(
+            os.path.abspath(self.dir_name),
+            self.file_list_controls.state.query,
+            (),
+            all_paths,
+            all_paths,
+        )
+        if self.img_count:
+            self.cur_img_idx = min(max(initial_index, 0), self.img_count - 1)
+            self.load_file(self.m_img_list[self.cur_img_idx])
+        else:
+            self.cur_img_idx = 0
+            self.reset_state(preserve_session=True)
+            self.set_clean()
+            self.toggle_actions(False)
+            self.canvas.setEnabled(False)
+            self.actions.saveAs.setEnabled(False)
+        return len(initial_paths)
+
+    def _file_list_item(self, image_path, indexed=True):
         from labelimg.image_tools import quality_finding_text
+        if indexed:
+            annotation_state, review_state, persistence_flags = (
+                self.file_workspace_state(image_path)
+            )
+        else:
+            annotation_state = 'unannotated'
+            review_state = 'unreviewed'
+            persistence_flags = ()
+        item = FileListItem(self.file_list_item_text(image_path))
+        item.setData(Qt.UserRole, image_path)
+        item.setData(FILE_ANNOTATION_STATE_ROLE, annotation_state)
+        item.setData(FILE_REVIEW_STATE_ROLE, review_state)
+        item.setData(FILE_PERSISTENCE_FLAGS_ROLE, persistence_flags)
+        quality_result = self._quality_result_for_path(image_path)
+        item.setData(
+            FILE_QUALITY_FINDINGS_ROLE,
+            tuple({
+                'code': finding.code,
+                'severity': finding.severity,
+                'explanation': quality_finding_text(finding),
+            } for finding in quality_result.findings)
+            if quality_result is not None else (),
+        )
+        item.setData(CURRENT_IMAGE_ROLE, image_path == self.file_path)
+        item.setToolTip(image_path)
+        return item
+
+    def append_file_list_rows(self, image_paths, indexed=False):
+        first = self.file_list_widget.count()
+        items = [
+            self._file_list_item(path, indexed=indexed)
+            for path in image_paths
+        ]
+        self.file_list_widget.addItems(items)
+        for offset, path in enumerate(image_paths):
+            self._file_row_by_path[path] = first + offset
+        return len(items)
+
+    def populate_file_list(
+        self, image_paths, indexed=True, preserve_query=False
+    ):
+        query = (
+            self.file_list_controls.state.query
+            if preserve_query and hasattr(self, 'file_list_controls')
+            else None
+        )
         blocker = QSignalBlocker(self.file_list_widget)
         self.file_list_widget.clear()
         self.m_img_list = list(image_paths)
+        self._file_row_by_path = {
+            path: index for index, path in enumerate(self.m_img_list)
+        }
         self.img_count = len(self.m_img_list)
-        for image_path in self.m_img_list:
-            item = QListWidgetItem(
-                self.file_list_item_text(image_path)
-            )
-            item.setData(Qt.UserRole, image_path)
-            item.setData(
-                FILE_ANNOTATION_STATE_ROLE,
-                self.file_annotation_state(image_path),
-            )
-            item.setData(
-                FILE_REVIEW_STATE_ROLE,
-                self.file_review_state(image_path),
-            )
-            item.setData(
-                FILE_PERSISTENCE_FLAGS_ROLE,
-                self.file_persistence_flags(image_path),
-            )
-            quality_result = self._quality_result_for_path(image_path)
-            item.setData(
-                FILE_QUALITY_FINDINGS_ROLE,
-                tuple(
-                    {
-                        'code': finding.code,
-                        'severity': finding.severity,
-                        'explanation': quality_finding_text(finding),
-                    }
-                    for finding in quality_result.findings
-                ) if quality_result is not None else (),
-            )
-            item.setData(CURRENT_IMAGE_ROLE, False)
-            item.setToolTip(image_path)
-            self.file_list_widget.addItem(item)
+        items = [self._file_list_item(path, indexed=indexed)
+                 for path in self.m_img_list]
+        self.file_list_widget.setItems(items)
         del blocker
-        self.apply_file_list_view(scroll_current=False)
+        if indexed:
+            if query is not None:
+                self.file_list_controls.state.set_filter(
+                    text=query.text,
+                    annotation=query.annotation,
+                    review=query.review,
+                    alert=query.alert,
+                    quality=query.quality,
+                )
+            self.apply_file_list_view(scroll_current=False)
+        else:
+            from labelimg.files import FileListProjection
+            paths = tuple(self.m_img_list)
+            self._file_list_projection = FileListProjection(
+                os.path.abspath(self.dir_name) if self.dir_name else None,
+                self.file_list_controls.state.query,
+                (),
+                paths,
+                paths,
+            )
+            self.file_list_controls.set_workspace_available(bool(paths))
+            self.file_list_stack.setCurrentWidget(self.file_list_widget)
+            self.update_current_file_marker()
 
 
 

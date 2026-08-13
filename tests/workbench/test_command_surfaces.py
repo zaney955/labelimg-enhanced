@@ -434,7 +434,7 @@ class CommandSurfacesTest(unittest.TestCase):
         )
         self.assertEqual(
             self.window.top_commands.open_button.accessibleName(),
-            "打开图像目录…",
+            "打开图像目录",
         )
         self.assertEqual(
             self.window.copy_button.accessibleName(),

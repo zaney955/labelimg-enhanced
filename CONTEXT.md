@@ -20,6 +20,10 @@ _Avoid_: View-menu preferences, File-menu reset command, duplicated settings ent
 Application-authored text visible during operation, including commands, panels, status and guidance, validation, confirmations, recovery, conflicts, and application-owned buttons. It excludes user-authored labels, file names and paths, annotation-format names, and verbatim operating-system diagnostics.
 _Avoid_: User data, translated path, rewritten system error
 
+**Operation icon set**:
+The 76 coordinated flat, duotone SVG symbols used by LabelImg actions and buttons, excluding the separate application identity icon. The restrained light-theme set prioritizes clarity at 16 pixels, uses functional-family colors, shares a base motif between related actions, and remains distinguishable without color; annotation formats use structural symbols rather than names, while language choices may use font-independent path glyphs.
+_Avoid_: Application icon, dark-theme icon set, monochrome action icons, high-saturation icon set, color-only distinction, unrelated family motifs, text-dependent format icon
+
 **Canvas tool rail**:
 The stable application surface containing only tools whose primary purpose is direct interaction with the current Canvas. Workspace entry, image navigation, review classification, saving, annotation-format choice, and view zoom belong to their own contextual surfaces rather than this rail.
 _Avoid_: General command toolbar, workflow toolbar, duplicate menu catalog
@@ -51,6 +55,14 @@ _Avoid_: Open image directory, import directory, batch open
 **Annotation directory**:
 The directory that supplies and stores the active annotation documents for the current image directory. When no separate annotation directory is selected, the image directory serves this role. Switching it changes the annotation side of the workspace, reloads the current image's corresponding annotation document, and begins a new workspace editing session; it is not merely a passive save destination.
 _Avoid_: Image directory, export directory, save-location-only setting
+
+**Directory ready state**:
+The workspace milestone at which the selected directory's current image and initial file-list content are usable, even if remaining derived file states are still being incorporated. It is distinct from completion of the full workspace index.
+_Avoid_: Directory fully loaded, scan complete, indexing complete
+
+**Workspace index completion**:
+The workspace milestone at which every discovered file and its annotation-related workspace states have been incorporated for the currently selected image and annotation directories. It belongs only to the current application session, may occur after the workspace is already usable, and excludes explicit image-quality analysis.
+_Avoid_: Directory ready state, first image loaded, initial list shown
 
 **Current annotation document replacement**:
 The explicit replacement of the current image's annotation content and active storage target with a user-selected annotation document. It rebases annotation history and therefore requires unresolved edits to be handled before replacement; it is not an ordinary file-opening action.

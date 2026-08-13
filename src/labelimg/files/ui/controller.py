@@ -6,7 +6,7 @@ import os.path
 import platform
 import subprocess
 
-from functools import cmp_to_key, partial
+from functools import partial
 
 from PyQt5.QtCore import QFileInfo, QItemSelectionModel, QModelIndex, QSignalBlocker, Qt
 from PyQt5.QtGui import QImageReader
@@ -16,6 +16,7 @@ import labelimg.ui.generated_resources  # noqa: F401 - registers Qt resources
 from labelimg.ui.actions import new_icon
 from labelimg.localization.runtime import question as localized_question, tr, warning as localized_warning
 from labelimg.annotations import AnnotationFormat
+from labelimg.files import discover_images
 from labelimg.platform.text import native_text as ustr
 from labelimg.files.ui.list_widget import BatchRenameDialog, CURRENT_IMAGE_ROLE, FILE_ANNOTATION_STATE_ROLE, FILE_PERSISTENCE_FLAGS_ROLE, FILE_QUALITY_FINDINGS_ROLE, FILE_REVIEW_STATE_ROLE, compare_relative_image_paths, validate_base_name, validate_rename_mapping
 from labelimg.files.application.operations import FileOperationError
@@ -96,6 +97,15 @@ class FileActionsMixin:
             path: tuple(item.data(FILE_QUALITY_FINDINGS_ROLE) or ())
             for path, item in items.items()
         }
+        previous_projection = getattr(self, '_file_list_projection', None)
+        presorted = bool(
+            state.sort_key == 'name'
+            and not state.descending
+            and (
+                previous_projection is None
+                or previous_projection.query == state.query
+            )
+        )
         projection = state.project(
             paths,
             self.dir_name,
@@ -103,6 +113,7 @@ class FileActionsMixin:
             review_state_for=review_states.get,
             persistence_flags_for=persistence_flags.get,
             quality_findings_for=quality_findings.get,
+            presorted=presorted,
         )
         ordered = projection.ordered_paths
         self._file_list_projection = projection
@@ -119,11 +130,11 @@ class FileActionsMixin:
         )
         blocker = QSignalBlocker(self.file_list_widget)
         if ordered != self.m_img_list:
-            while self.file_list_widget.count():
-                self.file_list_widget.takeItem(0)
-            for path in ordered:
-                self.file_list_widget.addItem(items[path])
+            self.file_list_widget.setItems(items[path] for path in ordered)
         self.m_img_list = list(ordered)
+        self._file_row_by_path = {
+            path: index for index, path in enumerate(self.m_img_list)
+        }
         self.img_count = len(self.m_img_list)
         visible_count = 0
         current_item = None
@@ -189,9 +200,12 @@ class FileActionsMixin:
         )
         if hasattr(self, 'top_commands'):
             total = len(self.m_img_list)
+            current_row = getattr(self, '_file_row_by_path', {}).get(
+                self.file_path
+            )
             current = (
-                self.m_img_list.index(self.file_path) + 1
-                if self.file_path in self.m_img_list
+                current_row + 1
+                if current_row is not None
                 else (1 if self.file_path else 0)
             )
             self.top_commands.set_counter(current, total or current)
@@ -211,11 +225,6 @@ class FileActionsMixin:
             return
         selected_count = len(self.file_list_widget.selectedItems())
         total_count = self.file_list_widget.count()
-        visible_count = len(self.file_list_widget.visible_items())
-        hidden_selected = sum(
-            item.isHidden()
-            for item in self.file_list_widget.selectedItems()
-        )
         filter_active = bool(
             hasattr(self, 'file_list_controls')
             and self.file_list_controls.state.filter_active
@@ -229,6 +238,11 @@ class FileActionsMixin:
                 )
             )
             return
+        visible_count = len(self.file_list_widget.visible_items())
+        hidden_selected = sum(
+            item.isHidden()
+            for item in self.file_list_widget.selectedItems()
+        )
         parts = [tr('fileCount.visible', visible=visible_count, total=total_count)]
         if selected_count:
             selection = tr('fileCount.selectedShort', selected=selected_count)
@@ -251,17 +265,14 @@ class FileActionsMixin:
             if self.file_path
             else None
         )
-        for index in range(self.file_list_widget.count()):
-            item = self.file_list_widget.item(index)
-            item_path = item.data(Qt.UserRole)
-            item.setData(
-                CURRENT_IMAGE_ROLE,
-                bool(
-                    current_path
-                    and item_path
-                    and os.path.abspath(item_path) == current_path
-                ),
-            )
+        previous_path = getattr(self, '_marked_file_path', None)
+        for path, value in ((previous_path, False), (current_path, True)):
+            row = getattr(self, '_file_row_by_path', {}).get(path)
+            if row is not None:
+                item = self.file_list_widget.item(row)
+                if item is not None:
+                    item.setData(CURRENT_IMAGE_ROLE, value)
+        self._marked_file_path = current_path
         self.file_list_widget.viewport().update()
         self.update_file_selection_count()
         self.update_file_navigation_actions()
@@ -800,21 +811,11 @@ class FileActionsMixin:
 
 
     def scan_all_images(self, folder_path):
-        extensions = ['.%s' % fmt.data().decode("ascii").lower() for fmt in QImageReader.supportedImageFormats()]
-        images = []
-
-        for root, dirs, files in os.walk(folder_path):
-            for file in files:
-                if file.lower().endswith(tuple(extensions)):
-                    relative_path = os.path.join(root, file)
-                    path = ustr(os.path.abspath(relative_path))
-                    images.append(path)
-        images.sort(
-            key=cmp_to_key(
-                partial(compare_relative_image_paths, root=folder_path)
-            )
+        extensions = tuple(
+            '.%s' % fmt.data().decode("ascii").lower()
+            for fmt in QImageReader.supportedImageFormats()
         )
-        return images
+        return list(discover_images(folder_path, extensions))
 
 
     def file_list_display_path(self, image_path):
@@ -841,22 +842,20 @@ class FileActionsMixin:
 
 
     def update_file_list_item_status(self, image_path, refresh_view=True):
-        if not image_path or image_path not in self.m_img_list:
+        if not image_path:
             return
-        index = self.m_img_list.index(image_path)
+        index = getattr(self, '_file_row_by_path', {}).get(image_path)
+        if index is None:
+            return
         item = self.file_list_widget.item(index)
         if item is None:
             return
         item.setData(Qt.UserRole, image_path)
-        item.setData(
-            FILE_ANNOTATION_STATE_ROLE,
-            self.file_annotation_state(image_path),
+        annotation_state, review_state, flags = self.file_workspace_state(
+            image_path
         )
-        item.setData(
-            FILE_REVIEW_STATE_ROLE,
-            self.file_review_state(image_path),
-        )
-        flags = self.file_persistence_flags(image_path)
+        item.setData(FILE_ANNOTATION_STATE_ROLE, annotation_state)
+        item.setData(FILE_REVIEW_STATE_ROLE, review_state)
         item.setData(FILE_PERSISTENCE_FLAGS_ROLE, flags)
         quality_result = self._quality_result_for_path(image_path)
         from labelimg.image_tools import quality_finding_text
@@ -888,10 +887,22 @@ class FileActionsMixin:
 
 
     def refresh_file_list_statuses(self):
-        for image_path in self.m_img_list:
-            self.update_file_list_item_status(
-                image_path,
-                refresh_view=False,
+        selected_paths = set(self.selected_file_paths())
+        focused = self.file_list_widget.currentItem()
+        focused_path = focused.data(Qt.UserRole) if focused is not None else None
+        self.populate_file_list(
+            tuple(self.m_img_list), preserve_query=True
+        )
+        blocker = QSignalBlocker(self.file_list_widget)
+        for path in selected_paths:
+            row = self._file_row_by_path.get(path)
+            if row is not None:
+                self.file_list_widget.item(row).setSelected(True)
+        focused_row = self._file_row_by_path.get(focused_path)
+        if focused_row is not None:
+            self.file_list_widget.setCurrentItem(
+                self.file_list_widget.item(focused_row)
             )
-        self.apply_file_list_view()
+        del blocker
+        self.update_file_selection_count()
 

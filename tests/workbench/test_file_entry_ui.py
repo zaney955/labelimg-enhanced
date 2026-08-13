@@ -77,7 +77,7 @@ class FileEntryUiTest(unittest.TestCase):
         self.assertEqual(
             [action.text() for action in actions],
             [
-                "Open Image Directory…",
+                "Open Image Directory",
                 "Open File…",
                 "Choose Annotation Directory…",
                 "Replace Current Annotations…",

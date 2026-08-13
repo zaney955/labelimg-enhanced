@@ -809,23 +809,8 @@ class ImageToolsActionsMixin:
 
 
     def _quality_result_for_path(self, image_path):
-        from labelimg.image_tools.domain.quality import ImageQualityPolicy
         image_path = os.path.abspath(os.fspath(image_path))
-        result = self.image_quality_results.get(image_path)
-        if (
-            result is not None
-            and result.fingerprint != fingerprint_path(image_path)
-        ):
-            self.image_quality_results.pop(image_path, None)
-            result = None
-        if result is None:
-            result = self.image_quality_cache.get(
-                image_path,
-                ImageQualityPolicy.standard(),
-            )
-            if result is not None:
-                self.image_quality_results[image_path] = result
-        return result
+        return self.image_quality_results.get(image_path)
 
 
     def _refresh_current_image_pixels(self, changed_paths):

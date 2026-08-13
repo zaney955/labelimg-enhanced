@@ -1270,7 +1270,9 @@ class WorkbenchComposer:
 
         # Since loading the file may take some time, make sure it runs in the background.
         if self.file_path and os.path.isdir(self.file_path):
-            self.queue_event(partial(self.import_dir_images, self.file_path or ""))
+            self.queue_event(partial(
+                self.start_directory_load, self.file_path or ""
+            ))
         elif self.file_path:
             self.queue_event(partial(self.load_file, self.file_path or ""))
 
@@ -1285,8 +1287,4 @@ class WorkbenchComposer:
             self.label_coordinates.setText
         )
         self.top_commands.set_counter(0, 0)
-
-        # Open Dir if default file
-        if self.file_path and os.path.isdir(self.file_path):
-            self.open_dir_dialog(dir_path=self.file_path, silent=True)
 
