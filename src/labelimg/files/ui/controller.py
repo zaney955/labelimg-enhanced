@@ -465,7 +465,11 @@ class FileActionsMixin:
             else:
                 value = os.path.abspath(path)
             values.append(value)
-        QApplication.clipboard().setText('\n'.join(values))
+        self._system_clipboard().setText('\n'.join(values))
+
+
+    def _system_clipboard(self):
+        return QApplication.clipboard()
 
 
     def copy_selected_image_files(self, _checked=False):
@@ -545,7 +549,7 @@ class FileActionsMixin:
                 *resources,
             )
         ])
-        QApplication.clipboard().setMimeData(mime_data)
+        self._system_clipboard().setMimeData(mime_data)
         if not include_annotations:
             self.status(tr(
                 'status.copiedImageFiles',

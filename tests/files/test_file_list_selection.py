@@ -102,8 +102,9 @@ class FileListSelectionTest(unittest.TestCase):
         self.window.system_trash = FakeTrashAdapter(trash_dir)
         self.window.import_dir_images(self.image_dir)
         self.clipboard = FakeClipboard()
-        self.clipboard_patch = patch(
-            "labelimg.files.ui.controller.QApplication.clipboard",
+        self.clipboard_patch = patch.object(
+            self.window,
+            "_system_clipboard",
             return_value=self.clipboard,
         )
         self.clipboard_patch.start()
