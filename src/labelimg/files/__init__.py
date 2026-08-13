@@ -11,6 +11,8 @@ __all__ = (
     "FileRecoveryBlocked",
     "RecoveryOperation",
     "SystemTrashAdapter",
+    "discover_images",
+    "relative_image_sort_key",
 )
 
 _EXPORT_MODULES = {
@@ -22,6 +24,8 @@ _EXPORT_MODULES = {
     "FileRecoveryBlocked": "labelimg.files.application.transaction",
     "RecoveryOperation": "labelimg.files.application.recovery",
     "SystemTrashAdapter": "labelimg.files.application.operations",
+    "discover_images": "labelimg.files.application.discovery",
+    "relative_image_sort_key": "labelimg.files.application.discovery",
 }
 
 

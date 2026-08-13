@@ -99,6 +99,10 @@ class CreateMLRecord:
         )
 
     @property
+    def has_annotations(self):
+        return bool(self._annotations)
+
+    @property
     def verified(self):
         return bool(
             self._payload.get("verified", bool(self._annotations))

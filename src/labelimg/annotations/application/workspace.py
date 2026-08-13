@@ -1,6 +1,7 @@
 """Directory-level annotation paths, status, and candidate labels."""
 
 from dataclasses import dataclass, replace
+import hashlib
 import os
 
 from labelimg.annotations.domain.model import (
@@ -21,6 +22,8 @@ from labelimg.annotations.infrastructure.storage import (
     AnnotationSaveRequest,
     AnnotationStorageCoordinator,
     AtomicAnnotationWriter,
+    MISSING_FINGERPRINT,
+    ResourceFingerprint,
     fingerprint_path,
 )
 
@@ -82,6 +85,8 @@ class AnnotationWorkspace:
             else None
         )
         self._labels_by_path = {}
+        self._status_by_path = {}
+        self._modified_ns_by_path = {}
         self._writer = writer or AtomicAnnotationWriter()
         self._storage = (
             storage_coordinator or AnnotationStorageCoordinator()
@@ -92,10 +97,14 @@ class AnnotationWorkspace:
         self._ambiguous_annotation_paths = set()
         self._held_resources = {}
         self._create_ml_paths_by_image_name = {}
+        self._create_ml_paths_by_match_key = {}
+        self._create_ml_resource_keys = set()
         self._create_ml_labels_by_record = {}
+        self._create_ml_status_by_record = {}
         self._ambiguous_create_ml_records = set()
         self._in_memory_labels_by_image = {}
         self._yolo_vocabulary = []
+        self._scanned_directory = None
 
     @property
     def save_dir(self):
@@ -135,18 +144,10 @@ class AnnotationWorkspace:
         for path_key, labels in self._labels_by_path.items():
             if (
                 path_key in memory_path_keys
-                and not any(
-                    source_path == path_key
-                    for source_path, _image_name
-                    in self._create_ml_labels_by_record
-                )
+                and path_key not in self._create_ml_resource_keys
             ):
                 continue
-            if any(
-                source_path == path_key
-                for source_path, _image_name
-                in self._create_ml_labels_by_record
-            ):
+            if path_key in self._create_ml_resource_keys:
                 continue
             if (
                 _cache_key(os.path.splitext(path_key)[0])
@@ -223,6 +224,25 @@ class AnnotationWorkspace:
         paths = self._paths_for_image(image_path)
         statuses = []
         for annotation_path in self._document_paths_for_image(image_path):
+            path_key = _cache_key(annotation_path)
+            if (
+                annotation_path.lower().endswith(
+                    AnnotationFormat.CREATE_ML.extension
+                )
+                and path_key in self._create_ml_resource_keys
+            ):
+                status = self._create_ml_status_for_image(
+                    annotation_path, image_path
+                )
+                if status is not None:
+                    statuses.append(status)
+                continue
+            cached = self._status_by_path.get(path_key)
+            if cached is not None:
+                statuses.append(cached)
+                continue
+            if self._path_covered_by_scan(annotation_path):
+                continue
             if not os.path.isfile(annotation_path):
                 continue
             statuses.append(
@@ -287,17 +307,34 @@ class AnnotationWorkspace:
         return None
 
     def document_choices(self, image_path):
-        return tuple(
-            WorkspaceDocumentChoice(
+        choices = []
+        for annotation_path in self._document_paths_for_image(image_path):
+            path_key = _cache_key(annotation_path)
+            modified_ns = self._modified_ns_by_path.get(path_key)
+            if modified_ns is None:
+                if self._path_covered_by_scan(annotation_path):
+                    continue
+                try:
+                    modified_ns = os.stat(annotation_path).st_mtime_ns
+                except FileNotFoundError:
+                    continue
+            choices.append(WorkspaceDocumentChoice(
                 annotation_path=annotation_path,
-                annotation_format=AnnotationFormat.from_path(
-                    annotation_path
-                ),
-                modified_ns=os.stat(annotation_path).st_mtime_ns,
-            )
-            for annotation_path in self._document_paths_for_image(image_path)
-            if os.path.isfile(annotation_path)
-        )
+                annotation_format=AnnotationFormat.from_path(annotation_path),
+                modified_ns=modified_ns,
+            ))
+        return tuple(choices)
+
+    def _path_covered_by_scan(self, path):
+        if not self._scanned_directory:
+            return False
+        try:
+            return os.path.commonpath((
+                self._scanned_directory,
+                _cache_key(path),
+            )) == self._scanned_directory
+        except ValueError:
+            return False
 
     def select_active_document(self, image_path, annotation_path):
         choices = self.document_choices(image_path)
@@ -418,6 +455,9 @@ class AnnotationWorkspace:
             self._remember_resource_bytes(resource)
         if empty_pascal:
             self.record(annotation_path, ())
+            self._status_by_path[_cache_key(annotation_path)] = (
+                AnnotationStatus(False, False, False, frozenset())
+            )
             self._in_memory_labels_by_image.pop(
                 _cache_key(document.image_path), None
             )
@@ -431,6 +471,12 @@ class AnnotationWorkspace:
 
         labels = (box.label for box in document.boxes if box.label)
         self.record(saved_path, labels)
+        self._status_by_path[_cache_key(saved_path)] = AnnotationStatus(
+            bool(document.boxes),
+            document.verified,
+            document.questioned,
+            frozenset(box.label for box in document.boxes if box.label),
+        )
         self._in_memory_labels_by_image.pop(
             _cache_key(document.image_path), None
         )
@@ -527,7 +573,13 @@ class AnnotationWorkspace:
             )
         return tuple(saves)
 
-    def scan(self, directory):
+    def scan(self, directory, force=True):
+        directory = os.path.abspath(os.fspath(directory))
+        if (
+            not force
+            and self._scanned_directory == _cache_key(directory)
+        ):
+            return self.candidate_labels
         held_fingerprints = {
             key: value
             for key, value in self._resource_fingerprints.items()
@@ -539,6 +591,8 @@ class AnnotationWorkspace:
             if key in self._held_resources
         }
         self._labels_by_path.clear()
+        self._status_by_path.clear()
+        self._modified_ns_by_path.clear()
         self._resource_fingerprints.clear()
         self._resource_bytes.clear()
         self._resource_fingerprints.update(held_fingerprints)
@@ -546,38 +600,91 @@ class AnnotationWorkspace:
         self._ambiguous_annotation_paths.clear()
         self._ambiguous_create_ml_records.clear()
         self._create_ml_paths_by_image_name.clear()
+        self._create_ml_paths_by_match_key.clear()
+        self._create_ml_resource_keys.clear()
         self._create_ml_labels_by_record.clear()
+        self._create_ml_status_by_record.clear()
         format_paths_by_stem = {}
         annotation_paths_by_filename_stem = {}
-        for root, _directories, files in os.walk(directory):
-            for filename in files:
+        annotation_paths = []
+        resource_paths = set()
+        for root, _directories, filenames in os.walk(directory):
+            for filename in filenames:
+                path = os.path.abspath(os.path.join(root, filename))
                 if filename.casefold() == "classes.txt":
-                    try:
-                        with open(
-                            os.path.join(root, filename),
-                            "r",
-                            encoding="utf8",
-                        ) as class_file:
-                            self.reserve_yolo_labels(
-                                line.strip() for line in class_file
-                            )
-                    except OSError:
-                        pass
+                    resource_paths.add(path)
                     continue
-                annotation_path = os.path.join(root, filename)
                 try:
-                    AnnotationFormat.from_path(annotation_path)
+                    annotation_format = AnnotationFormat.from_path(path)
                 except AnnotationDocumentError:
                     continue
-                status = AnnotationDocument.inspect(annotation_path)
+                annotation_paths.append((path, annotation_format))
+                resource_paths.update(annotation_resources(annotation_format, path))
+
+        contents = {}
+        for resource in resource_paths:
+            key = _cache_key(resource)
+            try:
+                stat = os.stat(resource)
+                with open(resource, "rb") as source:
+                    content = source.read()
+            except FileNotFoundError:
+                contents[key] = None
+                if key not in self._held_resources:
+                    self._resource_fingerprints[key] = MISSING_FINGERPRINT
+                    self._resource_bytes[key] = None
+                continue
+            contents[key] = content
+            self._modified_ns_by_path[key] = stat.st_mtime_ns
+            if key not in self._held_resources:
+                self._resource_fingerprints[key] = ResourceFingerprint(
+                    exists=True,
+                    size=stat.st_size,
+                    modified_ns=stat.st_mtime_ns,
+                    sha256=hashlib.sha256(content).hexdigest(),
+                )
+                self._resource_bytes[key] = content
+
+        for resource in resource_paths:
+            if os.path.basename(resource).casefold() != "classes.txt":
+                continue
+            content = contents.get(_cache_key(resource))
+            if content is not None:
+                try:
+                    self.reserve_yolo_labels(
+                        line.strip()
+                        for line in content.decode("utf8").splitlines()
+                    )
+                except UnicodeError:
+                    pass
+
+        for annotation_path, annotation_format in annotation_paths:
                 path_key = _cache_key(annotation_path)
+                content = contents.get(path_key)
+                if content is None:
+                    continue
+                related = {}
+                if annotation_format is AnnotationFormat.YOLO:
+                    class_path = os.path.join(
+                        os.path.dirname(annotation_path), "classes.txt"
+                    )
+                    related["classes.txt"] = contents.get(
+                        _cache_key(class_path)
+                    ) or b""
+                status = AnnotationDocument.inspect_content(
+                    annotation_path,
+                    content,
+                    related_content=related,
+                )
+                path_key = _cache_key(annotation_path)
+                self._status_by_path[path_key] = status
                 self._labels_by_path[path_key] = set(
                     status.labels
                 )
-                if annotation_path.lower().endswith(
-                    AnnotationFormat.CREATE_ML.extension
-                ):
-                    self._record_create_ml_resource(annotation_path)
+                if annotation_format is AnnotationFormat.CREATE_ML:
+                    self._record_create_ml_resource(
+                        annotation_path, content=content
+                    )
                 stem_key = _cache_key(
                     os.path.splitext(annotation_path)[0]
                 )
@@ -586,22 +693,11 @@ class AnnotationWorkspace:
                     set(),
                 ).add(path_key)
                 annotation_paths_by_filename_stem.setdefault(
-                    os.path.splitext(filename)[0].casefold(),
+                    os.path.splitext(
+                        os.path.basename(annotation_path)
+                    )[0].casefold(),
                     set(),
                 ).add(path_key)
-                annotation_format = AnnotationFormat.from_path(
-                    annotation_path
-                )
-                for resource in annotation_resources(
-                    annotation_format,
-                    annotation_path,
-                ):
-                    resource_key = _cache_key(resource)
-                    if resource_key not in self._held_resources:
-                        self._resource_fingerprints[
-                            resource_key
-                        ] = fingerprint_path(resource)
-                        self._remember_resource_bytes(resource)
         for paths in format_paths_by_stem.values():
             if len(paths) > 1:
                 self._ambiguous_annotation_paths.update(paths)
@@ -620,6 +716,51 @@ class AnnotationWorkspace:
             if competing_paths:
                 self._ambiguous_create_ml_records.add(source)
                 self._ambiguous_annotation_paths.update(competing_paths)
+        self._scanned_directory = _cache_key(directory)
+        return self.candidate_labels
+
+    def adopt_index(self, indexed_workspace):
+        """Adopt a completed session index without replacing live edit state."""
+        held_fingerprints = {
+            key: self._resource_fingerprints.get(key)
+            for key in self._held_resources
+        }
+        held_bytes = {
+            key: self._resource_bytes.get(key)
+            for key in self._held_resources
+        }
+        for name in (
+            "_labels_by_path",
+            "_status_by_path",
+            "_modified_ns_by_path",
+            "_resource_fingerprints",
+            "_resource_bytes",
+            "_ambiguous_annotation_paths",
+            "_create_ml_paths_by_image_name",
+            "_create_ml_paths_by_match_key",
+            "_create_ml_resource_keys",
+            "_create_ml_labels_by_record",
+            "_create_ml_status_by_record",
+            "_ambiguous_create_ml_records",
+            "_yolo_vocabulary",
+            "_scanned_directory",
+        ):
+            value = getattr(indexed_workspace, name)
+            if isinstance(value, dict):
+                value = {
+                    key: set(item) if isinstance(item, set) else item
+                    for key, item in value.items()
+                }
+            elif isinstance(value, set):
+                value = set(value)
+            elif isinstance(value, list):
+                value = list(value)
+            setattr(self, name, value)
+        self._resource_fingerprints.update(
+            (key, value) for key, value in held_fingerprints.items()
+            if value is not None
+        )
+        self._resource_bytes.update(held_bytes)
         return self.candidate_labels
 
     def record(self, annotation_path, labels):
@@ -646,6 +787,12 @@ class AnnotationWorkspace:
             for label in labels
             if label and label.strip()
         )
+        if not annotation_path.lower().endswith(
+            AnnotationFormat.CREATE_ML.extension
+        ):
+            self._status_by_path[_cache_key(annotation_path)] = (
+                AnnotationStatus(bool(labels), False, False, labels)
+            )
         if annotation_path.lower().endswith(
             AnnotationFormat.CREATE_ML.extension
         ):
@@ -678,16 +825,20 @@ class AnnotationWorkspace:
         )
         return self.candidate_labels
 
-    def _record_create_ml_resource(self, annotation_path):
+    def _record_create_ml_resource(self, annotation_path, content=None):
         path = os.path.abspath(os.fspath(annotation_path))
         path_key = _cache_key(path)
+        self._create_ml_resource_keys.add(path_key)
         for source in tuple(self._create_ml_labels_by_record):
             if source[0] == path_key:
                 self._create_ml_labels_by_record.pop(source, None)
+                self._create_ml_status_by_record.pop(source, None)
         for paths in self._create_ml_paths_by_image_name.values():
             paths.discard(path)
         try:
-            collection = CreateMLAnnotationCollection.read(path)
+            collection = CreateMLAnnotationCollection.read(
+                path, content=content
+            ) if content is not None else CreateMLAnnotationCollection.read(path)
         except (OSError, CreateMLCollectionError):
             return
         for record in collection.records:
@@ -695,9 +846,27 @@ class AnnotationWorkspace:
             self._create_ml_paths_by_image_name.setdefault(
                 image_name_key, set()
             ).add(path)
+            for match_key in _create_ml_match_keys(path, image_name_key):
+                self._create_ml_paths_by_match_key.setdefault(
+                    match_key, set()
+                ).add(path)
             self._create_ml_labels_by_record[
                 (path_key, image_name_key)
             ] = set(record.labels)
+            self._create_ml_status_by_record[
+                (path_key, image_name_key)
+            ] = AnnotationStatus(
+                record.has_annotations,
+                record.verified,
+                record.questioned,
+                frozenset(record.labels),
+            )
+            for match_key in _create_ml_match_keys(path, image_name_key):
+                self._create_ml_status_by_record[
+                    (path_key, match_key)
+                ] = self._create_ml_status_by_record[
+                    (path_key, image_name_key)
+                ]
 
     def _bind_create_ml_record(self, document, annotation_path):
         if document.create_ml_record_name:
@@ -737,18 +906,21 @@ class AnnotationWorkspace:
     def _document_paths_for_image(self, image_path):
         paths = list(self._paths_for_image(image_path))
         matched = set()
-        for reference, reference_paths in (
-            self._create_ml_paths_by_image_name.items()
-        ):
-            for path in reference_paths:
-                if CreateMLRecordIdentity(
-                    path, reference
-                ).matches(image_path):
-                    matched.add(path)
+        for key in _image_match_keys(image_path):
+            matched.update(self._create_ml_paths_by_match_key.get(key, ()))
         for path in sorted(matched, key=lambda value: value.casefold()):
             if path not in paths:
                 paths.append(path)
         return tuple(paths)
+
+    def _create_ml_status_for_image(self, annotation_path, image_path):
+        path_key = _cache_key(annotation_path)
+        matches = []
+        for key in _image_match_keys(image_path):
+            status = self._create_ml_status_by_record.get((path_key, key))
+            if status is not None and status not in matches:
+                matches.append(status)
+        return _merge_statuses(matches) if matches else None
 
     def accept_resource_fingerprints(self, resources):
         """Adopt verified external identities for an explicit overwrite."""
@@ -885,6 +1057,36 @@ class AnnotationWorkspace:
 
 def _cache_key(path):
     return os.path.normcase(os.path.abspath(os.fspath(path)))
+
+
+def _create_ml_match_keys(collection_path, reference):
+    reference_key = normalize_image_reference(reference)
+    if os.path.isabs(reference):
+        return (("absolute", reference_key),)
+    if "\\" not in reference_key:
+        return (("basename", reference_key),)
+    resolved = normalize_image_reference(os.path.abspath(os.path.join(
+        os.path.dirname(collection_path),
+        *reference_key.split("\\"),
+    )))
+    return (
+        ("suffix", reference_key),
+        ("absolute", resolved),
+    )
+
+
+def _image_match_keys(image_path):
+    normalized = normalize_image_reference(os.path.abspath(os.fspath(image_path)))
+    parts = normalized.split("\\")
+    keys = [
+        ("absolute", normalized),
+        ("basename", parts[-1]),
+    ]
+    keys.extend(
+        ("suffix", "\\".join(parts[index:]))
+        for index in range(1, len(parts) - 1)
+    )
+    return tuple(keys)
 
 
 def _merge_statuses(statuses):

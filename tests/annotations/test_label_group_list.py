@@ -241,7 +241,7 @@ class LabelGroupListWidgetTest(unittest.TestCase):
             QColor(12, 34, 56),
         )
 
-    def test_selected_button_uses_32_alpha_shape_fill(self):
+    def test_selected_button_uses_48_alpha_shape_fill(self):
         shape = rectangle("car", 10, QColor(40, 120, 200))
         self.set_scene([shape])
         self.widget.project_selection((shape,), shape)
@@ -251,8 +251,9 @@ class LabelGroupListWidgetTest(unittest.TestCase):
         expected = self.blended(
             QColor(40, 120, 200),
             self.widget.palette().color(QPalette.Base),
-            32,
+            48,
         )
+        self.assertEqual(self.widget.selected_fill_alpha, 48)
         self.assert_color_close(
             image.pixelColor(rect.left() + 5, rect.top() + 5),
             expected,
@@ -315,7 +316,7 @@ class LabelGroupListWidgetTest(unittest.TestCase):
         expected_fill = self.blended(
             QColor(40, 120, 200),
             hover_background,
-            32,
+            48,
         )
 
         self.assert_color_close(

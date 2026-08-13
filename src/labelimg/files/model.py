@@ -5,6 +5,8 @@ from functools import cmp_to_key
 import os
 import re
 
+from labelimg.files.application.discovery import relative_image_sort_key
+
 
 def natural_sort(values, key=lambda value: value):
     """Sort a mutable sequence using case-insensitive numeric chunks."""
@@ -150,7 +152,7 @@ class FileListProjection:
     REVIEW_ORDER = {"unreviewed": 0, "questioned": 1, "verified": 2}
 
     @classmethod
-    def create(cls, root, items, query=None):
+    def create(cls, root, items, query=None, presorted=False):
         query = query or FileListQuery()
         items = tuple(items)
         by_path = {item.path: item for item in items}
@@ -158,7 +160,9 @@ class FileListProjection:
             raise ValueError("file-list projection paths must be unique")
 
         def path_compare(left, right):
-            return compare_relative_image_paths(left, right, root)
+            left_key = relative_image_sort_key(left, root or os.curdir)
+            right_key = relative_image_sort_key(right, root or os.curdir)
+            return (left_key > right_key) - (left_key < right_key)
 
         def primary(path):
             item = by_path[path]
@@ -186,7 +190,18 @@ class FileListProjection:
                 return -comparison if query.descending else comparison
             return path_compare(left, right)
 
-        ordered = tuple(sorted(by_path, key=cmp_to_key(compare)))
+        if presorted and query.sort_key == "name" and not query.descending:
+            ordered = tuple(by_path)
+        elif query.sort_key == "name":
+            ordered = tuple(sorted(
+                by_path,
+                key=lambda path: relative_image_sort_key(
+                    path, root or os.curdir
+                ),
+                reverse=query.descending,
+            ))
+        else:
+            ordered = tuple(sorted(by_path, key=cmp_to_key(compare)))
         visible = tuple(
             path
             for path in ordered

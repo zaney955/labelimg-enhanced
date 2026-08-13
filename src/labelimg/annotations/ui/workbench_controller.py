@@ -739,6 +739,23 @@ class AnnotationActionsMixin:
         return 'unreviewed'
 
 
+    def file_workspace_state(self, image_path):
+        """Return all annotation-derived row state with one workspace query."""
+        entry = self.annotation_workspace.entry(image_path)
+        choices = self.annotation_workspace.document_choices(image_path)
+        status = entry.status
+        review = (
+            'questioned' if status.questioned
+            else 'verified' if status.verified
+            else 'unreviewed'
+        )
+        return (
+            'annotated' if status.has_annotations else 'unannotated',
+            review,
+            self.file_persistence_flags(image_path, choices=choices),
+        )
+
+
     def set_selected_review_state(self, state, _checked=False):
         paths = self.selected_file_paths()
         if not paths:
@@ -1249,7 +1266,7 @@ class AnnotationActionsMixin:
         return list(self.annotation_workspace.entry(image_path).paths)
 
 
-    def file_persistence_flags(self, image_path):
+    def file_persistence_flags(self, image_path, choices=None):
         flags = []
         if self.annotation_editing.has_image(image_path):
             view = self.annotation_editing.view_image(
@@ -1261,9 +1278,9 @@ class AnnotationActionsMixin:
             flags.append('conflict')
         if (
             len(
-                self.annotation_workspace.document_choices(
-                    image_path
-                )
+                choices
+                if choices is not None
+                else self.annotation_workspace.document_choices(image_path)
             ) > 1
             and not self.annotation_workspace.active_document_path(
                 image_path
