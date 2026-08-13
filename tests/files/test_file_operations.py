@@ -100,6 +100,52 @@ class FileOperationsTest(unittest.TestCase):
     def tearDown(self):
         self.temporary.cleanup()
 
+    def test_associated_resources_include_both_locations_and_shared_files(self):
+        first = os.path.join(self.images, "first.png")
+        second = os.path.join(self.images, "second.png")
+        third = os.path.join(self.images, "third.png")
+        for path, color in (
+            (first, "white"),
+            (second, "black"),
+            (third, "red"),
+        ):
+            save_image(path, color)
+
+        first_xml = os.path.join(self.images, "first.xml")
+        write_xml(first_xml, first)
+        second_yolo = os.path.join(self.annotations, "second.txt")
+        with open(second_yolo, "w", encoding="utf8") as output:
+            output.write("0 0.5 0.5 0.2 0.2\n")
+        classes = os.path.join(self.annotations, "classes.txt")
+        with open(classes, "w", encoding="utf8") as output:
+            output.write("object\n")
+        shared = os.path.join(self.annotations, "annotations.json")
+        with open(shared, "w", encoding="utf8") as output:
+            json.dump(
+                [
+                    {"image": "first.png", "annotations": []},
+                    {"image": "second.png", "annotations": []},
+                    {"image": "unselected.png", "annotations": []},
+                ],
+                output,
+            )
+        unrelated = os.path.join(self.annotations, "unrelated.json")
+        with open(unrelated, "w", encoding="utf8") as output:
+            json.dump(
+                [{"image": "other.png", "annotations": []}],
+                output,
+            )
+
+        selection = AnnotationFileService(
+            save_dir=self.annotations
+        ).associated_annotation_resources((first, second, third))
+
+        self.assertEqual(
+            selection.resources,
+            (first_xml, shared, second_yolo, classes),
+        )
+        self.assertEqual(selection.images_without_resources, (third,))
+
     def test_clear_shared_create_ml_preserves_other_record_and_backup(self):
         first = os.path.join(self.images, "first.png")
         second = os.path.join(self.images, "second.png")

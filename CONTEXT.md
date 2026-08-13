@@ -548,6 +548,14 @@ _Avoid_: Selected file, active selection
 The file selection set targeted by a file-list context menu. Right-clicking a selected file preserves the existing set, while right-clicking an unselected file replaces the set with that file before opening the menu.
 _Avoid_: Right-clicked file only, current image
 
+**File clipboard transfer**:
+An explicit file-list command that places the selected image files, their associated annotation resource set, or both onto the system clipboard for later pasting by another application. It targets the complete file selection context in file-list order, including selected images currently hidden by filters, and never writes destination files itself; missing annotation resources do not exclude available resources, an annotation-only transfer with no resources leaves the clipboard unchanged, and any unavailable selected image blocks the whole transfer without replacing the clipboard.
+_Avoid_: Copy path text, immediate export, current image only
+
+**Associated annotation resource set**:
+All existing physical Pascal VOC, YOLO, and CreateML annotation resources associated with an image selection across both workspace annotation locations, with shared resources included once even when they contain records for unselected images. The set is copied without format selection or synthesized subsets; unresolved external conflicts must be handled first, and unsaved current-image annotations may be saved or deliberately omitted in favor of the stored version.
+_Avoid_: Active format only, generated selection export, annotation boxes in memory
+
 **Image review state**:
 The mutually exclusive review classification of an image's annotation document: unreviewed, verified, or questioned. A file-selection-context command sets every targeted image to one explicit state instead of toggling each image's prior state.
 _Avoid_: Independent verified and questioned flags, mixed-state toggle

@@ -51,6 +51,12 @@ class OperationFailure:
     reason: str
 
 
+@dataclass(frozen=True)
+class AssociatedAnnotationResourceSet:
+    resources: tuple[str, ...]
+    images_without_resources: tuple[str, ...]
+
+
 @dataclass
 class FileOperationResult:
     succeeded_images: list[str] = field(default_factory=list)
@@ -566,6 +572,76 @@ class AnnotationFileService:
                     found.add(key)
         return len(found)
 
+    def associated_annotation_resources(self, image_paths):
+        """Collect physical annotation resources for a selected image set."""
+        resources = []
+        seen = set()
+        images_without_resources = []
+        for image_path in image_paths:
+            image_path = os.path.abspath(os.fspath(image_path))
+            exact_paths = exact_annotation_paths(
+                image_path,
+                self.save_dir,
+            )
+            exact_keys = {
+                os.path.normcase(os.path.abspath(path))
+                for path in exact_paths
+            }
+            image_resources = []
+            image_seen = set()
+
+            def add_image_resource(path):
+                path = os.path.abspath(os.fspath(path))
+                key = os.path.normcase(path)
+                if key in image_seen or not os.path.isfile(path):
+                    return
+                image_seen.add(key)
+                image_resources.append(path)
+
+            for path in self._annotation_candidates(image_path):
+                path = os.path.abspath(os.fspath(path))
+                key = os.path.normcase(path)
+                if not os.path.isfile(path):
+                    continue
+                if key in exact_keys:
+                    add_image_resource(path)
+                    continue
+                if not path.lower().endswith(".json"):
+                    continue
+                try:
+                    collection = CreateMLAnnotationCollection.read(path)
+                except (OSError, CreateMLCollectionError):
+                    continue
+                if collection.contains_image(image_path):
+                    add_image_resource(path)
+
+            for directory in annotation_directories(
+                image_path,
+                self.save_dir,
+            ):
+                image_stem = os.path.splitext(
+                    os.path.basename(image_path)
+                )[0]
+                yolo_path = os.path.join(directory, image_stem + ".txt")
+                if not os.path.isfile(yolo_path):
+                    continue
+                classes_path = os.path.join(directory, "classes.txt")
+                add_image_resource(classes_path)
+
+            if not image_resources:
+                images_without_resources.append(image_path)
+            for path in image_resources:
+                key = os.path.normcase(path)
+                if key in seen:
+                    continue
+                seen.add(key)
+                resources.append(path)
+
+        return AssociatedAnnotationResourceSet(
+            resources=tuple(resources),
+            images_without_resources=tuple(images_without_resources),
+        )
+
     def _clear_image_annotations(self, image_path):
         affected = []
         failures = []
@@ -686,7 +762,7 @@ class AnnotationFileService:
                 continue
             candidates.extend(
                 os.path.join(directory, name)
-                for name in names
+                for name in sorted(names, key=str.casefold)
                 if name.lower().endswith(".json")
             )
         return tuple(candidates)
