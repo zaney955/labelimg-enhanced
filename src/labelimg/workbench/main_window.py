@@ -377,6 +377,20 @@ class MainWindow(
         if hasattr(self, 'file_list_widget'):
             self.update_current_file_marker()
 
+    def _begin_workspace_editing_session(self):
+        """Apply preferences that intentionally reset for each workspace."""
+        self.auto_saving.setChecked(True)
+
+    def _load_indexed_image(self, filename):
+        """Keep the file counter aligned and roll it back after load failure."""
+        previous_index = self.cur_img_idx
+        self.cur_img_idx = self.m_img_list.index(filename)
+        if self.load_file(filename):
+            return True
+        self.cur_img_idx = previous_index
+        self.update_file_navigation_actions()
+        return False
+
     def current_item(self):
         return self.canvas.selection_snapshot.active
 
@@ -557,6 +571,17 @@ class MainWindow(
                 supplied_format = None
         else:
             supplied_format = None
+        if supplied_format is None and file_path and os.path.isfile(file_path):
+            try:
+                self.annotation_workspace.refresh_document_choices(
+                    os.path.abspath(file_path)
+                )
+            except AnnotationDocumentError as error:
+                self.error_message(
+                    tr('open.annotationTitle'),
+                    u'<b>%s</b>' % error,
+                )
+                return False
         if (
             supplied_format is None
             and file_path
@@ -605,6 +630,40 @@ class MainWindow(
 
         if not unicode_file_path or not os.path.exists(unicode_file_path):
             return False
+        prepared_image_data = read(unicode_file_path, None)
+        prepared_image = (
+            prepared_image_data
+            if isinstance(prepared_image_data, QImage)
+            else QImage.fromData(prepared_image_data)
+        )
+        if prepared_image.isNull():
+            self.error_message(
+                tr('open.fileTitle'),
+                u"<p>%s</p>" % tr(
+                    'open.invalidImage', path=unicode_file_path
+                ),
+            )
+            self.status(tr('status.errorReading', detail=unicode_file_path))
+            return False
+        try:
+            prepared_annotation = (
+                self.annotation_workspace.load(
+                    annotation_path,
+                    unicode_file_path,
+                    prepared_image_data,
+                )
+                if annotation_path is not None
+                else self.annotation_workspace.load_for_image(
+                    unicode_file_path,
+                    prepared_image_data,
+                )
+            )
+        except AnnotationDocumentError as error:
+            self.error_message(
+                tr('open.annotationTitle'),
+                u'<b>%s</b>' % error,
+            )
+            return False
         transition_ticket = getattr(
             self, '_workbench_transition_ticket', None
         )
@@ -621,24 +680,13 @@ class MainWindow(
 
         if unicode_file_path and os.path.exists(unicode_file_path):
             # Load image data first and retain it for annotation saving.
-            self.image_data = read(unicode_file_path, None)
+            self.image_data = prepared_image_data
             self.annotation_document = None
             self.canvas.verified = False
             self.canvas.questioned = False
             self.review_control.set_state('unreviewed')
 
-            if isinstance(self.image_data, QImage):
-                image = self.image_data
-            else:
-                image = QImage.fromData(self.image_data)
-            if image.isNull():
-                self.workbench_session.cancel_transition(transition_ticket)
-                self.error_message(
-                    tr('open.fileTitle'),
-                    u"<p>%s</p>" % tr('open.invalidImage', path=unicode_file_path),
-                )
-                self.status(tr('status.errorReading', detail=unicode_file_path))
-                return False
+            image = prepared_image
             self.status(tr('status.loaded', name=os.path.basename(unicode_file_path)))
             self.image = image
             if (
@@ -652,34 +700,27 @@ class MainWindow(
             self._workbench_transition_ticket = None
             self.update_current_file_marker()
             self.canvas.load_pixmap(QPixmap.fromImage(image))
-            if annotation_path is not None:
-                try:
-                    loaded = self.annotation_workspace.load(
-                        annotation_path,
-                        self.file_path,
-                        self.image_data,
-                    )
-                except AnnotationDocumentError as error:
-                    self.error_message(
-                        tr('open.annotationTitle'),
-                        u'<b>%s</b>' % error,
-                    )
-                    return False
-                self.set_format(
-                    document_format_name(loaded.annotation_format)
+            if prepared_annotation is not None:
+                self.set_format(document_format_name(
+                    prepared_annotation.annotation_format
+                ))
+                self.load_annotation_document(prepared_annotation.document)
+                self.annotation_workspace.record_document(
+                    self.file_path,
+                    prepared_annotation.annotation_path,
+                    (
+                        box.label
+                        for box in prepared_annotation.document.boxes
+                    ),
                 )
-                self.load_annotation_document(loaded.document)
             self.set_clean()
             self.canvas.setEnabled(True)
             self.adjust_scale(initial=True)
             self.paint_canvas()
             self.add_recent_file(self.file_path)
             self.toggle_actions(True)
-            if annotation_path is None:
-                self.show_bounding_box_from_annotation_file(
-                    unicode_file_path
-                )
             self._activate_annotation_history()
+            self.refresh_candidate_labels()
 
             counter = self.counter_str()
             self.setWindowTitle(__appname__ + ' ' + file_path + ' ' + counter)
@@ -690,14 +731,13 @@ class MainWindow(
             return True
         return False
 
-    def _ensure_active_annotation_choice(self, image_path):
-        choices = self.annotation_workspace.document_choices(
-            image_path
-        )
+    def _ensure_active_annotation_choice(self, image_path, force=False):
+        choices = self.annotation_workspace.document_choices(image_path)
         if (
             len(choices) < 2
-            or self.annotation_workspace.active_document_path(
-                image_path
+            or (
+                not force
+                and self.annotation_workspace.active_document_path(image_path)
             )
         ):
             return True
@@ -748,6 +788,12 @@ class MainWindow(
             return False
         self.set_format(document_format_name(loaded.annotation_format))
         self.load_annotation_document(loaded.document)
+        self.annotation_workspace.record_document(
+            file_path,
+            loaded.annotation_path,
+            (box.label for box in loaded.document.boxes),
+        )
+        self.refresh_candidate_labels()
         return True
 
 
@@ -961,11 +1007,23 @@ class MainWindow(
                     if image_key == self.file_path
                     else read(image_key, None)
                 )
-                loaded = self.annotation_workspace.load(
-                    view.current_target,
-                    image_key,
-                    image_data,
-                )
+                if os.path.isfile(view.current_target):
+                    loaded = self.annotation_workspace.load(
+                        view.current_target,
+                        image_key,
+                        image_data,
+                    )
+                else:
+                    loaded = SimpleNamespace(
+                        annotation_path=view.current_target,
+                        annotation_format=AnnotationFormat.from_path(
+                            view.current_target
+                        ),
+                        document=AnnotationDocument(
+                            image_path=image_key,
+                            image_data=image_data,
+                        ),
+                    )
                 prepared.append((image_key, view, loaded))
 
             external_key = self._resource_key(conflict.resource)
@@ -1009,6 +1067,12 @@ class MainWindow(
                 self.annotation_persistence.release(view)
 
             for image_key, view, _loaded in prepared:
+                if _loaded is not None:
+                    self.annotation_workspace.record_document(
+                        image_key,
+                        _loaded.annotation_path,
+                        (box.label for box in _loaded.document.boxes),
+                    )
                 if image_key == self.file_path and not image_resource:
                     continue
                 self.annotation_persistence.release(view)
@@ -1028,7 +1092,9 @@ class MainWindow(
             )
             return False
         self.annotation_persistence.clear_conflicts((conflict.resource,))
+        self.refresh_candidate_labels()
         self.refresh_file_list_statuses()
+        self._watch_current_annotation_document()
         return True
 
     def _overwrite_resource_conflict(self, conflict):
@@ -1178,6 +1244,7 @@ class MainWindow(
         self.annotation_scene.clear_workspace()
         self.file_operations.clear_recovery()
         self.image_processing.clear_recovery()
+        self._begin_workspace_editing_session()
         if self.file_path:
             self.clear_current_labels()
             if loaded is not None:
@@ -1224,6 +1291,7 @@ class MainWindow(
         self.annotation_scene.clear_workspace()
         self.file_operations.clear_recovery()
         self.image_processing.clear_recovery()
+        self._begin_workspace_editing_session()
         if self.file_path:
             self.clear_current_labels()
             if loaded is not None:
@@ -1350,6 +1418,7 @@ class MainWindow(
             self.file_operations.clear_recovery()
             self.image_processing.clear_recovery()
             self.file_list_controls.clear_filters(emit=False)
+            self._begin_workspace_editing_session()
         self.last_open_dir = dir_path
         self.dir_name = dir_path
         self._sync_annotation_directory_ui()
@@ -1405,6 +1474,7 @@ class MainWindow(
             self.file_operations.clear_recovery()
             self.image_processing.clear_recovery()
             self.file_list_controls.clear_filters(emit=False)
+            self._begin_workspace_editing_session()
         self.last_open_dir = dir_path
         self.dir_name = dir_path
         self._sync_annotation_directory_ui()
@@ -1526,16 +1596,6 @@ class MainWindow(
 
 
     def open_prev_image(self, _value=False):
-        self._cancel_annotation_edit_for_navigation()
-        # Proceeding prev image without dialog if having any label
-        if self.auto_saving.isChecked():
-            if self.default_save_dir is not None:
-                if self.dirty is True:
-                    self.save_file()
-            else:
-                self.change_save_dir_dialog()
-                return
-
         if self.img_count <= 0:
             return
 
@@ -1543,29 +1603,46 @@ class MainWindow(
             return
 
         filename = self._adjacent_visible_file(-1)
-        if filename:
-            self.cur_img_idx = self.m_img_list.index(filename)
-            self.load_file(filename)
+        if filename and self._guard_image_navigation(filename):
+            self._load_indexed_image(filename)
 
     def open_next_image(self, _value=False):
-        self._cancel_annotation_edit_for_navigation()
-        # Proceeding prev image without dialog if having any label
-        if self.auto_saving.isChecked():
-            if self.default_save_dir is not None:
-                if self.dirty is True:
-                    self.save_file()
-            else:
-                self.change_save_dir_dialog()
-                return
-
         if self.img_count <= 0:
             return
 
         filename = self._adjacent_visible_file(1)
 
-        if filename:
-            self.cur_img_idx = self.m_img_list.index(filename)
-            self.load_file(filename)
+        if filename and self._guard_image_navigation(filename):
+            self._load_indexed_image(filename)
+
+    def _guard_image_navigation(self, target):
+        """Resolve only the current image before a user-requested switch."""
+        target = os.path.abspath(os.fspath(target))
+        if not self.file_path or target == os.path.abspath(self.file_path):
+            return True
+        self._cancel_annotation_edit_for_navigation()
+        view = self.annotation_editing.view
+        if view is None or not view.dirty:
+            return True
+        answer = localized_warning(
+            self,
+            tr('unsaved.navigationTitle'),
+            tr(
+                'unsaved.navigationPrompt',
+                image=os.path.basename(self.file_path),
+            ),
+            QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
+            QMessageBox.Cancel,
+        )
+        if answer == QMessageBox.Cancel:
+            return False
+        if answer == QMessageBox.Save:
+            self.save_file()
+            current = self.annotation_editing.view
+            return current is not None and not current.dirty
+        if not self._discard_history_view(view):
+            return False
+        return True
 
     def open_file(self, _value=False):
         if not self.may_continue():
@@ -1588,9 +1665,14 @@ class MainWindow(
         if filename:
             if isinstance(filename, (tuple, list)):
                 filename = filename[0]
+            previous_index = self.cur_img_idx
+            previous_count = self.img_count
             self.cur_img_idx = 0
             self.img_count = 1
-            self.load_file(filename)
+            if not self.load_file(filename):
+                self.cur_img_idx = previous_index
+                self.img_count = previous_count
+                self.update_file_navigation_actions()
 
     def save_file(self, _value=False):
         if (
@@ -1610,8 +1692,7 @@ class MainWindow(
             image_file_name = os.path.basename(self.file_path)
             saved_file_name = os.path.splitext(image_file_name)[0]
             saved_path = os.path.join(image_file_dir, saved_file_name)
-            self._save_file(saved_path if self.annotation_document
-                            else self.save_file_dialog(remove_ext=False))
+            self._save_file(saved_path)
 
     def save_file_as(self, _value=False):
         if (
@@ -1668,6 +1749,7 @@ class MainWindow(
                 self.annotation_editing.clear_degraded(self.file_path)
                 self._rebase_current_history(saved.annotation_path)
             self.update_file_list_item_status(self.file_path)
+            self._watch_current_annotation_document()
             if saved.removed:
                 self.statusBar().showMessage(
                     tr('status.removedEmpty', path=saved.annotation_path)

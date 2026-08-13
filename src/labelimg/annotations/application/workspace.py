@@ -3,6 +3,7 @@
 from dataclasses import dataclass, replace
 import hashlib
 import os
+from xml.etree import ElementTree
 
 from labelimg.annotations.domain.model import (
     AnnotationDocumentError,
@@ -257,6 +258,7 @@ class AnnotationWorkspace:
     def load(self, annotation_path, image_path, image_data):
         annotation_path = os.path.abspath(os.fspath(annotation_path))
         annotation_format = AnnotationFormat.from_path(annotation_path)
+        self.validate_annotation_resource(annotation_path)
         document = AnnotationDocument.load(
             annotation_path,
             image_path,
@@ -277,6 +279,38 @@ class AnnotationWorkspace:
             annotation_format,
             document,
         )
+
+    @staticmethod
+    def validate_annotation_resource(annotation_path):
+        """Reject incomplete external files before they can look empty."""
+        path = os.path.abspath(os.fspath(annotation_path))
+        annotation_format = AnnotationFormat.from_path(path)
+        try:
+            if annotation_format is AnnotationFormat.PASCAL_VOC:
+                root = ElementTree.parse(path).getroot()
+                if root.tag != "annotation":
+                    raise AnnotationDocumentError(
+                        "Pascal VOC root element must be annotation"
+                    )
+                return
+            if annotation_format is AnnotationFormat.CREATE_ML:
+                AnnotationWorkspace.validate_create_ml_resource(path)
+                return
+            with open(path, "r", encoding="utf8") as source:
+                for line_number, line in enumerate(source, 1):
+                    fields = line.split()
+                    if not fields:
+                        continue
+                    if len(fields) != 5:
+                        raise AnnotationDocumentError(
+                            "Invalid YOLO record on line %d" % line_number
+                        )
+                    int(fields[0])
+                    tuple(float(value) for value in fields[1:])
+        except AnnotationDocumentError:
+            raise
+        except Exception as error:
+            raise AnnotationDocumentError(str(error)) from error
 
     def load_for_image(self, image_path, image_data):
         image_key = _cache_key(image_path)
@@ -324,6 +358,38 @@ class AnnotationWorkspace:
                 modified_ns=modified_ns,
             ))
         return tuple(choices)
+
+    def refresh_document_choices(self, image_path):
+        """Refresh only the document paths relevant to one image."""
+        image_path = os.path.abspath(os.fspath(image_path))
+        paths = set(self._paths_for_image(image_path))
+        active = self._active_paths.get(_cache_key(image_path))
+        if active:
+            paths.add(active)
+        for match_key in _image_match_keys(image_path):
+            paths.update(self._create_ml_paths_by_match_key.get(match_key, ()))
+        for annotation_path in paths:
+            path_key = _cache_key(annotation_path)
+            try:
+                stat = os.stat(annotation_path)
+            except FileNotFoundError:
+                self._modified_ns_by_path.pop(path_key, None)
+                self._labels_by_path.pop(path_key, None)
+                self._status_by_path.pop(path_key, None)
+                continue
+            self.validate_annotation_resource(annotation_path)
+            status = AnnotationDocument.inspect(
+                annotation_path,
+                image_path=image_path,
+            )
+            self._modified_ns_by_path[path_key] = stat.st_mtime_ns
+            self._status_by_path[path_key] = status
+            self._labels_by_path[path_key] = set(status.labels)
+            if annotation_path.lower().endswith(
+                AnnotationFormat.CREATE_ML.extension
+            ):
+                self._record_create_ml_resource(annotation_path)
+        return self.document_choices(image_path)
 
     def _path_covered_by_scan(self, path):
         if not self._scanned_directory:

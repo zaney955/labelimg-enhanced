@@ -289,8 +289,9 @@ class FileActionsMixin:
         filename = ustr(filename)
         if filename not in self.m_img_list:
             return
-        self.cur_img_idx = self.m_img_list.index(filename)
-        self.load_file(filename)
+        if not self._guard_image_navigation(filename):
+            return
+        self._load_indexed_image(filename)
 
 
     def pop_file_list_menu(self, point):

@@ -151,8 +151,7 @@ class DeleteImageNavigationTest(unittest.TestCase):
             self.annotation_dir,
             "02.xml",
         )
-        with open(neighbour_annotation, "w", encoding="utf-8"):
-            pass
+        write_pascal_voc(neighbour_annotation, "neighbour")
 
         self.window.delete_image()
 
