@@ -8,6 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt5.QtCore import QEvent, QPointF, QSize, Qt
 from PyQt5.QtGui import QColor, QImage, QMouseEvent
+from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication
 
 from labelimg.annotations.domain.model import AnnotationFormat
@@ -490,6 +491,37 @@ class CommandSurfacesTest(unittest.TestCase):
             self.window.file_review_state(image_path),
             "questioned",
         )
+
+    def test_review_shortcuts_set_state_like_review_buttons(self):
+        self.load_image()
+        self.window.show()
+        self.window.activateWindow()
+        self.window.canvas.setFocus()
+        self.app.processEvents()
+
+        QTest.keyClick(self.window.canvas, Qt.Key_Space)
+        self.assertTrue(self.window.canvas.verified)
+        self.assertFalse(self.window.canvas.questioned)
+
+        QTest.keyClick(self.window.canvas, Qt.Key_Space)
+        self.assertTrue(self.window.canvas.verified)
+        self.assertFalse(self.window.canvas.questioned)
+
+        QTest.keyClick(
+            self.window.canvas,
+            Qt.Key_Space,
+            Qt.ControlModifier,
+        )
+        self.assertFalse(self.window.canvas.verified)
+        self.assertTrue(self.window.canvas.questioned)
+
+        QTest.keyClick(
+            self.window.canvas,
+            Qt.Key_Space,
+            Qt.ControlModifier,
+        )
+        self.assertFalse(self.window.canvas.verified)
+        self.assertTrue(self.window.canvas.questioned)
 
 
 if __name__ == "__main__":
