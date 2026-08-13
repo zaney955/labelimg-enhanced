@@ -51,6 +51,28 @@ class FakeTrashAdapter:
         shutil.move(identity.token, destination)
 
 
+class FakeClipboard:
+    def __init__(self):
+        self._mime_data = None
+        self._text = ""
+
+    def setMimeData(self, mime_data):
+        self._mime_data = mime_data
+        self._text = ""
+
+    def mimeData(self):
+        return self._mime_data
+
+    def setText(self, text):
+        self._mime_data = None
+        self._text = text
+
+    def text(self):
+        if self._mime_data is not None:
+            return self._mime_data.text()
+        return self._text
+
+
 class FileListSelectionTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -79,11 +101,18 @@ class FileListSelectionTest(unittest.TestCase):
         os.makedirs(trash_dir)
         self.window.system_trash = FakeTrashAdapter(trash_dir)
         self.window.import_dir_images(self.image_dir)
+        self.clipboard = FakeClipboard()
+        self.clipboard_patch = patch(
+            "labelimg.files.ui.controller.QApplication.clipboard",
+            return_value=self.clipboard,
+        )
+        self.clipboard_patch.start()
         self.window.show()
         self.window.file_list_widget.setFocus()
         self.app.processEvents()
 
     def tearDown(self):
+        self.clipboard_patch.stop()
         self.window.deleteLater()
         self.app.processEvents()
         self.temporary.cleanup()
@@ -103,11 +132,10 @@ class FileListSelectionTest(unittest.TestCase):
     def selected_paths(self):
         return self.window.selected_file_paths()
 
-    @staticmethod
-    def clipboard_file_paths():
+    def clipboard_file_paths(self):
         return tuple(
             os.path.normcase(os.path.normpath(url.toLocalFile()))
-            for url in QApplication.clipboard().mimeData().urls()
+            for url in self.clipboard.mimeData().urls()
         )
 
     def render_file_item(self, state):
@@ -730,12 +758,12 @@ class FileListSelectionTest(unittest.TestCase):
     def test_copy_label_files_with_no_resources_preserves_clipboard(self):
         self.click_row(1)
         self.click_row(2, Qt.ControlModifier)
-        QApplication.clipboard().setText("existing clipboard")
+        self.clipboard.setText("existing clipboard")
 
         self.assertFalse(self.window.copy_selected_label_files())
 
         self.assertEqual(
-            QApplication.clipboard().text(),
+            self.clipboard.text(),
             "existing clipboard",
         )
         self.assertEqual(
@@ -799,7 +827,7 @@ class FileListSelectionTest(unittest.TestCase):
     def test_cancel_dirty_copy_preserves_clipboard(self):
         self.click_row(0)
         self.window.dirty = True
-        QApplication.clipboard().setText("existing clipboard")
+        self.clipboard.setText("existing clipboard")
 
         with patch.object(
             self.window,
@@ -812,13 +840,13 @@ class FileListSelectionTest(unittest.TestCase):
 
         self.assertTrue(self.window.dirty)
         self.assertEqual(
-            QApplication.clipboard().text(),
+            self.clipboard.text(),
             "existing clipboard",
         )
 
     def test_unavailable_selected_image_preserves_clipboard(self):
         self.click_row(3)
-        QApplication.clipboard().setText("existing clipboard")
+        self.clipboard.setText("existing clipboard")
         os.remove(self.paths[3])
 
         with patch(
@@ -828,7 +856,7 @@ class FileListSelectionTest(unittest.TestCase):
 
         warning.assert_called_once()
         self.assertEqual(
-            QApplication.clipboard().text(),
+            self.clipboard.text(),
             "existing clipboard",
         )
 
