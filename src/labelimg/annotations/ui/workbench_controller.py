@@ -1063,7 +1063,10 @@ class AnnotationActionsMixin:
                     update.document and update.document.questioned
                 )
                 self.review_control.set_state(state)
-        self.refresh_file_list_statuses()
+        if len(paths) == 1:
+            self.update_file_list_item_status(paths[0])
+        else:
+            self.refresh_file_list_statuses()
         self.refresh_candidate_labels()
         if result.recovery_records:
             self.file_operations.record_review(result.recovery_records)
