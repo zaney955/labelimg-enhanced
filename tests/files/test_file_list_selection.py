@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt5.QtCore import QItemSelectionModel, QRect, QTimer, Qt
+from PyQt5.QtCore import QEvent, QItemSelectionModel, QRect, QTimer, Qt
 from PyQt5.QtGui import QColor, QImage, QPainter
 from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import (
@@ -115,6 +115,7 @@ class FileListSelectionTest(unittest.TestCase):
     def tearDown(self):
         self.clipboard_patch.stop()
         self.window.deleteLater()
+        QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
         self.app.processEvents()
         self.temporary.cleanup()
 
