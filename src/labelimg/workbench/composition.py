@@ -1018,6 +1018,7 @@ class WorkbenchComposer:
         self.auto_save_timer.setSingleShot(True)
         self.auto_save_timer.setInterval(200)
         self.auto_save_timer.timeout.connect(self.save_dirty_annotations)
+        self._initialize_annotation_live_sync()
         # Sync single class mode from PR#106
         self.single_class_mode = QAction(get_str('singleClsMode'), self)
         self.single_class_mode.setIcon(new_icon('single-class'))

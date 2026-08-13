@@ -163,7 +163,7 @@ The first feedback-loop command should remain a single isolated test entry in th
 ## Excluded work
 
 - no persistent or cross-session index;
-- no filesystem watcher;
+- no whole-workspace filesystem watcher; only the current image's active annotation resource is watched;
 - no incomplete state-dependent filter results;
 - no row reordering while incremental annotation states arrive;
 - no full-image quality validation during directory opening;

@@ -5,7 +5,7 @@
 import os.path
 
 
-from PyQt5.QtCore import QPointF, QSignalBlocker, Qt
+from PyQt5.QtCore import QFileSystemWatcher, QPointF, QSignalBlocker, QTimer, Qt
 from PyQt5.QtGui import QColor, QCursor
 from PyQt5.QtWidgets import QApplication, QMenu, QMessageBox
 
@@ -32,6 +32,220 @@ from labelimg.workbench.support import document_format_name, read_image as read
 
 
 class AnnotationActionsMixin:
+    def _initialize_annotation_live_sync(self):
+        self._annotation_file_watcher = QFileSystemWatcher(self)
+        self._annotation_file_watcher.fileChanged.connect(
+            self._annotation_resource_changed
+        )
+        self._annotation_file_watcher.directoryChanged.connect(
+            self._annotation_resource_changed
+        )
+        self._annotation_live_sync_timer = QTimer(self)
+        self._annotation_live_sync_timer.setSingleShot(True)
+        self._annotation_live_sync_timer.setInterval(400)
+        self._annotation_live_sync_timer.timeout.connect(
+            self._process_external_annotation_change
+        )
+        self._annotation_watch_image = None
+        self._annotation_watch_target = None
+        self._annotation_known_choices = ()
+
+    def _watch_current_annotation_document(self):
+        watcher = getattr(self, '_annotation_file_watcher', None)
+        if watcher is None:
+            return
+        watched = watcher.files() + watcher.directories()
+        if watched:
+            watcher.removePaths(watched)
+        self._annotation_watch_image = (
+            os.path.abspath(self.file_path) if self.file_path else None
+        )
+        self._annotation_watch_target = None
+        self._annotation_known_choices = ()
+        if not self.file_path:
+            return
+        target = os.path.abspath(self._current_annotation_target())
+        self._annotation_watch_target = target
+        try:
+            choices = self.annotation_workspace.refresh_document_choices(
+                self.file_path
+            )
+        except AnnotationDocumentError:
+            choices = self.annotation_workspace.document_choices(
+                self.file_path
+            )
+        self._annotation_known_choices = tuple(
+            sorted(os.path.abspath(choice.annotation_path) for choice in choices)
+        )
+        directory = os.path.dirname(target)
+        paths = []
+        if os.path.isdir(directory):
+            paths.append(directory)
+        if os.path.isfile(target):
+            paths.append(target)
+        if paths:
+            watcher.addPaths(paths)
+
+    def _annotation_resource_changed(self, _path):
+        if (
+            self.file_path
+            and self._annotation_watch_image == os.path.abspath(self.file_path)
+        ):
+            self._annotation_live_sync_timer.start()
+
+    @staticmethod
+    def _annotation_content_signature(snapshot):
+        return (
+            tuple(
+                (
+                    box.label,
+                    box.points,
+                    box.line_rgba,
+                    box.fill_rgba,
+                    box.difficult,
+                )
+                for box in snapshot.boxes
+            ),
+            snapshot.verified,
+            snapshot.questioned,
+        )
+
+    @staticmethod
+    def _annotation_document_content_signature(document):
+        def color(value, label):
+            return (
+                tuple(value)
+                if value is not None
+                else generate_color_by_text(label).getRgb()
+            )
+
+        return (
+            tuple(
+                (
+                    box.label,
+                    tuple(tuple(point) for point in box.points),
+                    color(box.line_color, box.label),
+                    color(box.fill_color, box.label),
+                    box.difficult,
+                )
+                for box in document.boxes
+            ),
+            document.verified,
+            document.questioned,
+        )
+
+    def _process_external_annotation_change(self):
+        if (
+            not self.file_path
+            or self._annotation_watch_image != os.path.abspath(self.file_path)
+        ):
+            return
+        if self.annotation_editing.pending or self.annotation_editing.edit_open:
+            self._annotation_live_sync_timer.start()
+            return
+        image_key = os.path.abspath(self.file_path)
+        view = self.annotation_editing.view
+        if view is None:
+            return
+        try:
+            choices = self.annotation_workspace.refresh_document_choices(
+                image_key
+            )
+        except AnnotationDocumentError as error:
+            self.status(
+                tr(
+                    'external.invalid',
+                    path=self._annotation_watch_target or '',
+                    error=error,
+                ),
+                0,
+            )
+            self._watch_current_annotation_document()
+            return
+        choice_paths = tuple(
+            sorted(os.path.abspath(choice.annotation_path) for choice in choices)
+        )
+        if (
+            choice_paths != self._annotation_known_choices
+            and len(choice_paths) > 1
+        ):
+            self._annotation_known_choices = choice_paths
+            if not self._ensure_active_annotation_choice(
+                image_key, force=True
+            ):
+                self._watch_current_annotation_document()
+                return
+        target = os.path.abspath(self._current_annotation_target())
+        baseline = view.saved_baseline
+        mismatches = (
+            self.annotation_persistence.baseline_mismatches(baseline)
+            if baseline is not None
+            else ()
+        )
+        if view.dirty and mismatches:
+            error = AnnotationStorageConflict(mismatches)
+            self.annotation_persistence.register_conflict(error, image_key)
+            self._handle_annotation_storage_conflict(error)
+            self._watch_current_annotation_document()
+            return
+        if not mismatches and target == view.current_target:
+            self._watch_current_annotation_document()
+            return
+        try:
+            if os.path.isfile(target):
+                loaded = self.annotation_workspace.load(
+                    target, image_key, self.image_data
+                )
+                document = loaded.document
+                self.set_format(document_format_name(loaded.annotation_format))
+            else:
+                document = AnnotationDocument(
+                    image_path=image_key,
+                    image_data=self.image_data,
+                )
+        except AnnotationDocumentError as error:
+            self.status(
+                tr('external.invalid', path=target, error=error),
+                0,
+            )
+            self._watch_current_annotation_document()
+            return
+        if (
+            target == view.current_target
+            and self._annotation_document_content_signature(document)
+            == self._annotation_content_signature(view.snapshot)
+        ):
+            self.annotation_workspace.refresh_resource(target)
+            self.annotation_editing.update_baseline_fingerprint(
+                image_key, self._annotation_baseline(target)[1]
+            )
+            self.annotation_workspace.record_document(
+                image_key,
+                target,
+                (box.label for box in document.boxes),
+            )
+            self.refresh_candidate_labels()
+            self._watch_current_annotation_document()
+            return
+        self.clear_current_labels()
+        self.load_annotation_document(document)
+        snapshot = self.annotation_scene.capture(image_key)
+        self.annotation_editing.rebase_image(
+            image_key,
+            snapshot,
+            baseline=self._annotation_baseline(target),
+        )
+        self.annotation_workspace.record_document(
+            image_key,
+            target,
+            (box.label for box in document.boxes),
+        )
+        self._sync_annotation_history_ui()
+        self.refresh_candidate_labels()
+        self.update_file_list_item_status(image_key)
+        self.status(tr('external.loaded', path=target), 10000)
+        self._watch_current_annotation_document()
+
     def set_format(self, save_format):
         if save_format == AnnotationFormat.PASCAL_VOC.display_name:
             self.actions.save_format.setText(AnnotationFormat.PASCAL_VOC.display_name)
@@ -78,6 +292,7 @@ class AnnotationActionsMixin:
                 self._current_annotation_target(),
             )
             self._sync_annotation_history_ui()
+            self._watch_current_annotation_document()
         else:
             self.set_dirty()
 
@@ -122,14 +337,47 @@ class AnnotationActionsMixin:
             )
         else:
             self.annotation_editing.select_image(image_key)
-            if self.annotation_scene.capture(image_key) != view.snapshot:
-                self.annotation_scene.project(
-                    self._history_projection_request(
-                        view.snapshot,
-                        direction='activate',
-                        preserve_selection=True,
+            loaded_snapshot = self.annotation_scene.capture(image_key)
+            if view.dirty:
+                if loaded_snapshot != view.snapshot:
+                    self.annotation_scene.project(
+                        self._history_projection_request(
+                            view.snapshot,
+                            direction='activate',
+                            preserve_selection=True,
+                        )
                     )
+            elif (
+                self._annotation_content_signature(loaded_snapshot)
+                != self._annotation_content_signature(view.snapshot)
+            ):
+                target = self._current_annotation_target()
+                view = self.annotation_editing.rebase_image(
+                    image_key,
+                    loaded_snapshot,
+                    baseline=self._annotation_baseline(target),
                 )
+            else:
+                target = self._current_annotation_target()
+                baseline = view.saved_baseline
+                if (
+                    baseline is not None
+                    and not self.annotation_persistence.baseline_is_current(
+                        baseline
+                    )
+                ):
+                    self.annotation_editing.update_baseline_fingerprint(
+                        image_key, self._annotation_baseline(target)[1]
+                    )
+                if loaded_snapshot != view.snapshot:
+                    self.annotation_scene.project(
+                        self._history_projection_request(
+                            view.snapshot,
+                            direction='activate',
+                            preserve_selection=True,
+                        )
+                    )
+        self._watch_current_annotation_document()
         self._sync_annotation_history_ui()
 
 
@@ -436,8 +684,7 @@ class AnnotationActionsMixin:
         if (
             self.dirty
             and self.auto_saving.isChecked()
-            and self.default_save_dir
-            and os.path.isdir(ustr(self.default_save_dir))
+            and self.file_path
             and not self.annotation_editing.pending
             and not self.annotation_editing.edit_open
         ):
@@ -458,6 +705,7 @@ class AnnotationActionsMixin:
         )
         self.annotation_editing.select_image(self.file_path)
         self._sync_annotation_history_ui()
+        self._watch_current_annotation_document()
 
 
     def _annotation_baseline(self, annotation_path):
@@ -553,8 +801,7 @@ class AnnotationActionsMixin:
             return
         self.dirty = True
         self.actions.save.setEnabled(True)
-        if self.auto_saving.isChecked() and self.default_save_dir\
-                and os.path.isdir(ustr(self.default_save_dir)):
+        if self.auto_saving.isChecked() and self.file_path:
             self.auto_save_timer.start()
 
 
@@ -570,9 +817,7 @@ class AnnotationActionsMixin:
             or self.annotation_editing.edit_open
         ):
             return
-        if self.dirty and self.auto_saving.isChecked()\
-                and self.default_save_dir\
-                and os.path.isdir(ustr(self.default_save_dir)):
+        if self.dirty and self.auto_saving.isChecked() and self.file_path:
             self._autosave_request = True
             try:
                 self.save_file()

@@ -455,7 +455,7 @@ The lock acquisition order is shared with normal save coordination, preventing d
 
 ## External conflicts
 
-Fingerprints are checked on explicit reload and immediately before every save commit. No continuous filesystem watcher is required.
+Fingerprints are checked on explicit reload and immediately before every save commit. While an image remains on the Canvas, LabelImg also watches only that image's active annotation resource and its containing directory. Stable valid external changes rebase a clean document immediately; dirty documents enter the resource-conflict flow. Inactive images are not watched and validate their latest stored document when opened.
 
 Conflict state belongs to the resource:
 
