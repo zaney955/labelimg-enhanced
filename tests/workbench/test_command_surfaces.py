@@ -470,6 +470,27 @@ class CommandSurfacesTest(unittest.TestCase):
         self.assertEqual(self.window.zoom_widget.value(), 135)
         self.assertEqual(self.window.zoom_widget.value_button.text(), "135%")
 
+    def test_current_review_button_does_not_rebuild_file_list(self):
+        image_path = self.load_image()
+        with patch.object(
+            self.window,
+            "populate_file_list",
+            wraps=self.window.populate_file_list,
+        ) as populate_file_list:
+            for state in ("verified", "questioned"):
+                self.window.review_control.buttons[state].click()
+                self.assertEqual(
+                    populate_file_list.call_count,
+                    0,
+                    "review state: %s" % state,
+                )
+
+        self.assertEqual(self.window.file_path, image_path)
+        self.assertEqual(
+            self.window.file_review_state(image_path),
+            "questioned",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
