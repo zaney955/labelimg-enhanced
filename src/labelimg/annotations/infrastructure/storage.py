@@ -9,6 +9,9 @@ import threading
 import uuid
 
 from labelimg.annotations.infrastructure.document import save_document
+from labelimg.annotations.infrastructure.formats.yolo import (
+    decode_yolo_classes,
+)
 from labelimg.platform.recovery import MISSING_FINGERPRINT, ResourceFingerprint
 
 
@@ -273,13 +276,9 @@ class AtomicAnnotationWriter:
                     "classes.txt",
                 )
                 if classes_target in base_resources:
-                    existing_classes = [
-                        line.strip()
-                        for line in base_resources[
-                            classes_target
-                        ].decode("utf8").splitlines()
-                        if line.strip()
-                    ]
+                    existing_classes = decode_yolo_classes(
+                        base_resources[classes_target]
+                    )
                 else:
                     existing_classes = _read_classes(classes_target)
                 stable_classes = _stable_labels(
@@ -448,8 +447,8 @@ def _atomic_commit_staged(staged_pairs, replace=os.replace):
 def _read_classes(path):
     if not os.path.isfile(path):
         return []
-    with open(path, "r", encoding="utf8") as class_file:
-        return [line.strip() for line in class_file if line.strip()]
+    with open(path, "rb") as class_file:
+        return decode_yolo_classes(class_file.read())
 
 
 def _stable_labels(labels):

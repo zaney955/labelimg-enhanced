@@ -73,6 +73,60 @@ class AnnotationWorkspaceTest(unittest.TestCase):
         self.assertTrue(status.verified)
         self.assertEqual(status.labels, frozenset({"cat"}))
 
+    @patch("locale.getpreferredencoding", return_value="cp936")
+    def test_yolo_save_migrates_legacy_locale_classes_to_utf8(
+        self,
+        _preferred_encoding,
+    ):
+        label = "中文类别"
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = AnnotationWorkspace(save_dir=directory)
+            annotation_path = workspace.entry(self.image_path).path_for(
+                AnnotationFormat.YOLO
+            )
+            classes_path = os.path.join(directory, "classes.txt")
+            with open(classes_path, "wb") as classes_file:
+                classes_file.write((label + "\n").encode("cp936"))
+            with open(annotation_path, "w", encoding="utf8") as output:
+                output.write("0 0.5 0.5 0.2 0.2\n")
+
+            legacy_document = AnnotationDocument.load(
+                annotation_path,
+                self.image_path,
+                self.image,
+            )
+            legacy_status = AnnotationDocument.inspect(annotation_path)
+
+            saved = workspace.save(
+                self.document(label),
+                AnnotationFormat.YOLO,
+            )
+
+            with open(classes_path, "rb") as classes_file:
+                saved_classes = classes_file.read()
+            loaded = AnnotationDocument.load(
+                saved.annotation_path,
+                self.image_path,
+                self.image,
+            )
+
+        self.assertEqual(legacy_document.boxes[0].label, label)
+        self.assertEqual(legacy_status.labels, frozenset({label}))
+        self.assertEqual(saved_classes.decode("utf8").splitlines(), [label])
+        self.assertEqual(loaded.boxes[0].label, label)
+
+    def test_failed_yolo_class_encoding_removes_staging_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = AnnotationWorkspace(save_dir=directory)
+
+            with self.assertRaises(AnnotationDocumentError):
+                workspace.save(
+                    self.document("invalid-\ud800"),
+                    AnnotationFormat.YOLO,
+                )
+
+            self.assertEqual(os.listdir(directory), [])
+
     def test_scan_record_and_delete_keep_candidate_labels_consistent(self):
         with tempfile.TemporaryDirectory() as directory:
             workspace = AnnotationWorkspace(save_dir=directory)

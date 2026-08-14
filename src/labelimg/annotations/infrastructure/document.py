@@ -20,7 +20,12 @@ from labelimg.annotations.domain.model import (
     AnnotationFormat,
     AnnotationStatus,
 )
-from labelimg.annotations.infrastructure.formats.yolo import TXT_EXT, YOLOWriter, YoloReader
+from labelimg.annotations.infrastructure.formats.yolo import (
+    TXT_EXT,
+    YOLOWriter,
+    YoloReader,
+    decode_yolo_classes,
+)
 
 
 
@@ -463,8 +468,8 @@ def _labels_in_order(labels):
 def _inspect_yolo(annotation_path):
     directory = os.path.dirname(os.path.abspath(annotation_path))
     class_path = os.path.join(directory, "classes.txt")
-    with open(class_path, "r", encoding="utf8") as class_file:
-        classes = [line.strip() for line in class_file if line.strip()]
+    with open(class_path, "rb") as class_file:
+        classes = decode_yolo_classes(class_file.read())
     used_indexes = set()
     has_annotations = False
     verified = False
@@ -522,11 +527,7 @@ def _inspect_yolo(annotation_path):
 
 
 def _inspect_yolo_content(annotation_content, classes_content):
-    classes = [
-        line.strip()
-        for line in classes_content.decode("utf8").splitlines()
-        if line.strip()
-    ]
+    classes = decode_yolo_classes(classes_content)
     used_indexes = set()
     has_annotations = False
     verified = False
