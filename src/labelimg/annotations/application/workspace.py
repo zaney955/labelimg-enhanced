@@ -19,6 +19,9 @@ from labelimg.annotations.infrastructure.formats.create_ml_collection import (
     is_absolute_image_reference,
     normalize_image_reference,
 )
+from labelimg.annotations.infrastructure.formats.yolo import (
+    decode_yolo_classes,
+)
 from labelimg.annotations.infrastructure.storage import (
     AnnotationResource,
     AnnotationSaveRequest,
@@ -719,8 +722,7 @@ class AnnotationWorkspace:
             if content is not None:
                 try:
                     self.reserve_yolo_labels(
-                        line.strip()
-                        for line in content.decode("utf8").splitlines()
+                        decode_yolo_classes(content)
                     )
                 except UnicodeError:
                     pass

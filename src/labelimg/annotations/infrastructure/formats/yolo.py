@@ -1,13 +1,41 @@
 #!/usr/bin/env python
 # -*- coding: utf8 -*-
-import sys
+import codecs
+import locale
 import os
+import sys
 from xml.etree import ElementTree
 from xml.etree.ElementTree import Element, SubElement
 from lxml import etree
 
 TXT_EXT = '.txt'
 ENCODE_METHOD = "utf-8"
+
+
+def decode_yolo_classes(content):
+    """Decode UTF-8 classes, including files written by legacy locale I/O."""
+    if isinstance(content, str):
+        text = content
+    else:
+        try:
+            text = content.decode("utf-8-sig")
+        except UnicodeDecodeError as utf8_error:
+            legacy_encoding = locale.getpreferredencoding(False)
+            try:
+                is_utf8 = (
+                    codecs.lookup(legacy_encoding).name
+                    == codecs.lookup(ENCODE_METHOD).name
+                )
+            except LookupError:
+                raise utf8_error
+            if is_utf8:
+                raise utf8_error
+            try:
+                text = content.decode(legacy_encoding)
+            except (LookupError, UnicodeDecodeError):
+                raise utf8_error
+    return [line.strip() for line in text.splitlines() if line.strip()]
+
 
 class YOLOWriter:
 
@@ -54,40 +82,48 @@ class YOLOWriter:
         if class_list is None:
             class_list = []
 
-        out_file = None  # Update yolo .txt
-        out_class_file = None   # Update class list .txt
-
         if target_file is None:
-            out_file = open(
-            self.filename + TXT_EXT, 'w', encoding=ENCODE_METHOD)
-            classes_file = os.path.join(os.path.dirname(os.path.abspath(self.filename)), "classes.txt")
-            out_class_file = open(classes_file, 'w')
-
+            target_file = self.filename + TXT_EXT
+            classes_file = os.path.join(
+                os.path.dirname(os.path.abspath(self.filename)),
+                "classes.txt",
+            )
         else:
-            out_file = open(target_file, 'w', encoding=ENCODE_METHOD)
-            classes_file = os.path.join(os.path.dirname(os.path.abspath(target_file)), "classes.txt")
-            out_class_file = open(classes_file, 'w')
+            classes_file = os.path.join(
+                os.path.dirname(os.path.abspath(target_file)),
+                "classes.txt",
+            )
 
+        with open(
+            target_file,
+            'w',
+            encoding=ENCODE_METHOD,
+        ) as out_file, open(
+            classes_file,
+            'w',
+            encoding=ENCODE_METHOD,
+        ) as out_class_file:
+            review_state = (
+                "questioned" if self.questioned
+                else "verified" if self.verified
+                else "unreviewed"
+            )
+            out_file.write("# labelimg-review: %s\n" % review_state)
 
-        review_state = (
-            "questioned" if self.questioned
-            else "verified" if self.verified
-            else "unreviewed"
-        )
-        out_file.write("# labelimg-review: %s\n" % review_state)
+            for box in self.box_list:
+                class_index, x_center, y_center, w, h = (
+                    self.bnd_box_to_yolo_line(box, class_list)
+                )
+                # print (classIndex, x_center, y_center, w, h)
+                out_file.write(
+                    "%d %.6f %.6f %.6f %.6f\n"
+                    % (class_index, x_center, y_center, w, h)
+                )
 
-        for box in self.box_list:
-            class_index, x_center, y_center, w, h = self.bnd_box_to_yolo_line(box, class_list)
-            # print (classIndex, x_center, y_center, w, h)
-            out_file.write("%d %.6f %.6f %.6f %.6f\n" % (class_index, x_center, y_center, w, h))
-
-        # print (classList)
-        # print (out_class_file)
-        for c in class_list:
-            out_class_file.write(c+'\n')
-
-        out_class_file.close()
-        out_file.close()
+            # print (classList)
+            # print (out_class_file)
+            for c in class_list:
+                out_class_file.write(c+'\n')
 
 
 
@@ -107,8 +143,8 @@ class YoloReader:
 
         # print (file_path, self.class_list_path)
 
-        with open(self.class_list_path, 'r', encoding=ENCODE_METHOD) as classes_file:
-            self.classes = classes_file.read().strip('\n').split('\n')
+        with open(self.class_list_path, 'rb') as classes_file:
+            self.classes = decode_yolo_classes(classes_file.read())
 
         # print (self.classes)
 

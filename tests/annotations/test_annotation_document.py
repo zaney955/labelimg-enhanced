@@ -77,6 +77,40 @@ class AnnotationDocumentTest(unittest.TestCase):
         self.assertEqual(loaded.boxes[0].points[0], (10, 20))
         self.assertTrue(loaded.verified)
 
+    def test_yolo_round_trip_preserves_unicode_class_names(self):
+        label = "道路🚧"
+        document = AnnotationDocument(
+            image_path=self.image_path,
+            image_data=self.image,
+            boxes=(
+                AnnotationBox(
+                    label=label,
+                    points=((10, 20), (110, 20), (110, 120), (10, 120)),
+                ),
+            ),
+            class_names=(label,),
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            target = document.save(
+                os.path.join(directory, "sample"),
+                AnnotationFormat.YOLO,
+            )
+            with open(
+                os.path.join(directory, "classes.txt"),
+                "r",
+                encoding="utf8",
+            ) as classes_file:
+                saved_classes = classes_file.read().splitlines()
+            loaded = AnnotationDocument.load(
+                target,
+                self.image_path,
+                self.image,
+            )
+
+        self.assertEqual(saved_classes, [label])
+        self.assertEqual(loaded.boxes[0].label, label)
+
     def test_yolo_inspect_ignores_compact_comment_lines(self):
         with tempfile.TemporaryDirectory() as directory:
             target = os.path.join(directory, "sample.txt")
