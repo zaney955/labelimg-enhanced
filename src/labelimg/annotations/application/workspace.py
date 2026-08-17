@@ -305,6 +305,8 @@ class AnnotationWorkspace:
                     fields = line.split()
                     if not fields:
                         continue
+                    if line.lstrip().startswith("#"):
+                        continue
                     if len(fields) != 5:
                         raise AnnotationDocumentError(
                             "Invalid YOLO record on line %d" % line_number
