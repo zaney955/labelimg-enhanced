@@ -115,6 +115,23 @@ class AnnotationWorkspaceTest(unittest.TestCase):
         self.assertEqual(saved_classes.decode("utf8").splitlines(), [label])
         self.assertEqual(loaded.boxes[0].label, label)
 
+    def test_workspace_load_accepts_yolo_review_metadata_written_by_app(self):
+        with tempfile.TemporaryDirectory() as directory:
+            saving_workspace = AnnotationWorkspace(save_dir=directory)
+            saved = saving_workspace.save(
+                self.document("cat", verified=True),
+                AnnotationFormat.YOLO,
+            )
+
+            loaded = AnnotationWorkspace(save_dir=directory).load(
+                saved.annotation_path,
+                self.image_path,
+                self.image,
+            )
+
+        self.assertTrue(loaded.document.verified)
+        self.assertEqual(loaded.document.boxes[0].label, "cat")
+
     def test_failed_yolo_class_encoding_removes_staging_directory(self):
         with tempfile.TemporaryDirectory() as directory:
             workspace = AnnotationWorkspace(save_dir=directory)
