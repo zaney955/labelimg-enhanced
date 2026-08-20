@@ -8,8 +8,21 @@ import subprocess
 
 from functools import partial
 
-from PyQt5.QtCore import QFileInfo, QItemSelectionModel, QModelIndex, QMimeData, QSignalBlocker, Qt, QUrl
-from PyQt5.QtGui import QImageReader
+from PyQt5.QtCore import (
+    QObject,
+    QEventLoop,
+    QFileInfo,
+    QItemSelectionModel,
+    QModelIndex,
+    QMimeData,
+    QSignalBlocker,
+    QThread,
+    Qt,
+    QUrl,
+    pyqtSignal,
+    pyqtSlot,
+)
+from PyQt5.QtGui import QImage, QImageReader
 from PyQt5.QtWidgets import QAbstractItemView, QAction, QApplication, QDialog, QInputDialog, QLineEdit, QMenu, QMessageBox, QProgressDialog
 
 import labelimg.ui.generated_resources  # noqa: F401 - registers Qt resources
@@ -21,6 +34,29 @@ from labelimg.platform.text import native_text as ustr
 from labelimg.files.ui.list_widget import BatchRenameDialog, CURRENT_IMAGE_ROLE, FILE_ANNOTATION_STATE_ROLE, FILE_PERSISTENCE_FLAGS_ROLE, FILE_QUALITY_FINDINGS_ROLE, FILE_REVIEW_STATE_ROLE, compare_relative_image_paths, validate_base_name, validate_rename_mapping
 from labelimg.files.application.operations import FileOperationError
 from labelimg.files.application.transaction import FileOperationBlocked
+
+
+class _ImageDecodeWorker(QObject):
+    finished = pyqtSignal(int, str, object)
+
+    def __init__(self, generation, path):
+        super().__init__()
+        self.generation = generation
+        self.path = path
+
+    @pyqtSlot()
+    def run(self):
+        try:
+            reader = QImageReader(self.path)
+            reader.setAutoTransform(True)
+            image = reader.read()
+        except Exception:
+            image = QImage()
+        self.finished.emit(
+            self.generation,
+            self.path,
+            image,
+        )
 
 
 class FileActionsMixin:
@@ -754,7 +790,7 @@ class FileActionsMixin:
     def run_file_operation(self, paths, title, operation):
         progress = None
         position = [0]
-        if len(paths) >= 20:
+        if len(paths) > 1:
             progress = QProgressDialog(
                 title,
                 tr('common.cancel'),
@@ -766,11 +802,14 @@ class FileActionsMixin:
             progress.setMinimumDuration(400)
 
         def should_continue():
-            if progress is None:
-                return True
-            progress.setValue(position[0])
-            QApplication.processEvents()
-            if progress.wasCanceled():
+            if progress is not None:
+                progress.setValue(position[0])
+                QApplication.processEvents()
+            else:
+                QApplication.processEvents(
+                    QEventLoop.ExcludeUserInputEvents
+                )
+            if progress is not None and progress.wasCanceled():
                 return False
             position[0] += 1
             return True
@@ -815,10 +854,12 @@ class FileActionsMixin:
             self.update_current_file_marker()
         elif next_path is not None:
             self.cur_img_idx = self.m_img_list.index(next_path)
-            self.load_file(next_path)
+            self.load_file_after_deletion(next_path)
         elif self.m_img_list:
             self.cur_img_idx = min(old_index, len(self.m_img_list) - 1)
-            self.load_file(self.m_img_list[self.cur_img_idx])
+            self.load_file_after_deletion(
+                self.m_img_list[self.cur_img_idx]
+            )
         else:
             self.cur_img_idx = 0
             self.reset_state()
@@ -833,6 +874,70 @@ class FileActionsMixin:
             if item.data(Qt.UserRole) in failed:
                 item.setSelected(True)
         self.update_file_selection_count()
+
+
+    def _ensure_deferred_image_loading(self):
+        if hasattr(self, '_deferred_image_load_generation'):
+            return
+        self._deferred_image_load_generation = 0
+        self._deferred_image_load_jobs = {}
+
+
+    def cancel_deferred_image_load(self):
+        self._ensure_deferred_image_loading()
+        self._deferred_image_load_generation += 1
+        if hasattr(self, 'file_list_widget'):
+            self.file_list_widget.setEnabled(True)
+
+
+    def load_file_after_deletion(self, path):
+        """Release old pixels and decode the replacement off the UI thread."""
+        self._ensure_deferred_image_loading()
+        self._deferred_image_load_generation += 1
+        generation = self._deferred_image_load_generation
+
+        self.reset_state()
+        self.set_clean()
+        self.toggle_actions(False)
+        self.canvas.setEnabled(False)
+        self.actions.saveAs.setEnabled(False)
+        self.file_list_widget.setEnabled(False)
+        self.update_current_file_marker()
+        self.update_file_navigation_actions()
+        self.status(tr('status.loading', name=os.path.basename(path)))
+
+        thread = QThread(self)
+        worker = _ImageDecodeWorker(generation, path)
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.finished.connect(
+            thread.quit,
+            Qt.DirectConnection,
+        )
+        worker.finished.connect(self._deferred_image_decoded)
+        thread.finished.connect(worker.deleteLater)
+        thread.finished.connect(
+            partial(self._deferred_image_thread_finished, generation)
+        )
+        thread.finished.connect(thread.deleteLater)
+        self._deferred_image_load_jobs[generation] = (thread, worker)
+        thread.start()
+
+
+    def _deferred_image_decoded(self, generation, path, image):
+        job = self._deferred_image_load_jobs.get(generation)
+        if job is not None:
+            job[0].wait()
+        if generation != self._deferred_image_load_generation:
+            return
+        try:
+            self.load_file(path, prepared_image_data=image)
+        finally:
+            self.file_list_widget.setEnabled(True)
+
+
+    def _deferred_image_thread_finished(self, generation):
+        self._deferred_image_load_jobs.pop(generation, None)
 
 
     def rescan_annotation_workspace(self):

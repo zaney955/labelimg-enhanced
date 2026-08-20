@@ -12,6 +12,7 @@ from labelimg.platform.trash import (
     _delete_to_recycle_bin_raw,
     _interfaces,
     delete_to_recycle_bin,
+    probe_recycle_support,
     recycle_item_exists,
 )
 
@@ -102,6 +103,28 @@ class WindowsTrashSafetyTest(unittest.TestCase):
             self.assertTrue(os.path.isfile(target))
             with open(target, "rb") as source:
                 self.assertEqual(source.read(), b"image")
+
+    def test_recycle_probe_size_is_bounded_for_large_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = os.path.join(directory, "large-image.png")
+            with open(target, "wb") as output:
+                output.truncate(128 * 1024 * 1024)
+            probe_sizes = []
+
+            def recycle_probe(path):
+                probe_sizes.append(os.path.getsize(path))
+                return mock.sentinel.identity
+
+            with mock.patch(
+                "labelimg.platform.trash._delete_to_recycle_bin_raw",
+                side_effect=recycle_probe,
+            ), mock.patch(
+                "labelimg.platform.trash.restore_recycle_item",
+            ):
+                probe_recycle_support(target)
+
+        self.assertEqual(len(probe_sizes), 1)
+        self.assertLessEqual(probe_sizes[0], 4096)
 
     def test_stale_shell_item_is_not_reported_as_live(self):
         token = mock.Mock()

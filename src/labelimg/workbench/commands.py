@@ -217,6 +217,7 @@ class FormatSelector(QToolButton):
         self.setFixedWidth(132)
         self.setFixedHeight(BUTTON_SIZE.height())
         self.menu = QMenu(self)
+        self.menu.setIcon(new_icon("file"))
         self.group = QActionGroup(self.menu)
         self.group.setExclusive(True)
         self.actions = {}
@@ -236,6 +237,7 @@ class FormatSelector(QToolButton):
 
     def retranslate_ui(self, _language=None):
         tip = tr("format.selectorTip")
+        self.menu.setTitle(tr("format.selector"))
         self.setToolTip(tip)
         self.setAccessibleName(tr("format.selector"))
         self.setAccessibleDescription(tip)

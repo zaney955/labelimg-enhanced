@@ -10,7 +10,7 @@ from PyQt5.QtGui import QColor, QCursor
 from PyQt5.QtWidgets import QApplication, QMenu, QMessageBox
 
 import labelimg.ui.generated_resources  # noqa: F401 - registers Qt resources
-from labelimg.ui.actions import new_icon, set_action_copy
+from labelimg.ui.actions import set_action_copy
 from labelimg.annotations.ui.style import generate_color_by_text
 from labelimg.canvas import Shape
 from labelimg.localization.runtime import localize_message_box_buttons, question as localized_question, tr, translate_history_description
@@ -248,18 +248,12 @@ class AnnotationActionsMixin:
 
     def set_format(self, save_format):
         if save_format == AnnotationFormat.PASCAL_VOC.display_name:
-            self.actions.save_format.setText(AnnotationFormat.PASCAL_VOC.display_name)
-            self.actions.save_format.setIcon(new_icon("format_voc"))
             self.annotation_format = AnnotationFormat.PASCAL_VOC
 
         elif save_format == AnnotationFormat.YOLO.display_name:
-            self.actions.save_format.setText(AnnotationFormat.YOLO.display_name)
-            self.actions.save_format.setIcon(new_icon("format_yolo"))
             self.annotation_format = AnnotationFormat.YOLO
 
         elif save_format == AnnotationFormat.CREATE_ML.display_name:
-            self.actions.save_format.setText(AnnotationFormat.CREATE_ML.display_name)
-            self.actions.save_format.setIcon(new_icon("format_createml"))
             self.annotation_format = AnnotationFormat.CREATE_ML
         if hasattr(self, 'format_selector'):
             self.format_selector.set_format(self.annotation_format)

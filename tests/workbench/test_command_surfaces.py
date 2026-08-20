@@ -387,6 +387,29 @@ class CommandSurfacesTest(unittest.TestCase):
         self.assertTrue(edit_actions[3].isSeparator())
         self.assertTrue(edit_actions[10].isSeparator())
 
+    def test_file_menu_presents_annotation_format_as_a_selector(self):
+        format_entry = self.window.menus.file.actions()[9]
+
+        self.assertEqual(format_entry.text(), "Annotation format")
+        self.assertIs(format_entry.menu(), self.window.format_selector.menu)
+        self.assertEqual(
+            [action.text() for action in format_entry.menu().actions()],
+            ["Pascal VOC", "YOLO", "CreateML"],
+        )
+        self.assertTrue(all(
+            action.isCheckable()
+            for action in format_entry.menu().actions()
+        ))
+        self.assertTrue(
+            self.window.format_selector.actions[
+                AnnotationFormat.PASCAL_VOC
+            ].isChecked()
+        )
+
+        self.window.change_language(SIMPLIFIED_CHINESE)
+        self.assertEqual(format_entry.text(), "标注格式")
+        self.assertIs(format_entry.menu(), self.window.format_selector.menu)
+
     def test_view_and_help_menus_use_clear_bounded_groups(self):
         view_actions = self.window.menus.view.actions()
         self.assertEqual(

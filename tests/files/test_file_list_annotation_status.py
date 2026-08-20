@@ -421,7 +421,7 @@ class FileListAnnotationStatusTest(unittest.TestCase):
 
     def test_batch_review_preserves_the_active_yolo_format(self):
         self.window.set_annotation_format(AnnotationFormat.YOLO)
-        self.assertEqual(self.window.actions.save_format.text(), FORMAT_YOLO)
+        self.assertEqual(self.window.format_selector.text(), FORMAT_YOLO)
         self.item(0).setSelected(True)
 
         self.window.set_selected_review_state("questioned")
