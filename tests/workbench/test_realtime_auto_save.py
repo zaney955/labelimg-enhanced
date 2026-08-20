@@ -1,17 +1,19 @@
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt5.QtCore import QPointF
 from PyQt5.QtGui import QColor, QImage
 from PyQt5.QtTest import QTest
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtWidgets import QApplication, QMessageBox
 
 from labelimg.workbench.bootstrap import WorkbenchLaunchOptions, create_workbench
 from labelimg.annotations.infrastructure.formats.pascal_voc import PascalVocReader
 from labelimg.canvas.shape import Shape
+from labelimg.files import FileListProjection
 
 
 class RealtimeAutoSaveTest(unittest.TestCase):
@@ -179,6 +181,54 @@ class RealtimeAutoSaveTest(unittest.TestCase):
         self.window.canvas.cancel_annotation_gesture()
         QTest.qWait(300)
         self.assertTrue(os.path.exists(self.annotation_path))
+
+    def test_immediate_next_image_flushes_queued_autosave_without_prompt(self):
+        next_image_path = os.path.join(self.image_dir, "next.png")
+        image = QImage(100, 100, QImage.Format_RGB32)
+        image.fill(QColor("white"))
+        self.assertTrue(image.save(next_image_path))
+        images = (self.image_path, next_image_path)
+        self.window.m_img_list = list(images)
+        self.window.img_count = len(images)
+        self.window._file_list_projection = FileListProjection(
+            self.image_dir,
+            self.window.file_list_controls.state.query,
+            (),
+            images,
+            images,
+        )
+
+        shape = Shape()
+        for point in (
+            QPointF(10, 10),
+            QPointF(40, 10),
+            QPointF(40, 40),
+            QPointF(10, 40),
+        ):
+            shape.add_point(point)
+        shape.close()
+        self.window._annotation_drawing_state_changed(True)
+        self.window.canvas.shapes.append(shape)
+        with patch.object(
+            self.window.candidate_label_dialog,
+            "choose",
+            return_value="car",
+        ):
+            self.window.new_shape()
+
+        self.assertTrue(self.window.annotation_editing.view.dirty)
+        self.assertTrue(self.window.auto_save_timer.isActive())
+        with patch(
+            "labelimg.workbench.main_window.localized_warning",
+            return_value=QMessageBox.Cancel,
+        ) as warning:
+            self.window.open_next_image()
+
+        warning.assert_not_called()
+        self.assertEqual(self.window.file_path, next_image_path)
+        self.assertTrue(os.path.isfile(self.annotation_path))
+        reader = PascalVocReader(self.annotation_path)
+        self.assertEqual(reader.get_shapes()[0][0], "car")
 
 
 if __name__ == "__main__":

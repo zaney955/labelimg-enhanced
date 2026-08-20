@@ -261,7 +261,7 @@ An explicit replacement of one image's in-memory annotation document with the ex
 _Avoid_: Undo all, history navigation, temporary rollback
 
 **Unsaved image-navigation guard**:
-The blocking Save, Discard, or Cancel decision required before any user-requested image switch may leave the current image with committed but unsaved annotation changes. A queued or active automatic save does not bypass the guard: Save waits for confirmed write success, while a save that completed before the decision makes the obsolete prompt unnecessary. Save failure or Cancel keeps the current image open; only the current image is resolved, and the guard applies to previous/next navigation, file-list opening, and other user-requested image jumps but not automatic navigation after a confirmed destructive file operation. Workspace replacement and closing retain their all-dirty-image summary.
+The blocking Save, Discard, or Cancel decision required before any user-requested image switch may leave the current image with committed but unsaved annotation changes. Before prompting, a safely queued automatic save with no open edit, conflict, or degraded state is completed synchronously; confirmed success makes the obsolete prompt unnecessary, while an unavailable, unsafe, or failed save leaves the guard in place. Save failure or Cancel keeps the current image open; only the current image is resolved, and the guard applies to previous/next navigation, file-list opening, and other user-requested image jumps but not automatic navigation after a confirmed destructive file operation. Workspace replacement and closing retain their all-dirty-image summary.
 _Avoid_: Non-blocking dirty indicator, workspace-close summary, silent image switch
 
 **History rebase**:
