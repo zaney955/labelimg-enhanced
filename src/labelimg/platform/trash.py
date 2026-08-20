@@ -326,7 +326,7 @@ def probe_recycle_support(path):
     )
     try:
         with open(probe, "xb") as output:
-            output.truncate(os.path.getsize(path))
+            output.write(b"labelimg-recycle-probe")
         token = _delete_to_recycle_bin_raw(probe)
         restore_recycle_item(token, probe)
     except Exception as error:

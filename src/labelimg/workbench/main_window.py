@@ -148,6 +148,7 @@ from labelimg.image_tools.ui.controller import ImageToolsActionsMixin
 from labelimg.workbench.recovery_ui import RecoveryActionsMixin
 
 __appname__ = APP_NAME
+_UNPREPARED_IMAGE_DATA = object()
 
 
 
@@ -371,6 +372,7 @@ class MainWindow(
         if not preserve_session:
             self.workbench_session.clear()
         self.image_data = None
+        self.image = QImage()
         self.annotation_document = None
         self.canvas.reset_state()
         self.label_coordinates.clear()
@@ -555,8 +557,14 @@ class MainWindow(
 
 
 
-    def load_file(self, file_path=None):
+    def load_file(
+        self,
+        file_path=None,
+        prepared_image_data=_UNPREPARED_IMAGE_DATA,
+    ):
         """Load the specified file, or the last opened file if None."""
+        if prepared_image_data is _UNPREPARED_IMAGE_DATA:
+            self.cancel_deferred_image_load()
         if file_path is None:
             file_path = self.settings.get(SETTING_FILENAME)
 
@@ -630,7 +638,8 @@ class MainWindow(
 
         if not unicode_file_path or not os.path.exists(unicode_file_path):
             return False
-        prepared_image_data = read(unicode_file_path, None)
+        if prepared_image_data is _UNPREPARED_IMAGE_DATA:
+            prepared_image_data = read(unicode_file_path, None)
         prepared_image = (
             prepared_image_data
             if isinstance(prepared_image_data, QImage)

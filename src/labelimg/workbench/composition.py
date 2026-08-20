@@ -637,22 +637,13 @@ class WorkbenchComposer:
 
         save = action(get_str('save'), self.save_file,
                       'Ctrl+S', 'save', get_str('saveDetail'), enabled=False)
-
-        def get_format_meta(format):
-            """
-            returns a tuple containing (title, icon_name) of the selected format
-            """
-            if format == AnnotationFormat.PASCAL_VOC:
-                return '&PascalVOC', 'format_voc'
-            elif format == AnnotationFormat.YOLO:
-                return '&YOLO', 'format_yolo'
-            elif format == AnnotationFormat.CREATE_ML:
-                return '&CreateML', 'format_createml'
-
-        save_format = action(get_format_meta(self.annotation_format)[0],
-                             self.change_format, None,
-                             get_format_meta(self.annotation_format)[1],
-                             get_str('changeSaveFormat'), enabled=True)
+        self.format_selector = FormatSelector(
+            self.annotation_format, self
+        )
+        self.format_selector.formatRequested.connect(
+            self.set_annotation_format
+        )
+        save_format = self.format_selector.menu.menuAction()
 
         save_as = action(get_str('saveAs'), self.save_file_as,
                          'Ctrl+Shift+S', 'save-as', get_str('saveAsDetail'), enabled=False)
@@ -1105,12 +1096,6 @@ class WorkbenchComposer:
         self.review_control.setEnabled(False)
         self.review_control.stateRequested.connect(
             self.set_current_review_state
-        )
-        self.format_selector = FormatSelector(
-            self.annotation_format, self
-        )
-        self.format_selector.formatRequested.connect(
-            self.set_annotation_format
         )
         self.top_commands = TopCommandBar(
             open_dir,

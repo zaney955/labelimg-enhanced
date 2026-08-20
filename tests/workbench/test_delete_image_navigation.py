@@ -1,13 +1,15 @@
 import os
 import shutil
 import tempfile
+import time
 import unittest
+from unittest.mock import patch
 from xml.etree import ElementTree
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt5.QtGui import QColor, QImage, QKeySequence
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtWidgets import QApplication, QMessageBox
 
 from labelimg.workbench.bootstrap import WorkbenchLaunchOptions, create_workbench
 from labelimg.files.application.recovery import TrashIdentity
@@ -91,6 +93,13 @@ class DeleteImageNavigationTest(unittest.TestCase):
         self.app.processEvents()
         self.temp_dir.cleanup()
 
+    def wait_for_current_image(self, expected):
+        deadline = time.monotonic() + 2.0
+        while self.window.file_path != expected and time.monotonic() < deadline:
+            self.app.processEvents()
+            time.sleep(0.005)
+        self.assertEqual(self.window.file_path, expected)
+
     def test_delete_image_shortcut_is_ctrl_delete(self):
         shortcut = self.window.actions.deleteImg.shortcut()
 
@@ -102,6 +111,8 @@ class DeleteImageNavigationTest(unittest.TestCase):
 
         self.window.delete_image()
 
+        self.wait_for_current_image(self.image_paths[1])
+
         self.assertEqual(self.window.file_path, self.image_paths[1])
         self.assertEqual(self.window.cur_img_idx, 0)
         self.assertEqual(self.window.img_count, 2)
@@ -111,6 +122,8 @@ class DeleteImageNavigationTest(unittest.TestCase):
         self.assertTrue(self.window.load_file(self.image_paths[1]))
 
         self.window.delete_image()
+
+        self.wait_for_current_image(self.image_paths[2])
 
         self.assertEqual(self.window.file_path, self.image_paths[2])
         self.assertEqual(self.window.cur_img_idx, 1)
@@ -122,19 +135,68 @@ class DeleteImageNavigationTest(unittest.TestCase):
 
         self.window.delete_image()
 
+        self.wait_for_current_image(self.image_paths[1])
+
         self.assertEqual(self.window.file_path, self.image_paths[1])
         self.assertEqual(self.window.cur_img_idx, 1)
         self.assertEqual(self.window.img_count, 2)
 
     def test_deleting_the_only_remaining_image_clears_the_view(self):
         self.window.delete_image()
+        self.wait_for_current_image(self.image_paths[1])
         self.window.delete_image()
+        self.wait_for_current_image(self.image_paths[2])
         self.window.delete_image()
 
         self.assertIsNone(self.window.file_path)
         self.assertEqual(self.window.cur_img_idx, 0)
         self.assertEqual(self.window.img_count, 0)
         self.assertFalse(self.window.canvas.isEnabled())
+
+    def test_deleting_current_image_does_not_decode_next_image_inline(self):
+        original_load = self.window.load_file
+        loaded = []
+
+        def slow_load(path, *args, **kwargs):
+            loaded.append(path)
+            time.sleep(0.30)
+            return original_load(path, *args, **kwargs)
+
+        with patch.object(self.window, "load_file", side_effect=slow_load):
+            started = time.perf_counter()
+            self.window.delete_image()
+            elapsed = time.perf_counter() - started
+            self.assertEqual(loaded, [])
+            self.wait_for_current_image(self.image_paths[1])
+
+        self.assertLess(elapsed, 0.20)
+        self.assertEqual(loaded, [self.image_paths[1]])
+
+    def test_reset_state_releases_current_image_pixels(self):
+        self.assertFalse(self.window.image.isNull())
+        self.assertIsNotNone(self.window.canvas.pixmap)
+
+        self.window.reset_state()
+
+        self.assertTrue(self.window.image.isNull())
+        self.assertIsNone(self.window.image_data)
+        self.assertIsNone(self.window.canvas.pixmap)
+
+    def test_small_batch_delete_pumps_ui_events(self):
+        self.window.file_list_widget.item(0).setSelected(True)
+        self.window.file_list_widget.item(1).setSelected(True)
+
+        with patch(
+            "labelimg.files.ui.controller.localized_question",
+            return_value=QMessageBox.Yes,
+        ), patch(
+            "labelimg.files.ui.controller.QApplication.processEvents",
+            wraps=QApplication.processEvents,
+        ) as process_events:
+            self.window.delete_selected_files()
+
+        self.assertGreaterEqual(process_events.call_count, 2)
+        self.wait_for_current_image(self.image_paths[2])
 
     def test_deleting_image_removes_all_saved_annotation_formats(self):
         deleted_paths = []
