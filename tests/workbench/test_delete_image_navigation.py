@@ -8,7 +8,7 @@ from xml.etree import ElementTree
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt5.QtGui import QColor, QImage, QKeySequence
+from PyQt5.QtGui import QColor, QImage, QImageReader, QKeySequence
 from PyQt5.QtWidgets import QApplication, QMessageBox
 
 from labelimg.workbench.bootstrap import WorkbenchLaunchOptions, create_workbench
@@ -89,6 +89,7 @@ class DeleteImageNavigationTest(unittest.TestCase):
         self.window.import_dir_images(self.temp_dir.name)
 
     def tearDown(self):
+        self.window.close()
         self.window.deleteLater()
         self.app.processEvents()
         self.temp_dir.cleanup()
@@ -171,6 +172,41 @@ class DeleteImageNavigationTest(unittest.TestCase):
 
         self.assertLess(elapsed, 0.20)
         self.assertEqual(loaded, [self.image_paths[1]])
+
+    def test_closing_waits_for_pending_replacement_decode(self):
+        class SlowReader:
+            def __init__(self, _path):
+                pass
+
+            def setAutoTransform(self, _enabled):
+                pass
+
+            def read(self):
+                time.sleep(0.20)
+                image = QImage(8, 8, QImage.Format_RGB32)
+                image.fill(QColor("white"))
+                return image
+
+            @staticmethod
+            def supportedImageFormats():
+                return QImageReader.supportedImageFormats()
+
+        jobs = ()
+        with patch(
+            "labelimg.files.ui.controller.QImageReader",
+            SlowReader,
+        ):
+            self.window.delete_image()
+            jobs = tuple(self.window._deferred_image_load_jobs.values())
+            self.assertTrue(any(thread.isRunning() for thread, _ in jobs))
+            self.window.close()
+            try:
+                self.assertFalse(
+                    any(thread.isRunning() for thread, _ in jobs)
+                )
+            finally:
+                for thread, _worker in jobs:
+                    thread.wait()
 
     def test_reset_state_releases_current_image_pixels(self):
         self.assertFalse(self.window.image.isNull())
