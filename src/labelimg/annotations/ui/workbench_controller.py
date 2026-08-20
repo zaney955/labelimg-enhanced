@@ -1135,23 +1135,32 @@ class AnnotationActionsMixin:
         if shape is None or shape not in self.canvas.shapes:
             return
         old_label = shape.label
-        label = self.candidate_label_dialog.choose(old_label)
-        if label is None or label == old_label:
-            return
-
-        def apply_label():
-            shape.label = label
-            shape.line_color = generate_color_by_text(label)
-
-        self._perform_annotation_edit(
-            'Change label: %s \u2192 %s' % (old_label, label),
-            apply_label,
-            affected=(shape,),
-            old_label=old_label,
-            new_label=label,
+        pending_kind = "Change label"
+        label, owns_pending = self._choose_annotation_label(
+            old_label,
+            pending_kind,
         )
-        self.label_list.refresh_shape(shape)
-        self.shape_selection_changed(True)
+        try:
+            if label is None or label == old_label:
+                return
+
+            def apply_label():
+                shape.label = label
+                shape.line_color = generate_color_by_text(label)
+
+            self._perform_annotation_edit(
+                'Change label: %s \u2192 %s' % (old_label, label),
+                apply_label,
+                affected=(shape,),
+                old_label=old_label,
+                new_label=label,
+            )
+            self.label_list.refresh_shape(shape)
+            self.shape_selection_changed(True)
+        finally:
+            if owns_pending:
+                self.annotation_editing.clear_pending()
+                self._sync_annotation_history_ui()
 
 
     def edit_label_group(self, old_label):
@@ -1161,31 +1170,64 @@ class AnnotationActionsMixin:
         )
         if not shapes:
             return
-        label = self.candidate_label_dialog.choose(old_label)
-        if label is None or label == old_label:
-            return
-
-        def apply_label():
-            color = generate_color_by_text(label)
-            for shape in shapes:
-                shape.label = label
-                shape.line_color = QColor(color)
-
-        self._perform_annotation_edit(
-            'Rename label group: %s \u2192 %s' % (old_label, label),
-            apply_label,
-            affected=shapes,
-            old_label=old_label,
-            new_label=label,
+        pending_kind = "Rename label group"
+        label, owns_pending = self._choose_annotation_label(
+            old_label,
+            pending_kind,
         )
-        self.label_list.set_scene(
-            self.canvas.shapes,
-            visible_shapes=(
-                shape for shape in self.canvas.shapes
-                if self.canvas.isVisible(shape)
-            ),
+        try:
+            if label is None or label == old_label:
+                return
+
+            def apply_label():
+                color = generate_color_by_text(label)
+                for shape in shapes:
+                    shape.label = label
+                    shape.line_color = QColor(color)
+
+            self._perform_annotation_edit(
+                'Rename label group: %s \u2192 %s' % (old_label, label),
+                apply_label,
+                affected=shapes,
+                old_label=old_label,
+                new_label=label,
+            )
+            self.label_list.set_scene(
+                self.canvas.shapes,
+                visible_shapes=(
+                    shape for shape in self.canvas.shapes
+                    if self.canvas.isVisible(shape)
+                ),
+            )
+            self.shape_selection_changed(True)
+        finally:
+            if owns_pending:
+                self.annotation_editing.clear_pending()
+                self._sync_annotation_history_ui()
+
+
+    def _choose_annotation_label(self, old_label, pending_kind):
+        """Run the modal label chooser inside the shared pending boundary."""
+        if self.annotation_editing.view is None:
+            return self.candidate_label_dialog.choose(old_label), False
+        if (
+            self.annotation_editing.pending
+            or self.annotation_editing.edit_open
+        ):
+            self.status(tr('status.finishEdit'))
+            return None, False
+
+        self.annotation_editing.set_pending(
+            pending_kind,
+            self.candidate_label_dialog.reject,
         )
-        self.shape_selection_changed(True)
+        self._sync_annotation_history_ui()
+        try:
+            return self.candidate_label_dialog.choose(old_label), True
+        except Exception:
+            self.annotation_editing.clear_pending()
+            self._sync_annotation_history_ui()
+            raise
 
 
     def button_state(self, item=None):

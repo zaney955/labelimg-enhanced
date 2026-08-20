@@ -535,6 +535,9 @@ class WorkbenchComposer:
         self.canvas.hoverShapeChanged.connect(
             self.canvas_hover_shape_changed
         )
+        self.canvas.shapeLabelEditRequested.connect(
+            self.edit_shape_label
+        )
         self.label_list.hoverRequested.connect(
             self.label_hover_changed
         )

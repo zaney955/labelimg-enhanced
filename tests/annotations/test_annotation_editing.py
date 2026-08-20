@@ -5,8 +5,9 @@ from dataclasses import replace
 from types import SimpleNamespace
 from unittest import mock
 
-from PyQt5.QtCore import QEvent, QPointF, Qt
-from PyQt5.QtGui import QFocusEvent, QKeyEvent, QMouseEvent, QPixmap
+from PyQt5.QtCore import QEvent, QPoint, QPointF, Qt
+from PyQt5.QtGui import QColor, QFocusEvent, QKeyEvent, QMouseEvent, QPixmap
+from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication, QWidget
 
 from labelimg.annotations.application.editing import (
@@ -415,6 +416,101 @@ class CanvasAnnotationSceneTest(unittest.TestCase):
 
         self.assertEqual(canceled, ["Move box"])
 
+    def test_unmodified_double_click_requests_target_label_edit(self):
+        shape = self.shape("cat", 20)
+        shape.paint_label = True
+        shape.move_by(QPointF(0, 30))
+        self.canvas.load_shapes((shape,))
+        requested = []
+        self.canvas.shapeLabelEditRequested.connect(requested.append)
+        scene_pos = shape.label_hit_rect(
+            scale=self.canvas.scale,
+            font_size=self.canvas.label_font_size,
+        ).center()
+        widget_pos = QPointF(
+            (scene_pos.x() + self.canvas.offset_to_center().x())
+            * self.canvas.scale,
+            (scene_pos.y() + self.canvas.offset_to_center().y())
+            * self.canvas.scale,
+        )
+
+        self.canvas.mouseMoveEvent(QMouseEvent(
+            QEvent.MouseMove,
+            widget_pos,
+            Qt.NoButton,
+            Qt.NoButton,
+            Qt.NoModifier,
+        ))
+        self.canvas.mousePressEvent(QMouseEvent(
+            QEvent.MouseButtonPress,
+            widget_pos,
+            Qt.LeftButton,
+            Qt.LeftButton,
+            Qt.NoModifier,
+        ))
+        self.canvas.mouseDoubleClickEvent(QMouseEvent(
+            QEvent.MouseButtonDblClick,
+            widget_pos,
+            Qt.LeftButton,
+            Qt.LeftButton,
+            Qt.NoModifier,
+        ))
+
+        self.assertEqual(requested, [shape])
+        self.assertEqual(self.canvas.selected_shapes, [shape])
+
+    def test_modified_or_inactive_double_click_does_not_request_label_edit(self):
+        shape = self.shape("cat", 20)
+        self.canvas.load_shapes((shape,))
+        requested = []
+        self.canvas.shapeLabelEditRequested.connect(requested.append)
+        position = QPointF(30, 20)
+
+        for modifiers in (
+            Qt.ControlModifier,
+            Qt.ShiftModifier,
+            Qt.AltModifier,
+        ):
+            self.canvas.mouseDoubleClickEvent(QMouseEvent(
+                QEvent.MouseButtonDblClick,
+                position,
+                Qt.LeftButton,
+                Qt.LeftButton,
+                modifiers,
+            ))
+
+        self.canvas.set_mode(Canvas.PAN)
+        self.canvas.mouseDoubleClickEvent(QMouseEvent(
+            QEvent.MouseButtonDblClick,
+            position,
+            Qt.LeftButton,
+            Qt.LeftButton,
+            Qt.NoModifier,
+        ))
+
+        self.assertEqual(requested, [])
+
+    def test_box_vertex_edge_and_interior_double_click_request_label_edit(self):
+        shape = self.shape("cat", 20)
+        self.canvas.load_shapes((shape,))
+        requested = []
+        self.canvas.shapeLabelEditRequested.connect(requested.append)
+
+        for position in (
+            QPointF(20, 10),
+            QPointF(30, 10),
+            QPointF(30, 20),
+        ):
+            self.canvas.mouseDoubleClickEvent(QMouseEvent(
+                QEvent.MouseButtonDblClick,
+                position,
+                Qt.LeftButton,
+                Qt.LeftButton,
+                Qt.NoModifier,
+            ))
+
+        self.assertEqual(requested, [shape, shape, shape])
+
 
 class MainWindowHistoryIntegrationTest(unittest.TestCase):
     @classmethod
@@ -466,6 +562,133 @@ class MainWindowHistoryIntegrationTest(unittest.TestCase):
             [shape.label for shape in self.window.canvas.shapes],
             ["cat"],
         )
+
+    def test_canvas_double_click_edits_one_box_with_pending_guard(self):
+        self.window.annotation_clipboard = [
+            (
+                "cat",
+                ((20, 40), (60, 40), (60, 80), (20, 80)),
+                None,
+                None,
+                False,
+            ),
+            (
+                "cat",
+                ((80, 40), (120, 40), (120, 80), (80, 80)),
+                None,
+                None,
+                False,
+            ),
+        ]
+        self.window.paste_copied_bounding_boxes()
+        first, second = self.window.canvas.shapes
+        self.window.canvas.set_selected_shapes((first, second))
+        original_format = self.window.annotation_format
+        old_color = QColor(first.line_color)
+        observed = []
+
+        def choose(old_label):
+            observed.append((
+                old_label,
+                self.window.annotation_editing.pending,
+                self.window.annotation_editing.edit_open,
+            ))
+            self.window.save_file_as()
+            self.window.save_dirty_annotations()
+            self.window.set_annotation_format(AnnotationFormat.YOLO)
+            observed.append(self.window.annotation_format)
+            return "dog"
+
+        scene_pos = QPointF(30, 50)
+        widget_pos = QPoint(
+            round(
+                (scene_pos.x() + self.window.canvas.offset_to_center().x())
+                * self.window.canvas.scale
+            ),
+            round(
+                (scene_pos.y() + self.window.canvas.offset_to_center().y())
+                * self.window.canvas.scale
+            ),
+        )
+        with (
+            mock.patch.object(
+                self.window.candidate_label_dialog,
+                "choose",
+                side_effect=choose,
+            ),
+            mock.patch.object(
+                self.window,
+                "save_file_dialog",
+            ) as save_dialog,
+            mock.patch.object(
+                self.window,
+                "save_file",
+            ) as auto_save,
+        ):
+            QTest.mouseDClick(
+                self.window.canvas,
+                Qt.LeftButton,
+                pos=widget_pos,
+            )
+
+        self.assertEqual(
+            observed,
+            [("cat", True, False), original_format],
+        )
+        save_dialog.assert_not_called()
+        auto_save.assert_not_called()
+        self.assertEqual(first.label, "dog")
+        self.assertEqual(second.label, "cat")
+        self.assertNotEqual(QColor(first.line_color), old_color)
+        self.assertEqual(self.window.canvas.selected_shapes, [first])
+        self.assertFalse(self.window.annotation_editing.pending)
+        self.window.undo_annotation()
+        self.assertEqual(
+            [shape.label for shape in self.window.canvas.shapes],
+            ["cat", "cat"],
+        )
+        self.assertEqual(
+            QColor(self.window.canvas.shapes[0].line_color),
+            old_color,
+        )
+        self.window.redo_annotation()
+        self.assertEqual(
+            [shape.label for shape in self.window.canvas.shapes],
+            ["dog", "cat"],
+        )
+
+    def test_label_editor_cancel_and_same_label_leave_history_unchanged(self):
+        self.window.annotation_clipboard = [
+            (
+                "cat",
+                ((20, 20), (60, 20), (60, 60), (20, 60)),
+                None,
+                None,
+                False,
+            ),
+        ]
+        self.window.paste_copied_bounding_boxes()
+        shape = self.window.canvas.shapes[0]
+        before = self.window.annotation_editing.view.undo_transition
+
+        for result in (None, "cat"):
+            def choose(old_label, value=result):
+                self.assertEqual(old_label, "cat")
+                self.assertTrue(self.window.annotation_editing.pending)
+                return value
+
+            with mock.patch.object(
+                self.window.candidate_label_dialog,
+                "choose",
+                side_effect=choose,
+            ):
+                self.window.edit_shape_label(shape)
+
+            self.assertFalse(self.window.annotation_editing.pending)
+            self.assertIs(
+                self.window.annotation_editing.view.undo_transition,
+                before,
+            )
 
     def test_history_menu_escapes_and_elides_label_values(self):
         transition = SimpleNamespace(

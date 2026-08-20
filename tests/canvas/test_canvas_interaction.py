@@ -1,6 +1,6 @@
 import unittest
 
-from PyQt5.QtCore import QPointF
+from PyQt5.QtCore import QPointF, QRectF
 
 from labelimg.canvas.interaction import CanvasInteraction, HoverTarget
 
@@ -255,6 +255,82 @@ class CanvasInteractionTest(unittest.TestCase):
             nearest_edge_hit=lambda _shape, _position: None,
         )
 
+        self.assertIs(target.shape, upper)
+
+    def test_label_text_target_precedes_geometry(self):
+        class FakeShape:
+            def __init__(self, bounds, label_bounds=None, vertex_hit=None):
+                self.bounds = bounds
+                self.label_bounds = label_bounds
+                self.vertex_hit = vertex_hit
+
+            def contains_point(self, position):
+                return self.bounds.contains(position)
+
+            def bounding_rect(self):
+                return self.bounds
+
+        label_shape = FakeShape(
+            QRectF(0, 30, 40, 40),
+            label_bounds=QRectF(5, 5, 30, 12),
+        )
+        geometry_shape = FakeShape(
+            QRectF(0, 0, 40, 40),
+            vertex_hit=(0, 0.1),
+        )
+
+        target = self.interaction.resolve_target(
+            (label_shape, geometry_shape),
+            QPointF(10, 10),
+            nearest_vertex_hit=lambda shape, _position: shape.vertex_hit,
+            nearest_edge_hit=lambda _shape, _position: None,
+            label_hit_rect=lambda shape: shape.label_bounds,
+        )
+
+        self.assertIs(target.shape, label_shape)
+
+    def test_label_overlap_uses_containment_distance_and_layer_order(self):
+        class FakeShape:
+            def __init__(self, label_bounds):
+                self.label_bounds = label_bounds
+
+            def contains_point(self, _position):
+                return False
+
+            def bounding_rect(self):
+                return QRectF()
+
+        outer = FakeShape(QRectF(0, 0, 100, 30))
+        inner = FakeShape(QRectF(10, 5, 30, 15))
+        target = self.interaction.resolve_target(
+            (inner, outer),
+            QPointF(20, 10),
+            nearest_vertex_hit=lambda _shape, _position: None,
+            nearest_edge_hit=lambda _shape, _position: None,
+            label_hit_rect=lambda shape: shape.label_bounds,
+        )
+        self.assertIs(target.shape, inner)
+
+        farther = FakeShape(QRectF(10, 0, 60, 40))
+        nearer = FakeShape(QRectF(40, 5, 60, 30))
+        target = self.interaction.resolve_target(
+            (nearer, farther),
+            QPointF(45, 20),
+            nearest_vertex_hit=lambda _shape, _position: None,
+            nearest_edge_hit=lambda _shape, _position: None,
+            label_hit_rect=lambda shape: shape.label_bounds,
+        )
+        self.assertIs(target.shape, nearer)
+
+        lower = FakeShape(QRectF(10, 10, 50, 20))
+        upper = FakeShape(QRectF(10, 10, 50, 20))
+        target = self.interaction.resolve_target(
+            (lower, upper),
+            QPointF(30, 20),
+            nearest_vertex_hit=lambda _shape, _position: None,
+            nearest_edge_hit=lambda _shape, _position: None,
+            label_hit_rect=lambda shape: shape.label_bounds,
+        )
         self.assertIs(target.shape, upper)
 
 

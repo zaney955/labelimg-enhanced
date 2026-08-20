@@ -39,6 +39,7 @@ class Canvas(QWidget):
     annotationGestureFinished = pyqtSignal(str)
     annotationGestureCanceled = pyqtSignal(str)
     hoverShapeChanged = pyqtSignal(object)
+    shapeLabelEditRequested = pyqtSignal(object)
 
     CREATE, EDIT, PAN = list(range(3))
 
@@ -360,6 +361,10 @@ class Canvas(QWidget):
             self.nearest_vertex_hit,
             self.nearest_edge_hit,
             0.5 / max(self.scale, 0.01),
+            label_hit_rect=lambda shape: shape.label_hit_rect(
+                scale=self.scale,
+                font_size=self.label_font_size,
+            ),
         )
 
     def _apply_hover_target(self, target, suppress_handles=False):
@@ -816,6 +821,27 @@ class Canvas(QWidget):
         if self.can_close_shape() and len(self.current) > 3:
             self.current.pop_point()
             self.finalise()
+            ev.accept()
+            return
+        if (
+            self.editing()
+            and ev.button() == Qt.LeftButton
+            and ev.modifiers() == Qt.NoModifier
+        ):
+            target = self.resolve_pointer_target(
+                self.transform_pos(ev.pos())
+            )
+            if target.shape is not None:
+                self._apply_hover_target(target)
+                self.select_shape(target.shape)
+                # The second press in a Qt double-click has already opened a
+                # no-op Move/Resize gesture. Close it before the modal label
+                # editor starts its own annotation transaction.
+                self._finish_annotation_gesture()
+                self.shapeLabelEditRequested.emit(target.shape)
+                ev.accept()
+                return
+        super(Canvas, self).mouseDoubleClickEvent(ev)
 
     def select_shape(self, shape):
         self.set_selected_shapes([shape], active_shape=shape)

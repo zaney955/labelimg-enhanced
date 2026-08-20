@@ -32,6 +32,18 @@ Selection and Edit are one tool. It selects annotation boxes and directly edits 
 
 Pan allows left-button dragging from any image position without selecting or moving annotation boxes. Middle-button dragging temporarily pans from any other Canvas tool and then restores that tool. `Space` remains the current-image Verified shortcut and is not reassigned to temporary pan.
 
+### Direct single-box label editing
+
+In Selection/Edit, an unmodified left-button double-click on a visible annotation box or its visible label text replaces the selection with that box and opens the existing single-box label editor. The complete interior, outline, adjustment handles, and label text are valid targets. Create, Pan, and Crop retain their existing double-click behavior, and modifier-assisted double-clicks never open the editor.
+
+Label text participates in the same pointer-target model used by hover, ordinary selection, Ctrl-selection, context menus, and double-click. Its screen-space hit region follows the actually rendered text with a stable two-pixel allowance; hidden boxes and hidden label text have no target. Label candidates precede geometry. Among overlapping label regions, strict containment chooses the innermost smallest region, partial overlap chooses the nearest boundary, and equality within tolerance chooses the topmost annotation layer. The resolved box remains locked for the gesture, and the existing dashed hover outline identifies it without adding a separate label-text highlight.
+
+Double-clicking while several boxes are selected reduces the selection to the resolved box. Every single-box label-edit entry point uses the same pending annotation transaction from dialog opening through cancellation or one atomic commit. Canceling or confirming the existing label creates no history entry; accepting a different label creates one reversible change for that box and its label-derived line color.
+
+The interaction is documented in the bilingual Help shortcut catalog as a Canvas-context mouse gesture. The Selection/Edit tooltip remains unchanged, and the interaction adds neither a special pointer cursor nor label-text hover styling.
+
+Automated validation covers interior, outline, adjustment-handle, inside-label, and outside-label double-clicks; nested, partial, and identical label-region overlap; hidden boxes and labels; inactive Canvas modes and modifier-assisted double-clicks; multi-selection convergence; cancel, no-op, commit, Undo, and Redo; pending-edit save and format guards; and the shared single-box transaction used by Canvas, annotation-instance, F2, Edit-button, and `Ctrl+E` entry points. Label-group double-click remains a group-wide rename and has its own wiring regression.
+
 Copy, Delete, Hide All, Show All, workspace entry, navigation, review state, Save, annotation format, Rotate, Flip, and zoom do not appear in the rail. The rail never uses automatic overflow; all four tools remain visible at every supported window height.
 
 ## Top command surface

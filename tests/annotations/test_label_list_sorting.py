@@ -187,6 +187,38 @@ class LabelListSortingTest(unittest.TestCase):
         self.assertEqual(self.window.label_list.group_labels(), ["person"])
         self.assertEqual(len(self.window.label_list.group_shapes("person")), 3)
 
+    def test_double_click_preserves_instance_and_group_edit_scopes(self):
+        first = rectangle("car", 10)
+        second = rectangle("car", 30)
+        self.load_shapes([first, second])
+
+        with patch.object(
+            self.window.candidate_label_dialog,
+            "choose",
+            return_value="truck",
+        ):
+            QTest.mouseDClick(
+                self.window.label_list.viewport(),
+                Qt.LeftButton,
+                pos=self.window.label_list.instance_rect(first).center(),
+            )
+
+        self.assertEqual(first.label, "truck")
+        self.assertEqual(second.label, "car")
+
+        with patch.object(
+            self.window.candidate_label_dialog,
+            "choose",
+            return_value="vehicle",
+        ):
+            QTest.mouseDClick(
+                self.window.label_list.viewport(),
+                Qt.LeftButton,
+                pos=self.window.label_list.group_body_rect("car").center(),
+            )
+
+        self.assertEqual(second.label, "vehicle")
+
     def test_group_rename_is_one_undoable_edit(self):
         self.assertTrue(self.window.load_file(
             os.path.abspath("tests/test.512.512.bmp")

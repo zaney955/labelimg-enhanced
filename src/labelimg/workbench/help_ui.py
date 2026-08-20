@@ -96,6 +96,7 @@ _CONTEXT_SECTIONS = (
     (
         "shortcuts.section.canvasContext",
         (
+            ("shortcuts.keys.doubleClick", "shortcuts.canvas.editLabel", "shortcuts.canvas.editLabelDetail"),
             ("shortcuts.keys.controlHold", "shortcuts.canvas.multiSelect", "shortcuts.canvas.multiSelectDetail"),
             ("Esc", "shortcuts.canvas.cancel", "shortcuts.canvas.cancelDetail"),
             ("Enter", "shortcuts.canvas.finish", "shortcuts.canvas.finishDetail"),

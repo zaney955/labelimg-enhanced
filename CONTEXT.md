@@ -381,7 +381,7 @@ The visual state of label text belonging to every selected annotation box: white
 _Avoid_: Label-list highlight, active-box-only label, hover label highlight
 
 **Hover target appearance**:
-The edit-mode preview of the one annotation box targeted by the pointer: its ordinary solid outline is replaced by a short-dashed outline with clearly separated, roughly equal dash and gap lengths, the same approximately 1.5-pixel width, and its own label color, without an underlay, added fill, or label-text change; creation mode never shows it. It outlines the complete box for corner, edge, and interior targets and remains on a locked gesture target, while existing corner enlargement, resize cursors, and selected-box appearance remain intact.
+The edit-mode preview of the one annotation box targeted by the pointer: its ordinary solid outline is replaced by a short-dashed outline with clearly separated, roughly equal dash and gap lengths, the same approximately 1.5-pixel width, and its own label color, without an underlay, added fill, or label-text change; creation mode never shows it. It outlines the complete box for label-text, corner, edge, and interior targets and remains on a locked gesture target, while existing corner enlargement, resize cursors, and selected-box appearance remain intact.
 _Avoid_: Hover fill, hover label highlight, thick hover outline, white hover underlay
 
 **Corner resize target**:
@@ -393,12 +393,20 @@ The annotation-box interior that remains after corner and edge resize targets ar
 _Avoid_: Corner resize target, edge resize target
 
 **Pointer target resolution**:
-The deterministic choice of the nearest visible annotation target at the pointer: nearest eligible corner first, then nearest eligible edge, then the overlap target among containing box-move targets. It depends only on current geometry and pointer position, never current selection membership; distances inside a small equality tolerance resolve to the topmost drawing layer rather than using hover stickiness or approach direction.
+The deterministic choice of the nearest visible annotation target at the pointer: label text first, then the nearest eligible corner, nearest eligible edge, and overlap target among containing box-move targets. It depends only on current rendered annotation state and pointer position, never current selection membership; distances inside a small equality tolerance resolve to the topmost drawing layer rather than using hover stickiness or approach direction.
 _Avoid_: Drawing-order scan, first hit, stateful selection-through
 
 **Label text placement**:
 The label text position separated from the annotation-box outline, normally above its top-left corner and moved inside the box when the canvas boundary leaves insufficient space above.
 _Avoid_: Text baseline on the outline, clipped label text
+
+**Label text hit region**:
+The screen-space bounds of actually rendered label text plus a stable two-pixel allowance, eligible only while both the label text and its annotation box are visible. Selection styling, Canvas scale, and display density never create, remove, or materially resize this target.
+_Avoid_: Hidden label target, annotation-box bounds, image-space padding
+
+**Label text overlap target**:
+The label text hit region chosen when several regions contain the pointer: strict containment selects the innermost smallest region, partial overlap selects the region whose boundary is nearest, and equality within tolerance selects the topmost annotation layer. It takes priority over annotation-box geometry and remains locked throughout the pointer gesture.
+_Avoid_: First text hit, nearest center, geometry-first label edit
 
 **Overlap candidates**:
 The visible annotation boxes whose box-move targets contain the pointer after corner and edge resize targets are resolved. Hidden boxes and boxes that do not contain the pointer never participate in overlap targeting.
@@ -443,6 +451,14 @@ _Avoid_: Button-by-button tab chain, mouse-only strip, focus-is-selection
 **Label-group rename**:
 An atomic label edit applied to every annotation box in one label group. Renaming to an existing label merges the groups, while an instance-only label edit moves its annotation-instance button between groups and removes an emptied source group.
 _Avoid_: Row-title-only edit, repeated independent rename, persistent empty group
+
+**Annotation-instance label edit**:
+An atomic label edit applied to exactly one annotation box, even when other boxes share its label. Changing the label may move that box into another label group, while the other members of its original group remain unchanged.
+_Avoid_: Label-group rename, bulk relabel, candidate-label edit
+
+**Canvas label-edit gesture**:
+An unmodified primary-button double-click on any visible part of one annotation box in the Selection and Editing tool, including its label text, interior, outline, or adjustment handles, that replaces the current selection with that box and opens the existing single-box label editor. The editor owns a pending annotation transaction from opening through cancellation or one atomic commit; other Canvas modes and modified double-clicks retain their existing interactions.
+_Avoid_: Label-group rename, property editor, creation-mode double-click
 
 **Label-group filter**:
 A case-insensitive text filter that limits which label-group rows are shown without changing canvas visibility, annotation selection, or row state. Selection outside the result remains active and is reported explicitly; list-focused select-all replaces it with all currently filtered results. Clearing the filter restores every group and its prior horizontal position.

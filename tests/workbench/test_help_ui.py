@@ -84,6 +84,15 @@ class HelpDialogTest(unittest.TestCase):
             and row.action == "Move crop region"
             for row in rows
         ))
+        self.assertTrue(any(
+            row.keys == "Left-button double-click"
+            and row.action == "Edit box label"
+            for row in rows
+        ))
+        self.assertEqual(
+            self.window.actions.selectTool.statusTip(),
+            "Select and edit annotations",
+        )
 
     def test_shortcut_dialog_is_local_and_scrollable(self):
         dialog = ShortcutCatalogDialog(self.window)
@@ -112,6 +121,15 @@ class HelpDialogTest(unittest.TestCase):
 
         self.assertEqual(dialog.windowTitle(), "键盘快捷键")
         self.assertEqual(dialog.tree.headerItem().text(0), "操作")
+        canvas_section = next(
+            section for section in dialog.sections
+            if section.title == "画布上下文"
+        )
+        self.assertTrue(any(
+            row.keys == "双击鼠标左键"
+            and row.action == "修改标注标签"
+            for row in canvas_section.rows
+        ))
         self.assertEqual(dialog.sections[-1].title, "图像工具对话框")
         dialog.deleteLater()
 

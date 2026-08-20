@@ -220,6 +220,58 @@ class CanvasMultiSelectionTest(unittest.TestCase):
         self.ctrl_click((50, 50))
         self.assertEqual(self.canvas.selected_shapes, [inner])
 
+    def test_label_text_target_is_shared_by_hover_click_ctrl_and_right_press(self):
+        label_shape = rectangle("label target", 10, 45, 75, 85)
+        label_shape.paint_label = True
+        geometry_shape = rectangle("geometry", 5, 5, 100, 45)
+        self.canvas.load_shapes([label_shape, geometry_shape])
+        point = label_shape.label_hit_rect(
+            scale=self.canvas.scale,
+            font_size=self.canvas.label_font_size,
+        ).center()
+        position = (round(point.x()), round(point.y()))
+
+        self.canvas.mouseMoveEvent(mouse_event(QEvent.MouseMove, position))
+        self.assertIs(
+            self.canvas.interaction_snapshot.hover.shape,
+            label_shape,
+        )
+
+        self.click(position)
+        self.assertEqual(self.canvas.selected_shapes, [label_shape])
+
+        self.ctrl_click(position)
+        self.assertEqual(self.canvas.selected_shapes, [])
+
+        self.canvas.mousePressEvent(mouse_event(
+            QEvent.MouseButtonPress,
+            position,
+            button=Qt.RightButton,
+            buttons=Qt.RightButton,
+        ))
+        self.assertIs(self.canvas.right_press_shape, label_shape)
+        self.canvas._interaction.finish_right_press()
+
+    def test_hidden_label_text_does_not_leave_a_pointer_target(self):
+        shape = rectangle("hidden label", 20, 50, 80, 90)
+        shape.paint_label = True
+        self.canvas.load_shapes([shape])
+        point = shape.label_hit_rect(
+            scale=self.canvas.scale,
+            font_size=self.canvas.label_font_size,
+        ).center()
+
+        shape.paint_label = False
+        self.assertIsNone(
+            self.canvas.resolve_pointer_target(point).shape
+        )
+
+        shape.paint_label = True
+        self.canvas.set_shape_visible(shape, False)
+        self.assertIsNone(
+            self.canvas.resolve_pointer_target(point).shape
+        )
+
     def test_ctrl_hover_keeps_box_target_but_suppresses_corner_cue(self):
         shape = rectangle("shape", 10, 10, 80, 80)
         self.canvas.load_shapes([shape])
