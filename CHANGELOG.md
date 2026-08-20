@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.1.0
+
+- Added a complete bilingual keyboard-shortcut catalog and application information dialog with a link to the canonical GitHub repository.
+- Added an explicit annotation-format selector with the same pending-edit and storage-transition safeguards as other format changes.
+- Added YOLO comment support and corrected Unicode handling for class files.
+- Made queued automatic saves finish safely before image navigation.
+- Kept batch deletion responsive for very high-resolution images by releasing old pixel buffers, decoding the replacement image in the background, and safely joining image-loading threads during shutdown.
+- Removed obsolete upstream-era project files and standardized review shortcuts.
+
 ## 2.0.0
 
 - Reorganized the source as a feature-first modular monolith with explicit `annotations`, `canvas`, `files`, `image_tools`, `localization`, `platform`, `ui`, and `workbench` ownership.
