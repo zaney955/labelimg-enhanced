@@ -53,7 +53,6 @@ from labelimg.localization.runtime import (
     SIMPLIFIED_CHINESE,
     current_language,
     critical as localized_critical,
-    information as localized_information,
     localize_dialog_buttons,
     localize_message_box_buttons,
     question as localized_question,
@@ -132,6 +131,7 @@ from labelimg.workbench.session import (
     TransitionRequirement,
     WorkbenchSession,
 )
+from labelimg.workbench.help_ui import AboutDialog, ShortcutCatalogDialog
 from labelimg.workbench.support import (
     APP_NAME,
     compare_image_paths,
@@ -426,16 +426,16 @@ class MainWindow(
 
     def show_info_dialog(self):
         from labelimg.__init__ import __version__
-        msg = tr(
-            'info.message',
-            name=__appname__,
-            version=__version__,
-            python=sys.version.split()[0],
-        )
-        localized_information(self, tr('info.title'), msg)
+
+        AboutDialog(
+            __appname__,
+            __version__,
+            sys.version.split()[0],
+            self,
+        ).exec_()
 
     def show_shortcuts_dialog(self):
-        self.show_tutorial_dialog(browser='default', link='https://github.com/tzutalin/labelImg#Hotkeys')
+        ShortcutCatalogDialog(self).exec_()
 
 
 

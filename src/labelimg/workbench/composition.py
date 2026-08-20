@@ -800,8 +800,8 @@ class WorkbenchComposer:
         toggle_visibility.setChecked(True)
 
         help_default = action(get_str('tutorialDefault'), self.show_default_tutorial_dialog, None, 'tutorial', get_str('tutorialDetail'))
-        show_info = action(get_str('info'), self.show_info_dialog, None, 'about', get_str('info'))
-        show_shortcut = action(get_str('shortcut'), self.show_shortcuts_dialog, None, 'keyboard-shortcuts', get_str('shortcut'))
+        show_info = action(get_str('info'), self.show_info_dialog, None, 'about', get_str('infoDetail'))
+        show_shortcut = action(get_str('shortcut'), self.show_shortcuts_dialog, None, 'keyboard-shortcuts', get_str('shortcutDetail'))
 
         zoom = QWidgetAction(self)
         zoom.setDefaultWidget(self.zoom_widget)
@@ -1199,8 +1199,8 @@ class WorkbenchComposer:
             show_all: ('showAllBox', 'showAllBoxDetail'),
             toggle_visibility: ('hideAllBox', 'hideAllBoxDetail'),
             help_default: ('tutorialDefault', 'tutorialDetail'),
-            show_info: ('info', 'info'),
-            show_shortcut: ('shortcut', 'shortcut'),
+            show_info: ('info', 'infoDetail'),
+            show_shortcut: ('shortcut', 'shortcutDetail'),
             zoom_in: ('zoomin', 'zoominDetail'),
             zoom_out: ('zoomout', 'zoomoutDetail'),
             zoom_org: ('originalsize', 'originalsizeDetail'),
