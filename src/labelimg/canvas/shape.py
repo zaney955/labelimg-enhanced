@@ -143,18 +143,43 @@ class Shape(object):
 
     def paint_label_text(self, painter):
         """Draw label text, highlighting it when this shape is selected."""
+        geometry = self._label_text_geometry()
+        if geometry is None:
+            return
+        font, text_x, text_y, text_rect = geometry
+
+        scale = max(float(self.scale), 0.01)
+        padding = self.selected_label_padding / scale
+        painter.save()
+        painter.setFont(font)
+        if self.selected:
+            radius = self.selected_label_radius / scale
+            background_rect = text_rect.adjusted(
+                -padding,
+                -padding,
+                padding,
+                padding,
+            )
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(self.selected_label_background_color)
+            painter.drawRoundedRect(background_rect, radius, radius)
+            painter.setPen(self.selected_label_text_color)
+        painter.drawText(text_x, text_y, self.label)
+        painter.restore()
+
+    def _label_text_geometry(self, scale=None, font_size=None):
+        """Return the font, baseline, and scene-space rendered text bounds."""
+        if not self.points or not self.label:
+            return None
         min_x = min(point.x() for point in self.points)
         min_y = min(point.y() for point in self.points)
 
-        if self.label is None:
-            self.label = ""
-        if not self.label:
-            return
-
         font = QFont()
-        font.setPointSize(self.label_font_size)
+        font.setPointSize(
+            self.label_font_size if font_size is None else font_size
+        )
         font.setBold(True)
-        scale = max(float(self.scale), 0.01)
+        scale = max(float(self.scale if scale is None else scale), 0.01)
         metrics_rect = QRectF(
             QFontMetrics(font).tightBoundingRect(self.label)
         )
@@ -178,25 +203,30 @@ class Shape(object):
                     - metrics_rect.top()
                 )
             )
+        text_rect = QRectF(metrics_rect)
+        text_rect.translate(text_x, text_y)
+        return font, text_x, text_y, text_rect
 
-        painter.save()
-        painter.setFont(font)
-        if self.selected:
-            text_rect = QRectF(metrics_rect)
-            text_rect.translate(text_x, text_y)
-            radius = self.selected_label_radius / scale
-            background_rect = text_rect.adjusted(
-                -padding,
-                -padding,
-                padding,
-                padding,
-            )
-            painter.setPen(Qt.NoPen)
-            painter.setBrush(self.selected_label_background_color)
-            painter.drawRoundedRect(background_rect, radius, radius)
-            painter.setPen(self.selected_label_text_color)
-        painter.drawText(text_x, text_y, self.label)
-        painter.restore()
+    def label_text_rect(self, scale=None, font_size=None):
+        """Return the scene-space bounds used to render the label text."""
+        geometry = self._label_text_geometry(scale, font_size)
+        return None if geometry is None else QRectF(geometry[3])
+
+    def label_hit_rect(self, scale=None, font_size=None):
+        """Return the stable two-screen-pixel target around visible text."""
+        if not self.paint_label:
+            return None
+        scale = max(float(self.scale if scale is None else scale), 0.01)
+        text_rect = self.label_text_rect(scale, font_size)
+        if text_rect is None:
+            return None
+        allowance = self.selected_label_padding / scale
+        return text_rect.adjusted(
+            -allowance,
+            -allowance,
+            allowance,
+            allowance,
+        )
 
     def draw_vertex(self, path, i):
         d = self.point_size / self.scale

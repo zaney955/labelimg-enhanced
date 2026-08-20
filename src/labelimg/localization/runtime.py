@@ -204,6 +204,8 @@ _HISTORY_MESSAGE_IDS = {
     "Copy box": "history.copy",
     "Paste boxes": "history.paste",
     "Copy previous boxes": "history.copyPrevious",
+    "Change label": "history.changeLabelPending",
+    "Rename label group": "history.renameGroupPending",
 }
 
 

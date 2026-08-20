@@ -182,6 +182,7 @@ class CanvasInteraction:
         nearest_vertex_hit,
         nearest_edge_hit,
         distance_tolerance=1e-6,
+        label_hit_rect=None,
     ):
         """Resolve and publish the deterministic target at ``position``."""
         previous = self.hover
@@ -191,6 +192,7 @@ class CanvasInteraction:
             nearest_vertex_hit,
             nearest_edge_hit,
             distance_tolerance,
+            label_hit_rect,
         )
         self.set_hover_target(target)
         return previous, self.hover
@@ -202,13 +204,25 @@ class CanvasInteraction:
         nearest_vertex_hit,
         nearest_edge_hit,
         distance_tolerance=1e-6,
+        label_hit_rect=None,
     ):
-        """Choose one target from geometry only.
+        """Choose one target from visible label text and geometry.
 
-        Scene order is bottom-to-top. Corners outrank edges, edges outrank
-        interiors, and drawing order is used only for approximate ties.
+        Scene order is bottom-to-top. Labels outrank corners, corners outrank
+        edges, edges outrank interiors, and drawing order is used only for
+        approximate ties.
         """
         shapes = tuple(shapes)
+        if label_hit_rect is not None:
+            target = self._label_target(
+                shapes,
+                position,
+                label_hit_rect,
+                distance_tolerance,
+            )
+            if target.shape is not None:
+                return target
+
         target = self._nearest_feature_target(
             shapes,
             position,
@@ -272,6 +286,19 @@ class CanvasInteraction:
             for layer, shape in enumerate(shapes)
             if shape.contains_point(position)
         ]
+        return cls._rectangle_target(candidates, position, tolerance)
+
+    @classmethod
+    def _label_target(cls, shapes, position, label_hit_rect, tolerance):
+        candidates = []
+        for layer, shape in enumerate(shapes):
+            bounds = label_hit_rect(shape)
+            if bounds is not None and bounds.contains(position):
+                candidates.append((layer, shape, bounds))
+        return cls._rectangle_target(candidates, position, tolerance)
+
+    @classmethod
+    def _rectangle_target(cls, candidates, position, tolerance):
         if not candidates:
             return HoverTarget()
 

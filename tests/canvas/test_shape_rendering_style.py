@@ -283,6 +283,31 @@ class ShapeRenderingStyleTest(unittest.TestCase):
             2 + Shape.label_outline_gap / Shape.scale,
         )
 
+    def test_label_hit_rect_tracks_rendered_text_with_screen_padding(self):
+        shape = self.make_rectangle()
+        shape.paint_label = True
+
+        text_rect = shape.label_text_rect(scale=1.0, font_size=8)
+        hit_rect = shape.label_hit_rect(scale=1.0, font_size=8)
+
+        self.assertAlmostEqual(hit_rect.left(), text_rect.left() - 2.0)
+        self.assertAlmostEqual(hit_rect.top(), text_rect.top() - 2.0)
+        self.assertAlmostEqual(hit_rect.right(), text_rect.right() + 2.0)
+        self.assertAlmostEqual(hit_rect.bottom(), text_rect.bottom() + 2.0)
+
+        scaled_text = shape.label_text_rect(scale=2.0, font_size=8)
+        scaled_hit = shape.label_hit_rect(scale=2.0, font_size=8)
+        self.assertAlmostEqual(
+            (scaled_text.left() - scaled_hit.left()) * 2.0,
+            2.0,
+        )
+
+    def test_hidden_label_has_no_hit_rect(self):
+        shape = self.make_rectangle()
+        shape.paint_label = False
+
+        self.assertIsNone(shape.label_hit_rect(scale=1.0, font_size=8))
+
     def test_hidden_label_does_not_paint_highlight_when_selected(self):
         shape = self.make_rectangle()
         shape.selected = True
