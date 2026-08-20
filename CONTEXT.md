@@ -8,6 +8,10 @@ This context defines the project identity and the language used for selecting an
 The independently maintained derivative whose GitHub repository and Python distribution are named `labelimg-enhanced`, whose import package is `labelimg`, and whose application name and command remain `LabelImg` and `labelImg`. Its first independent release is version `1.9.0`, continuing from the upstream `v1.8.6` baseline.
 _Avoid_: Upstream LabelImg, GitHub fork, `libs` distribution
 
+**GitHub release**:
+The canonical public distribution record for one LabelImg Enhanced version in the project's GitHub repository, containing an annotated version tag and wheel while GitHub supplies source archives. It does not imply publication to PyPI.
+_Avoid_: PyPI release, tag-only version, GitHub version
+
 **Application language**:
 The user-selected language used for all visible LabelImg interface text. It is either Simplified Chinese or English, persists across launches, initially maps every `zh-*` system locale to Simplified Chinese and every other locale to English, and immediately updates the current application surface when changed without requiring a restart.
 _Avoid_: Annotation language, label language, system-locale lock
