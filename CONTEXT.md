@@ -16,6 +16,10 @@ _Avoid_: Annotation language, label language, system-locale lock
 The stable top-level Settings menu that owns application preferences: language, automatic saving, single-class mode, and resetting all settings. View owns only visible presentation and Canvas scale, while File and Edit retain file/workspace commands and annotation-editing commands respectively.
 _Avoid_: View-menu preferences, File-menu reset command, duplicated settings entry
 
+**Keyboard shortcut catalog**:
+The complete bilingual Help view of keyboard-operated commands and context-specific interactions, grouped by where they apply and paired with their current key bindings and concise usage explanations.
+_Avoid_: Upstream hotkey webpage, menu-only shortcut list, unexplained key list
+
 **Interface text**:
 Application-authored text visible during operation, including commands, panels, status and guidance, validation, confirmations, recovery, conflicts, and application-owned buttons. It excludes user-authored labels, file names and paths, annotation-format names, and verbatim operating-system diagnostics.
 _Avoid_: User data, translated path, rewritten system error
