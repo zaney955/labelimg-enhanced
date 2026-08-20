@@ -1621,6 +1621,7 @@ class MainWindow(
         if not self.file_path or target == os.path.abspath(self.file_path):
             return True
         self._cancel_annotation_edit_for_navigation()
+        self._flush_queued_autosave_for_navigation()
         view = self.annotation_editing.view
         if view is None or not view.dirty:
             return True
@@ -1643,6 +1644,23 @@ class MainWindow(
         if not self._discard_history_view(view):
             return False
         return True
+
+    def _flush_queued_autosave_for_navigation(self):
+        """Complete a safe debounced save before deciding to prompt."""
+        view = self.annotation_editing.view
+        if (
+            view is None
+            or not view.dirty
+            or not self.auto_saving.isChecked()
+            or not self.auto_save_timer.isActive()
+            or self.annotation_editing.pending
+            or self.annotation_editing.edit_open
+            or self.annotation_editing.degraded
+            or self.annotation_persistence.has_conflict(view.image_key)
+        ):
+            return
+        self.auto_save_timer.stop()
+        self.save_dirty_annotations()
 
     def open_file(self, _value=False):
         if not self.may_continue():
