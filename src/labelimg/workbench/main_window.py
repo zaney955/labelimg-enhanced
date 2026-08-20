@@ -811,6 +811,10 @@ class MainWindow(
 
 
     def closeEvent(self, event):
+        if not self.finish_deferred_image_loads():
+            event.ignore()
+            self.status(tr('status.imageLoadingBusy'))
+            return
         if (
             self.annotation_persistence.conflicts
             and not self._resolve_conflicts_for_close()

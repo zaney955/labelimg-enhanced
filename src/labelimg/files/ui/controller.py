@@ -890,6 +890,18 @@ class FileActionsMixin:
             self.file_list_widget.setEnabled(True)
 
 
+    def finish_deferred_image_loads(self, timeout_ms=5000):
+        """Stop projecting pending decodes and join their worker threads."""
+        self.cancel_deferred_image_load()
+        for thread, _worker in tuple(
+            self._deferred_image_load_jobs.values()
+        ):
+            thread.quit()
+            if thread.isRunning() and not thread.wait(timeout_ms):
+                return False
+        return True
+
+
     def load_file_after_deletion(self, path):
         """Release old pixels and decode the replacement off the UI thread."""
         self._ensure_deferred_image_loading()
