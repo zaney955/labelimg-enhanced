@@ -26,6 +26,7 @@ from labelimg.annotations.ui.canvas_adapter import (
 from labelimg.annotations.application.workspace import annotation_resources
 from labelimg.annotations.application.editing import ProjectionFailed
 from labelimg.annotations.domain.history import UnknownImageHistory
+from labelimg.canvas import detect_near_duplicate_clusters
 from labelimg.annotations.infrastructure.storage import AnnotationStorageConflict, fingerprint_path
 from labelimg.platform.text import native_text as ustr
 from labelimg.workbench.support import document_format_name, read_image as read
@@ -397,6 +398,9 @@ class AnnotationActionsMixin:
         shapes,
         active_shape,
     ):
+        if hasattr(self, 'near_duplicate_chooser'):
+            self.near_duplicate_chooser.close()
+        self.canvas.clear_near_duplicate_focus()
         focus = QApplication.focusWidget()
         for shape in shapes:
             shape.paint_label = self.display_label_option.isChecked()
@@ -410,6 +414,7 @@ class AnnotationActionsMixin:
         self.shape_selection_changed(bool(self.canvas.selected_shapes))
         if active_shape is not None:
             self.label_list.ensure_shape_visible(active_shape)
+        self.refresh_near_duplicate_clusters()
         if focus is not None:
             focus.setFocus(Qt.OtherFocusReason)
 
@@ -571,6 +576,7 @@ class AnnotationActionsMixin:
             )
             self.refresh_candidate_labels()
         self.update_file_list_item_status(self.file_path)
+        self.refresh_near_duplicate_clusters()
 
 
     def _perform_annotation_edit(
@@ -1272,6 +1278,242 @@ class AnnotationActionsMixin:
         self.canvas.set_external_hover_shapes(shapes)
 
 
+    def refresh_near_duplicate_clusters(self):
+        clusters = detect_near_duplicate_clusters(self.canvas.shapes)
+        image_key = self._near_duplicate_image_key()
+        dismissals = self._near_duplicate_dismissals.setdefault(
+            image_key,
+            set(),
+        ) if image_key is not None else set()
+        current_signatures = {cluster.signature for cluster in clusters}
+        dismissals.intersection_update(current_signatures)
+        active = tuple(
+            cluster for cluster in clusters
+            if cluster.signature not in dismissals
+        )
+        self._near_duplicate_clusters = active
+        self.canvas.set_near_duplicate_clusters(active)
+        self.label_list.set_near_duplicate_clusters(active)
+        self._sync_restore_near_duplicate_action()
+
+        chooser = getattr(self, 'near_duplicate_chooser', None)
+        if chooser is not None and chooser.isVisible():
+            shape = chooser.current_shape
+            cluster = self._near_duplicate_cluster_for_shape(shape)
+            chooser.refresh_cluster(
+                cluster,
+                self._visible_annotation_shapes(),
+                preferred_shape=shape,
+            )
+        return active
+
+
+    def open_near_duplicate_chooser(
+        self,
+        cluster,
+        global_position,
+        preferred_shape=None,
+    ):
+        current = next(
+            (
+                item for item in self._near_duplicate_clusters
+                if item.signature == cluster.signature
+            ),
+            None,
+        )
+        if current is None:
+            return
+        if preferred_shape not in current.members:
+            preferred_shape = current.members[-1]
+        self.near_duplicate_chooser.show_cluster(
+            current,
+            self._visible_annotation_shapes(),
+            preferred_shape=preferred_shape,
+            global_position=global_position,
+        )
+
+
+    def open_near_duplicate_group(self, clusters, global_position):
+        clusters = tuple(
+            cluster for cluster in clusters
+            if any(
+                current.signature == cluster.signature
+                for current in self._near_duplicate_clusters
+            )
+        )
+        if not clusters:
+            return
+        if len(clusters) == 1:
+            cluster = clusters[0]
+        else:
+            menu = QMenu(self)
+            for index, item in enumerate(clusters, 1):
+                labels = ", ".join(sorted({
+                    str(shape.label) for shape in item.members
+                }))
+                action = menu.addAction(tr(
+                    'nearDuplicate.clusterMenuItem',
+                    index=index,
+                    count=len(item.members),
+                    labels=labels,
+                ))
+                action.setData(item)
+            chosen = menu.exec_(global_position)
+            if chosen is None:
+                return
+            cluster = chosen.data()
+        preferred = next(
+            (
+                shape for shape in reversed(cluster.members)
+                if self.canvas.isVisible(shape)
+            ),
+            cluster.members[-1],
+        )
+        self.open_near_duplicate_chooser(
+            cluster,
+            global_position,
+            preferred,
+        )
+
+
+    def select_near_duplicate_member(self, cluster, shape):
+        current = self._near_duplicate_cluster_for_shape(shape)
+        if current is None:
+            self.near_duplicate_chooser.close()
+            return
+        self.canvas.set_near_duplicate_focus(current, shape)
+        self.label_list.ensure_shape_visible(shape)
+
+
+    def set_near_duplicate_member_visible(self, shape, visible):
+        if shape not in self.canvas.shapes:
+            return
+        self.label_visibility_requested((shape,), bool(visible))
+        cluster = self._near_duplicate_cluster_for_shape(shape)
+        self.near_duplicate_chooser.refresh_cluster(
+            cluster,
+            self._visible_annotation_shapes(),
+            preferred_shape=shape,
+        )
+
+
+    def edit_near_duplicate_member(self, shape):
+        if shape not in self.canvas.shapes:
+            self.near_duplicate_chooser.close()
+            return
+        position = self.near_duplicate_chooser.pos()
+        self.near_duplicate_chooser.hide()
+        self.edit_shape_label(shape)
+        self.refresh_near_duplicate_clusters()
+        cluster = self._near_duplicate_cluster_for_shape(shape)
+        if cluster is not None:
+            self.near_duplicate_chooser.show_cluster(
+                cluster,
+                self._visible_annotation_shapes(),
+                preferred_shape=shape,
+                global_position=position,
+            )
+        else:
+            self.near_duplicate_chooser.close()
+
+
+    def delete_near_duplicate_member(self, shape):
+        if shape not in self.canvas.shapes:
+            self.near_duplicate_chooser.close()
+            return
+        old_cluster = self._near_duplicate_cluster_for_shape(shape)
+        old_members = tuple(old_cluster.members) if old_cluster else tuple()
+        old_index = old_members.index(shape) if shape in old_members else 0
+        position = self.near_duplicate_chooser.pos()
+        self.near_duplicate_chooser.hide()
+        self.delete_annotation_shapes(
+            (shape,),
+            'Delete near-duplicate member',
+        )
+        self.refresh_near_duplicate_clusters()
+        surviving = [item for item in old_members if item in self.canvas.shapes]
+        preferred = (
+            surviving[min(old_index, len(surviving) - 1)]
+            if surviving
+            else None
+        )
+        cluster = self._near_duplicate_cluster_for_shape(preferred)
+        if cluster is not None:
+            self.near_duplicate_chooser.show_cluster(
+                cluster,
+                self._visible_annotation_shapes(),
+                preferred_shape=preferred,
+                global_position=position,
+            )
+        else:
+            self.near_duplicate_chooser.close()
+
+
+    def dismiss_near_duplicate_cluster(self, cluster):
+        image_key = self._near_duplicate_image_key()
+        if image_key is None:
+            return
+        self._near_duplicate_dismissals.setdefault(image_key, set()).add(
+            cluster.signature
+        )
+        self.near_duplicate_chooser.close()
+        self.canvas.clear_near_duplicate_focus()
+        self.refresh_near_duplicate_clusters()
+
+
+    def restore_current_near_duplicate_dismissals(self):
+        image_key = self._near_duplicate_image_key()
+        if image_key is None:
+            return
+        self._near_duplicate_dismissals.setdefault(image_key, set()).clear()
+        self.refresh_near_duplicate_clusters()
+
+
+    def clear_near_duplicate_session(self):
+        self._near_duplicate_dismissals.clear()
+        self._near_duplicate_clusters = tuple()
+        if hasattr(self, 'near_duplicate_chooser'):
+            self.near_duplicate_chooser.close()
+        self.canvas.set_near_duplicate_clusters(())
+        self.canvas.clear_near_duplicate_focus()
+        self.label_list.set_near_duplicate_clusters(())
+        self._sync_restore_near_duplicate_action()
+
+
+    def _near_duplicate_cluster_for_shape(self, shape):
+        if shape is None:
+            return None
+        return next(
+            (
+                cluster for cluster in self._near_duplicate_clusters
+                if shape in cluster.members
+            ),
+            None,
+        )
+
+
+    def _near_duplicate_image_key(self):
+        return os.path.abspath(self.file_path) if self.file_path else None
+
+
+    def _visible_annotation_shapes(self):
+        return tuple(
+            shape for shape in self.canvas.shapes
+            if self.canvas.isVisible(shape)
+        )
+
+
+    def _sync_restore_near_duplicate_action(self):
+        action = getattr(self, 'restore_near_duplicate_action', None)
+        if action is None:
+            return
+        image_key = self._near_duplicate_image_key()
+        action.setEnabled(bool(
+            image_key is not None
+            and self._near_duplicate_dismissals.get(image_key)
+        ))
+
+
     def selected_label_shapes(self):
         return list(self.label_list.selected_shapes())
 
@@ -1362,6 +1604,7 @@ class AnnotationActionsMixin:
             self.add_label(shape)
         self.update_combo_box()
         self.canvas.load_shapes(s)
+        self.refresh_near_duplicate_clusters()
 
 
     def load_annotation_document(self, document):
@@ -1383,6 +1626,7 @@ class AnnotationActionsMixin:
                 else 'verified' if document.verified
                 else 'unreviewed'
             )
+        self.refresh_near_duplicate_clusters()
 
 
     def update_combo_box(self):
@@ -1716,6 +1960,7 @@ class AnnotationActionsMixin:
     def clear_current_labels(self):
         self.label_list.clear()
         self.canvas.load_shapes([])
+        self.refresh_near_duplicate_clusters()
 
 
     def copy_current_bounding_boxes(self):

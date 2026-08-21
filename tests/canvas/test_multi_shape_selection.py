@@ -220,11 +220,44 @@ class CanvasMultiSelectionTest(unittest.TestCase):
         self.ctrl_click((50, 50))
         self.assertEqual(self.canvas.selected_shapes, [inner])
 
-    def test_label_text_target_is_shared_by_hover_click_ctrl_and_right_press(self):
-        label_shape = rectangle("label target", 10, 45, 75, 85)
+    def test_box_edge_wins_when_another_shape_label_overlaps_it(self):
+        label_shape = rectangle("red label", 10, 45, 75, 85)
         label_shape.paint_label = True
-        geometry_shape = rectangle("geometry", 5, 5, 100, 45)
-        self.canvas.load_shapes([label_shape, geometry_shape])
+        self.canvas.load_shapes([label_shape])
+        label_center = label_shape.label_hit_rect(
+            scale=self.canvas.scale,
+            font_size=self.canvas.label_font_size,
+        ).center()
+        position = (round(label_center.x()), round(label_center.y()))
+        edge_shape = rectangle(
+            "blue box",
+            5,
+            position[1],
+            110,
+            100,
+        )
+        self.canvas.load_shapes([label_shape, edge_shape])
+        self.assertIsNotNone(
+            self.canvas.nearest_edge_hit(
+                edge_shape,
+                QPointF(*position),
+            )
+        )
+        self.assertEqual(self.canvas.selected_shapes, [])
+
+        self.canvas.mouseMoveEvent(mouse_event(QEvent.MouseMove, position))
+        self.assertIs(
+            self.canvas.interaction_snapshot.hover.shape,
+            edge_shape,
+        )
+
+        self.click(position)
+        self.assertEqual(self.canvas.selected_shapes, [edge_shape])
+
+    def test_label_text_is_inert_for_ordinary_pointer_actions(self):
+        label_shape = rectangle("label only", 10, 45, 75, 85)
+        label_shape.paint_label = True
+        self.canvas.load_shapes([label_shape])
         point = label_shape.label_hit_rect(
             scale=self.canvas.scale,
             font_size=self.canvas.label_font_size,
@@ -232,13 +265,10 @@ class CanvasMultiSelectionTest(unittest.TestCase):
         position = (round(point.x()), round(point.y()))
 
         self.canvas.mouseMoveEvent(mouse_event(QEvent.MouseMove, position))
-        self.assertIs(
-            self.canvas.interaction_snapshot.hover.shape,
-            label_shape,
-        )
+        self.assertIsNone(self.canvas.interaction_snapshot.hover.shape)
 
         self.click(position)
-        self.assertEqual(self.canvas.selected_shapes, [label_shape])
+        self.assertEqual(self.canvas.selected_shapes, [])
 
         self.ctrl_click(position)
         self.assertEqual(self.canvas.selected_shapes, [])
@@ -249,10 +279,80 @@ class CanvasMultiSelectionTest(unittest.TestCase):
             button=Qt.RightButton,
             buttons=Qt.RightButton,
         ))
-        self.assertIs(self.canvas.right_press_shape, label_shape)
+        self.assertIsNone(self.canvas.right_press_shape)
         self.canvas._interaction.finish_right_press()
 
-    def test_hidden_label_text_does_not_leave_a_pointer_target(self):
+    def test_double_click_uses_hovered_box_before_overlapping_label(self):
+        label_shape = rectangle("red label", 10, 45, 75, 85)
+        label_shape.paint_label = True
+        self.canvas.load_shapes([label_shape])
+        label_center = label_shape.label_hit_rect(
+            scale=self.canvas.scale,
+            font_size=self.canvas.label_font_size,
+        ).center()
+        position = (round(label_center.x()), round(label_center.y()))
+        edge_shape = rectangle(
+            "blue box",
+            5,
+            position[1],
+            110,
+            100,
+        )
+        self.canvas.load_shapes([label_shape, edge_shape])
+        requested = []
+        self.canvas.shapeLabelEditRequested.connect(requested.append)
+
+        self.canvas.mouseMoveEvent(mouse_event(QEvent.MouseMove, position))
+        self.canvas.mousePressEvent(mouse_event(
+            QEvent.MouseButtonPress,
+            position,
+            button=Qt.LeftButton,
+            buttons=Qt.LeftButton,
+        ))
+        self.assertEqual(self.canvas.selected_shapes, [edge_shape])
+
+        self.canvas.mouseDoubleClickEvent(mouse_event(
+            QEvent.MouseButtonDblClick,
+            position,
+            button=Qt.LeftButton,
+            buttons=Qt.LeftButton,
+        ))
+
+        self.assertEqual(requested, [edge_shape])
+        self.assertEqual(self.canvas.selected_shapes, [edge_shape])
+        self.assertIs(
+            self.canvas.interaction_snapshot.hover.shape,
+            edge_shape,
+        )
+
+    def test_double_click_without_box_uses_label_overlap_geometry(self):
+        lower = rectangle("same label", 10, 45, 75, 85)
+        upper = rectangle("same label", 10, 45, 75, 85)
+        lower.paint_label = True
+        upper.paint_label = True
+        self.canvas.load_shapes([lower, upper])
+        label_center = upper.label_hit_rect(
+            scale=self.canvas.scale,
+            font_size=self.canvas.label_font_size,
+        ).center()
+        position = (round(label_center.x()), round(label_center.y()))
+        requested = []
+        self.canvas.shapeLabelEditRequested.connect(requested.append)
+
+        self.assertIsNone(
+            self.canvas.resolve_pointer_target(label_center).shape
+        )
+        self.canvas.mouseDoubleClickEvent(mouse_event(
+            QEvent.MouseButtonDblClick,
+            position,
+            button=Qt.LeftButton,
+            buttons=Qt.LeftButton,
+        ))
+
+        self.assertEqual(requested, [upper])
+        self.assertEqual(self.canvas.selected_shapes, [upper])
+
+    def test_hidden_label_text_does_not_leave_a_label_edit_target(self):
         shape = rectangle("hidden label", 20, 50, 80, 90)
         shape.paint_label = True
         self.canvas.load_shapes([shape])
@@ -260,16 +360,20 @@ class CanvasMultiSelectionTest(unittest.TestCase):
             scale=self.canvas.scale,
             font_size=self.canvas.label_font_size,
         ).center()
+        self.assertIs(
+            self.canvas.resolve_label_edit_target(point).shape,
+            shape,
+        )
 
         shape.paint_label = False
         self.assertIsNone(
-            self.canvas.resolve_pointer_target(point).shape
+            self.canvas.resolve_label_edit_target(point).shape
         )
 
         shape.paint_label = True
         self.canvas.set_shape_visible(shape, False)
         self.assertIsNone(
-            self.canvas.resolve_pointer_target(point).shape
+            self.canvas.resolve_label_edit_target(point).shape
         )
 
     def test_ctrl_hover_keeps_box_target_but_suppresses_corner_cue(self):

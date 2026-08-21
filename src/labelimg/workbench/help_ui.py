@@ -96,6 +96,7 @@ _CONTEXT_SECTIONS = (
     (
         "shortcuts.section.canvasContext",
         (
+            ("shortcuts.keys.overlapBadge", "shortcuts.canvas.nearDuplicate", "shortcuts.canvas.nearDuplicateDetail"),
             ("shortcuts.keys.doubleClick", "shortcuts.canvas.editLabel", "shortcuts.canvas.editLabelDetail"),
             ("shortcuts.keys.controlHold", "shortcuts.canvas.multiSelect", "shortcuts.canvas.multiSelectDetail"),
             ("Esc", "shortcuts.canvas.cancel", "shortcuts.canvas.cancelDetail"),
@@ -118,6 +119,7 @@ _CONTEXT_SECTIONS = (
     (
         "shortcuts.section.annotationListContext",
         (
+            ("shortcuts.keys.riskMarker", "shortcuts.annotationList.nearDuplicate", "shortcuts.annotationList.nearDuplicateDetail"),
             ("Ctrl+A", "shortcuts.annotationList.selectAll", "shortcuts.annotationList.selectAllDetail"),
             ("shortcuts.keys.arrows", "shortcuts.annotationList.focus", "shortcuts.annotationList.focusDetail"),
             ("shortcuts.keys.shiftArrows", "shortcuts.annotationList.extend", "shortcuts.annotationList.extendDetail"),

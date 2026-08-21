@@ -137,6 +137,7 @@ from labelimg.files import (
     RecoveryOperation,
 )
 from labelimg.annotations.ui.label_group_list import LabelGroupListWidget
+from labelimg.annotations.ui.near_duplicate_chooser import NearDuplicateChooser
 from labelimg.image_tools.application.session import (
     AdjustmentChange,
     CropChange,
@@ -236,6 +237,8 @@ class WorkbenchComposer:
 
         self.annotation_clipboard = []
         self.prev_label_text = ''
+        self._near_duplicate_clusters = tuple()
+        self._near_duplicate_dismissals = {}
 
         list_layout = QVBoxLayout()
         list_layout.setContentsMargins(6, 4, 6, 6)
@@ -266,6 +269,26 @@ class WorkbenchComposer:
         self.delete_button.setObjectName('annotationDeleteButton')
         self.visibility_button = QToolButton()
         self.visibility_button.setObjectName('annotationVisibilityButton')
+        self.near_duplicate_more_button = QToolButton()
+        self.near_duplicate_more_button.setObjectName(
+            'nearDuplicateMoreButton'
+        )
+        self.near_duplicate_more_button.setText('⋮')
+        self.near_duplicate_more_button.setPopupMode(QToolButton.InstantPopup)
+        self.near_duplicate_more_menu = QMenu(
+            self.near_duplicate_more_button
+        )
+        self.restore_near_duplicate_action = QAction(self)
+        self.restore_near_duplicate_action.setEnabled(False)
+        self.restore_near_duplicate_action.triggered.connect(
+            self.restore_current_near_duplicate_dismissals
+        )
+        self.near_duplicate_more_menu.addAction(
+            self.restore_near_duplicate_action
+        )
+        self.near_duplicate_more_button.setMenu(
+            self.near_duplicate_more_menu
+        )
         self.annotation_header = QWidget()
         annotation_header_layout = QHBoxLayout(self.annotation_header)
         annotation_header_layout.setContentsMargins(0, 0, 0, 0)
@@ -275,6 +298,7 @@ class WorkbenchComposer:
             self.copy_button,
             self.delete_button,
             self.visibility_button,
+            self.near_duplicate_more_button,
         ):
             button.setAutoRaise(True)
             button.setIconSize(QSize(20, 20))
@@ -469,6 +493,7 @@ class WorkbenchComposer:
         self.color_dialog = ColorDialog(parent=self)
 
         self.canvas = Canvas(parent=self)
+        self.near_duplicate_chooser = NearDuplicateChooser(self)
         self.canvas.installEventFilter(self)
         self.canvas.zoomRequest.connect(self.zoom_request)
         self.canvas.set_drawing_shape_to_square(settings.get(SETTING_DRAW_SQUARE, False))
@@ -537,6 +562,33 @@ class WorkbenchComposer:
         )
         self.canvas.shapeLabelEditRequested.connect(
             self.edit_shape_label
+        )
+        self.canvas.nearDuplicateRequested.connect(
+            self.open_near_duplicate_chooser
+        )
+        self.label_list.nearDuplicateRequested.connect(
+            self.open_near_duplicate_chooser
+        )
+        self.label_list.nearDuplicateGroupRequested.connect(
+            self.open_near_duplicate_group
+        )
+        self.near_duplicate_chooser.selectionRequested.connect(
+            self.select_near_duplicate_member
+        )
+        self.near_duplicate_chooser.visibilityRequested.connect(
+            self.set_near_duplicate_member_visible
+        )
+        self.near_duplicate_chooser.editRequested.connect(
+            self.edit_near_duplicate_member
+        )
+        self.near_duplicate_chooser.deleteRequested.connect(
+            self.delete_near_duplicate_member
+        )
+        self.near_duplicate_chooser.dismissRequested.connect(
+            self.dismiss_near_duplicate_cluster
+        )
+        self.near_duplicate_chooser.closed.connect(
+            self.canvas.clear_near_duplicate_focus
         )
         self.label_list.hoverRequested.connect(
             self.label_hover_changed

@@ -1,6 +1,15 @@
 
-from PyQt5.QtCore import QEvent, QPoint, QPointF, Qt, pyqtSignal
-from PyQt5.QtGui import QBrush, QColor, QCursor, QPainter, QPen, QPixmap
+from PyQt5.QtCore import QEvent, QPoint, QPointF, QRectF, Qt, pyqtSignal
+from PyQt5.QtGui import (
+    QBrush,
+    QColor,
+    QCursor,
+    QFont,
+    QFontMetrics,
+    QPainter,
+    QPen,
+    QPixmap,
+)
 from PyQt5.QtWidgets import QApplication, QMenu, QWidget
 
 from labelimg.localization.runtime import tr
@@ -10,6 +19,10 @@ from labelimg.canvas.shape import Shape
 from labelimg.canvas.interaction import CanvasInteraction, HoverTarget
 from labelimg.canvas.selection import SelectionSet
 from labelimg.canvas.geometry import distance
+from labelimg.canvas.near_duplicates import (
+    CATEGORY_CONFLICT,
+    cluster_bounds,
+)
 
 CURSOR_DEFAULT = Qt.ArrowCursor
 CURSOR_POINT = Qt.PointingHandCursor
@@ -40,6 +53,7 @@ class Canvas(QWidget):
     annotationGestureCanceled = pyqtSignal(str)
     hoverShapeChanged = pyqtSignal(object)
     shapeLabelEditRequested = pyqtSignal(object)
+    nearDuplicateRequested = pyqtSignal(object, object, object)
 
     CREATE, EDIT, PAN = list(range(3))
 
@@ -56,6 +70,11 @@ class Canvas(QWidget):
         self._interaction = CanvasInteraction()
         self._external_hover_shapes = tuple()
         self._last_pointer_pos = None
+        self._near_duplicate_clusters = tuple()
+        self._near_duplicate_marker_hits = tuple()
+        self._near_duplicate_focus = None
+        self._near_duplicate_focus_shape = None
+        self._near_duplicate_hover_cluster = None
         self.selected_shape_copy = None
         self.drawing_line_color = QColor(0, 0, 255)
         self.drawing_rect_color = QColor(0, 0, 255)
@@ -102,6 +121,8 @@ class Canvas(QWidget):
         )
 
     def leaveEvent(self, ev):
+        self.clear_near_duplicate_focus()
+        self._set_near_duplicate_hover(None)
         if (
             self.selection_press_pos is None
             and self.right_press_shape is None
@@ -146,6 +167,8 @@ class Canvas(QWidget):
             self.current = None
             self.line.points = []
         if mode != self.EDIT:
+            self.clear_near_duplicate_focus()
+            self._set_near_duplicate_hover(None)
             self.un_highlight()
             self.set_external_hover_shape(None)
             self.de_select_shape()
@@ -153,6 +176,44 @@ class Canvas(QWidget):
         self._cursor = CURSOR_GRAB if mode == self.PAN else CURSOR_DEFAULT
         self.setCursor(QCursor(self._cursor))
         self.repaint()
+
+    @property
+    def near_duplicate_clusters(self):
+        return self._near_duplicate_clusters
+
+    @property
+    def near_duplicate_focus(self):
+        return self._near_duplicate_focus
+
+    def set_near_duplicate_clusters(self, clusters):
+        self._near_duplicate_clusters = tuple(clusters)
+        if (
+            self._near_duplicate_focus is not None
+            and self._near_duplicate_focus not in self._near_duplicate_clusters
+        ):
+            self._near_duplicate_focus = None
+            self._near_duplicate_focus_shape = None
+        if self._near_duplicate_hover_cluster not in self._near_duplicate_clusters:
+            self._near_duplicate_hover_cluster = None
+        self._near_duplicate_marker_hits = tuple()
+        self.update()
+
+    def set_near_duplicate_focus(self, cluster, shape):
+        if cluster not in self._near_duplicate_clusters or shape not in cluster.members:
+            self.clear_near_duplicate_focus()
+            return
+        self._near_duplicate_focus = cluster
+        self._near_duplicate_focus_shape = shape
+        self.set_selected_shapes((shape,), active_shape=shape)
+        self.update()
+
+    def clear_near_duplicate_focus(self):
+        if self._near_duplicate_focus is None:
+            return False
+        self._near_duplicate_focus = None
+        self._near_duplicate_focus_shape = None
+        self.update()
+        return True
 
     def set_editing(self, value=True):
         self.set_mode(self.EDIT if value else self.CREATE)
@@ -361,10 +422,22 @@ class Canvas(QWidget):
             self.nearest_vertex_hit,
             self.nearest_edge_hit,
             0.5 / max(self.scale, 0.01),
+        )
+
+    def resolve_label_edit_target(self, point):
+        if not self.editing():
+            return HoverTarget()
+        visible_shapes = [
+            shape for shape in self.shapes if self.isVisible(shape)
+        ]
+        return self._interaction.resolve_label_target(
+            visible_shapes,
+            point,
             label_hit_rect=lambda shape: shape.label_hit_rect(
                 scale=self.scale,
                 font_size=self.label_font_size,
             ),
+            distance_tolerance=0.5 / max(self.scale, 0.01),
         )
 
     def _apply_hover_target(self, target, suppress_handles=False):
@@ -483,8 +556,24 @@ class Canvas(QWidget):
         pos = self.transform_pos(ev.pos())
         self._last_pointer_pos = QPointF(pos)
 
+        if (
+            self._near_duplicate_focus is not None
+            and not self._near_duplicate_focus_contains(ev.pos(), pos)
+        ):
+            self.clear_near_duplicate_focus()
+
         if self.pixmap and not self.pixmap.isNull():
             self._emit_coordinates(pos)
+
+        if self.editing() and not ev.buttons():
+            marker = self._near_duplicate_marker_at(ev.pos())
+            if marker is not None:
+                self._set_near_duplicate_hover(marker)
+                self.un_highlight()
+                self.override_cursor(CURSOR_POINT)
+                self.setToolTip(self._near_duplicate_tooltip(marker))
+                return
+        self._set_near_duplicate_hover(None)
 
         if self._pan_dragging:
             delta = ev.globalPos() - self.pan_initial_pos
@@ -651,6 +740,19 @@ class Canvas(QWidget):
     def mousePressEvent(self, ev):
         pos = self.transform_pos(ev.pos())
         self._last_pointer_pos = QPointF(pos)
+
+        if ev.button() == Qt.LeftButton and self.editing():
+            cluster = self._near_duplicate_marker_at(ev.pos())
+            if cluster is not None:
+                preferred = self._near_duplicate_preferred_shape(cluster)
+                self.nearDuplicateRequested.emit(
+                    cluster,
+                    ev.globalPos(),
+                    preferred,
+                )
+                ev.accept()
+                return
+            self.clear_near_duplicate_focus()
 
         if ev.button() == Qt.MiddleButton or (
             ev.button() == Qt.LeftButton and self.panning()
@@ -828,11 +930,14 @@ class Canvas(QWidget):
             and ev.button() == Qt.LeftButton
             and ev.modifiers() == Qt.NoModifier
         ):
-            target = self.resolve_pointer_target(
-                self.transform_pos(ev.pos())
-            )
+            position = self.transform_pos(ev.pos())
+            target = self.resolve_pointer_target(position)
+            box_target_hit = target.shape is not None
+            if target.shape is None:
+                target = self.resolve_label_edit_target(position)
             if target.shape is not None:
-                self._apply_hover_target(target)
+                if box_target_hit:
+                    self._apply_hover_target(target)
                 self.select_shape(target.shape)
                 # The second press in a Qt double-click has already opened a
                 # no-op Move/Resize gesture. Close it before the modal label
@@ -1165,14 +1270,37 @@ class Canvas(QWidget):
                 and self.isVisible(shape)
             ):
                 shape.fill = shape.selected
+                peer_in_focus = (
+                    self._near_duplicate_focus is not None
+                    and shape in self._near_duplicate_focus.members
+                    and shape is not self._near_duplicate_focus_shape
+                )
+                selected_focus_member = (
+                    self._near_duplicate_focus is not None
+                    and shape is self._near_duplicate_focus_shape
+                )
+                if peer_in_focus:
+                    p.save()
+                    p.setOpacity(0.20)
                 if shape in hover_shapes:
-                    shape.paint(
-                        p,
-                        outline_style=Qt.CustomDashLine,
-                        outline_dash_pattern=Shape.hover_dash_pattern,
-                    )
+                    paint_kwargs = {
+                        "outline_style": Qt.CustomDashLine,
+                        "outline_dash_pattern": Shape.hover_dash_pattern,
+                    }
+                    if peer_in_focus:
+                        paint_kwargs["paint_label"] = False
+                    elif selected_focus_member:
+                        paint_kwargs["paint_label"] = True
+                    shape.paint(p, **paint_kwargs)
                 else:
-                    shape.paint(p)
+                    if peer_in_focus:
+                        shape.paint(p, paint_label=False)
+                    elif selected_focus_member:
+                        shape.paint(p, paint_label=True)
+                    else:
+                        shape.paint(p)
+                if peer_in_focus:
+                    p.restore()
         if self.current:
             self.current.paint(p)
             self.line.paint(p)
@@ -1210,6 +1338,11 @@ class Canvas(QWidget):
             p.drawLine(0, int(round(self.prev_point.y())),
                        self.pixmap.width(), int(round(self.prev_point.y())))
 
+        p.save()
+        p.resetTransform()
+        self._paint_near_duplicate_markers(p)
+        p.restore()
+
         self.setAutoFillBackground(True)
         pal = self.palette()
         pal.setColor(
@@ -1219,6 +1352,207 @@ class Canvas(QWidget):
         self.setPalette(pal)
 
         p.end()
+
+    def _paint_near_duplicate_markers(self, painter):
+        hits = self._near_duplicate_marker_layout()
+        self._near_duplicate_marker_hits = tuple(hits)
+        for rect, cluster, anchor in hits:
+            conflict = cluster.risk == CATEGORY_CONFLICT
+            color = self._near_duplicate_marker_color(
+                cluster,
+                hovered=cluster is self._near_duplicate_hover_cluster,
+            )
+            foreground = QColor("white")
+            painter.save()
+            painter.setRenderHint(QPainter.Antialiasing, True)
+            if self._near_duplicate_marker_needs_leader(rect, anchor):
+                painter.setPen(QPen(color, 1.3, Qt.SolidLine, Qt.RoundCap))
+                painter.drawLine(
+                    anchor,
+                    self._leader_destination(rect, anchor),
+                )
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(color)
+            painter.drawRoundedRect(rect, 5, 5)
+            icon_rect = QRectF(rect.left() + 5, rect.top() + 4, 12, 12)
+            painter.setPen(QPen(foreground, 1.3, Qt.SolidLine))
+            painter.setBrush(Qt.NoBrush)
+            if conflict:
+                painter.drawText(icon_rect, Qt.AlignCenter, "!")
+            else:
+                painter.drawRect(icon_rect.adjusted(0, 2, -3, -1))
+                painter.drawRect(icon_rect.adjusted(3, -1, 0, -4))
+            font = QFont(painter.font())
+            font.setBold(True)
+            font.setPointSize(8)
+            painter.setFont(font)
+            painter.setPen(foreground)
+            painter.drawText(
+                rect.adjusted(20, 0, -5, 0),
+                Qt.AlignVCenter | Qt.AlignRight,
+                self._near_duplicate_marker_text(cluster),
+            )
+            painter.restore()
+
+    def _near_duplicate_marker_layout(self):
+        if not self._near_duplicate_clusters:
+            return tuple()
+        font = QFont(self.font())
+        font.setBold(True)
+        font.setPointSize(8)
+        metrics = QFontMetrics(font)
+        scale = max(float(self.scale), 0.01)
+        offset = self.offset_to_center()
+        available = QRectF(self.rect())
+        placed = []
+        hits = []
+        for cluster in self._near_duplicate_clusters:
+            if (
+                self._annotation_gesture_description is not None
+                and any(
+                    shape in self.selected_shapes
+                    for shape in cluster.members
+                )
+            ):
+                continue
+            visible = [
+                shape for shape in cluster.members
+                if shape in self.shapes and self.isVisible(shape)
+            ]
+            if not visible:
+                continue
+            left, top, right, _bottom = cluster_bounds(cluster)
+            anchor = QPointF(
+                (right + offset.x()) * scale,
+                (top + offset.y()) * scale,
+            )
+            text = self._near_duplicate_marker_text(cluster)
+            measure = getattr(metrics, "horizontalAdvance", metrics.width)
+            width = max(42.0, float(28 + measure(text)))
+            height = 20.0
+            x = anchor.x() + 6.0
+            if x + width > available.right() - 2:
+                x = anchor.x() - width - 6.0
+            y = anchor.y() - height - 5.0
+            if y < available.top() + 2:
+                y = anchor.y() + 5.0
+            rect = QRectF(x, y, width, height)
+            rect.moveLeft(max(2.0, min(rect.left(), available.right() - width - 2)))
+            rect.moveTop(max(2.0, min(rect.top(), available.bottom() - height - 2)))
+            while any(rect.adjusted(-2, -2, 2, 2).intersects(item) for item in placed):
+                rect.translate(0, height + 4)
+                if rect.bottom() > available.bottom() - 2:
+                    rect.moveTop(max(2.0, y - height - 4))
+                    break
+            placed.append(QRectF(rect))
+            hits.append((rect, cluster, anchor))
+        return tuple(hits)
+
+    def _near_duplicate_marker_text(self, cluster):
+        total = len(cluster.members)
+        return self._compact_near_duplicate_count(total)
+
+    @staticmethod
+    def _compact_near_duplicate_count(count):
+        return "99+" if int(count) > 99 else str(int(count))
+
+    @staticmethod
+    def _near_duplicate_marker_color(cluster, hovered=False):
+        color = QColor(
+            "#C026D3"
+            if cluster.risk == CATEGORY_CONFLICT
+            else "#D97706"
+        )
+        return color.lighter(112) if hovered else color
+
+    @staticmethod
+    def _near_duplicate_marker_needs_leader(rect, anchor):
+        default_left = anchor.x() + 6.0
+        default_top = anchor.y() - rect.height() - 5.0
+        return (
+            abs(rect.left() - default_left) > 0.5
+            or abs(rect.top() - default_top) > 0.5
+        )
+
+    @staticmethod
+    def _leader_destination(rect, anchor):
+        x = rect.left() if anchor.x() <= rect.center().x() else rect.right()
+        return QPointF(x, rect.center().y())
+
+    def _near_duplicate_marker_at(self, point):
+        hits = self._near_duplicate_marker_hits or self._near_duplicate_marker_layout()
+        for rect, cluster, _anchor in reversed(hits):
+            if rect.contains(QPointF(point)):
+                return cluster
+        return None
+
+    def _near_duplicate_preferred_shape(self, cluster):
+        hover = self.interaction_snapshot.hover.shape
+        if hover in cluster.members and self.isVisible(hover):
+            return hover
+        if (
+            self._near_duplicate_focus is cluster
+            and self._near_duplicate_focus_shape in cluster.members
+        ):
+            return self._near_duplicate_focus_shape
+        return next(
+            (
+                shape for shape in reversed(cluster.members)
+                if shape in self.shapes and self.isVisible(shape)
+            ),
+            cluster.members[-1],
+        )
+
+    def _near_duplicate_tooltip(self, cluster):
+        visible = sum(
+            shape in self.shapes and self.isVisible(shape)
+            for shape in cluster.members
+        )
+        risk = tr(
+            "nearDuplicate.categoryConflict"
+            if cluster.risk == CATEGORY_CONFLICT
+            else "nearDuplicate.duplicateLabel"
+        )
+        counts = {}
+        order = []
+        for shape in cluster.members:
+            label = str(shape.label)
+            if label not in counts:
+                counts[label] = 0
+                order.append(label)
+            counts[label] += 1
+        labels = ", ".join(
+            "%s ×%d" % (label, counts[label])
+            for label in order
+        )
+        return tr(
+            "nearDuplicate.canvasTooltip",
+            risk=risk,
+            labels=labels,
+            visible=visible,
+            total=len(cluster.members),
+        )
+
+    def _set_near_duplicate_hover(self, cluster):
+        if cluster is self._near_duplicate_hover_cluster:
+            return False
+        self._near_duplicate_hover_cluster = cluster
+        self.update()
+        return True
+
+    def _near_duplicate_focus_contains(self, widget_point, scene_point):
+        cluster = self._near_duplicate_focus
+        if cluster is None:
+            return False
+        if self._near_duplicate_marker_at(widget_point) is cluster:
+            return True
+        left, top, right, bottom = cluster_bounds(cluster)
+        return QRectF(
+            left,
+            top,
+            max(0.0, right - left),
+            max(0.0, bottom - top),
+        ).contains(scene_point)
 
     def status_background_color(self):
         if self.verified:
@@ -1323,6 +1657,9 @@ class Canvas(QWidget):
 
     def keyPressEvent(self, ev):
         key = ev.key()
+        if key == Qt.Key_Escape and self.clear_near_duplicate_focus():
+            ev.accept()
+            return
         if key == Qt.Key_Control:
             self.set_multi_selection_mode(True)
             ev.accept()
@@ -1384,6 +1721,8 @@ class Canvas(QWidget):
             return
         self._annotation_gesture_description = description
         self._annotation_gesture_source = source
+        self._near_duplicate_marker_hits = tuple()
+        self.update()
         self.annotationGestureStarted.emit(description)
 
     def _finish_annotation_gesture(self):
@@ -1392,7 +1731,9 @@ class Canvas(QWidget):
             return
         self._annotation_gesture_description = None
         self._annotation_gesture_source = None
+        self._near_duplicate_marker_hits = tuple()
         self.annotationGestureFinished.emit(description)
+        self.update()
 
     def cancel_annotation_gesture(self):
         description = self._annotation_gesture_description
@@ -1401,7 +1742,9 @@ class Canvas(QWidget):
         self._annotation_gesture_description = None
         self._annotation_gesture_source = None
         self._held_arrow_keys.clear()
+        self._near_duplicate_marker_hits = tuple()
         self.annotationGestureCanceled.emit(description)
+        self.update()
 
     def _begin_arrow_gesture(self, event):
         if not event.isAutoRepeat():
@@ -1489,6 +1832,7 @@ class Canvas(QWidget):
         self.verified = False
         self.questioned = False
         self.visible.clear()
+        self.set_near_duplicate_clusters(())
         self.repaint()
 
     def replace_pixmap(self, pixmap):
@@ -1509,10 +1853,12 @@ class Canvas(QWidget):
         )
         self._project_selection(before, after)
         self.visible.clear()
+        self.set_near_duplicate_clusters(())
         self.repaint()
 
     def set_shape_visible(self, shape, value):
         self.visible[shape] = value
+        self._near_duplicate_marker_hits = tuple()
         if not value:
             if self.interaction_snapshot.hover.shape is shape:
                 self.un_highlight()
@@ -1544,6 +1890,7 @@ class Canvas(QWidget):
         self.pixmap = None
         self.shapes = []
         self.current = None
+        self.set_near_duplicate_clusters(())
         self._reset_transient_interaction()
         before = self._selection.snapshot
         after = self._selection.set_scene((), selected=())
