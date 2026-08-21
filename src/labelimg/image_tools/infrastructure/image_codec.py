@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import io
+import math
 import os
 
 import cv2
@@ -30,6 +31,25 @@ class LoadedImage:
 
     @property
     def size(self):
+        return self.pixels.shape[1], self.pixels.shape[0]
+
+
+@dataclass(frozen=True)
+class LoadedImagePreview:
+    """Display-oriented, bounded pixels plus the full source dimensions."""
+
+    path: str
+    format: str
+    mode: str
+    source_size: tuple[int, int]
+    pixels: np.ndarray
+
+    @property
+    def size(self):
+        return self.source_size
+
+    @property
+    def preview_size(self):
         return self.pixels.shape[1], self.pixels.shape[0]
 
 
@@ -105,6 +125,67 @@ class ImageFileCodec:
             jpeg_subsampling=subsampling,
         )
 
+    def load_preview(self, path, *, max_pixels=1_500_000):
+        """Decode a display preview without retaining full-resolution pixels.
+
+        JPEG decoders are asked for a native reduced-resolution draft before
+        loading. Other supported formats are bounded immediately after decode.
+        The returned ``size`` always describes the display-oriented source.
+        """
+        path = os.path.abspath(os.fspath(path))
+        extension = os.path.splitext(path)[1].lower()
+        expected_format = self._FORMATS.get(extension)
+        if expected_format is None:
+            raise UnsupportedImageFile(
+                "only 8-bit JPEG, PNG, and BMP images are supported"
+            )
+        try:
+            max_pixels = int(max_pixels)
+            if max_pixels < 1:
+                raise ValueError("preview pixel budget must be positive")
+            with Image.open(path) as image:
+                if image.format != expected_format:
+                    raise UnsupportedImageFile(
+                        "the file content does not match its extension"
+                    )
+                if image.mode not in ("L", "RGB", "RGBA"):
+                    raise UnsupportedImageFile(
+                        "only 8-bit L, RGB, and RGBA images are supported"
+                    )
+                orientation = int(image.getexif().get(274, 1) or 1)
+                encoded_size = tuple(image.size)
+                source_size = (
+                    (encoded_size[1], encoded_size[0])
+                    if orientation in (5, 6, 7, 8)
+                    else encoded_size
+                )
+                preview_size = _bounded_size(source_size, max_pixels)
+                decoder_size = (
+                    (preview_size[1], preview_size[0])
+                    if orientation in (5, 6, 7, 8)
+                    else preview_size
+                )
+                image.draft(image.mode, decoder_size)
+                image.thumbnail(decoder_size, Image.Resampling.BILINEAR)
+                processing_image = ImageOps.exif_transpose(image)
+                processing_image.thumbnail(
+                    preview_size,
+                    Image.Resampling.BILINEAR,
+                )
+                pixels = _pil_to_processing_array(processing_image)
+                processing_mode = processing_image.mode
+        except UnsupportedImageFile:
+            raise
+        except Exception as error:
+            raise UnsupportedImageFile(str(error)) from error
+        return LoadedImagePreview(
+            path=path,
+            format=expected_format,
+            mode=processing_mode,
+            source_size=source_size,
+            pixels=pixels,
+        )
+
     def encode(self, loaded, pixels, *, output_size=None):
         pixels = np.asarray(pixels)
         if pixels.dtype != np.uint8:
@@ -163,7 +244,6 @@ class ImageFileCodec:
     def _validate_encoded(loaded, content, expected_size):
         try:
             with Image.open(io.BytesIO(content)) as image:
-                image.load()
                 if image.format != loaded.format:
                     raise UnsupportedImageFile(
                         "encoded result changed image format"
@@ -176,6 +256,7 @@ class ImageFileCodec:
                     raise UnsupportedImageFile(
                         "encoded result changed image channel mode"
                     )
+                image.verify()
         except UnsupportedImageFile:
             raise
         except Exception as error:
@@ -209,3 +290,22 @@ def _processing_array_to_pil(pixels, mode):
         raise UnsupportedImageFile("RGBA sources must retain their alpha channel")
     rgba = cv2.cvtColor(pixels, cv2.COLOR_BGRA2RGBA)
     return Image.fromarray(rgba)
+
+
+def _bounded_size(size, max_pixels):
+    width, height = (int(value) for value in size)
+    if width < 1 or height < 1:
+        raise UnsupportedImageFile("image dimensions must be positive")
+    if width * height <= max_pixels:
+        return width, height
+    scale = math.sqrt(max_pixels / float(width * height))
+    bounded = (
+        max(1, int(width * scale)),
+        max(1, int(height * scale)),
+    )
+    while bounded[0] * bounded[1] > max_pixels:
+        if bounded[0] >= bounded[1]:
+            bounded = (bounded[0] - 1, bounded[1])
+        else:
+            bounded = (bounded[0], bounded[1] - 1)
+    return bounded

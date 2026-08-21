@@ -36,8 +36,6 @@ class PreparedGeometryTransform:
     operation: GeometryOperation
     image_replacement: PreparedImageReplacement
     snapshot: object
-    original_pixels: np.ndarray
-    result_pixels: np.ndarray
 
 
 class ImageGeometryProcessor:
@@ -85,8 +83,6 @@ class ImageGeometryProcessor:
                 image_size=result_size,
                 boxes=boxes,
             ),
-            original_pixels=loaded.pixels.copy(),
-            result_pixels=result_pixels,
         )
 
 

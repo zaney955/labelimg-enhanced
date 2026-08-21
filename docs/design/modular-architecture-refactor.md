@@ -568,7 +568,7 @@ All architecture branches described here are resolved. The user authorized full 
 The implementation now makes the following seams executable rather than aspirational:
 
 - `FileListProjection` owns immutable row facts, sorting, filtering, visible navigation, and deterministic adjacency; the Qt control state is only a mutable query adapter.
-- `CanvasInteractionSnapshot` is immutable and all selection, right-drag, and hover changes pass through `CanvasInteraction` transitions; Canvas no longer exposes writable forwarding properties for transient gesture state.
+- `CanvasInteractionSnapshot` is immutable and all selection, right-button targeting, and hover changes pass through `CanvasInteraction` transitions; Canvas no longer exposes writable forwarding properties for transient gesture state.
 - file operations and image processing use separate transaction and recovery ledgers. Shared trash identities/statuses live in `platform.recovery`; `files` no longer imports image-tool implementations.
 - `WorkbenchSession` owns ordered transition requirements and issues source/target/revision-bound single-use tickets after crop, edit, conflict, and dirty-history requirements are resolved.
 - `workbench.bootstrap` owns CLI parsing, typed launch options, concrete window construction, and process startup. `WorkbenchComposer` is called explicitly and is not a `MainWindow` mixin.

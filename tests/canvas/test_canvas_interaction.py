@@ -71,33 +71,15 @@ class CanvasInteractionTest(unittest.TestCase):
         self.assertEqual(original, (self.first, self.second))
         self.assertIsNone(self.interaction.selection_press_pos)
 
-    def test_right_drag_reports_only_the_threshold_transition(self):
+    def test_right_press_records_target_until_finished(self):
         self.interaction.begin_right_press(QPointF(5, 5), self.first)
 
-        below_threshold = self.interaction.update_right_drag(
-            QPointF(7, 7),
-            scale=1.0,
-            drag_distance=5,
-        )
-        started = self.interaction.update_right_drag(
-            QPointF(15, 15),
-            scale=1.0,
-            drag_distance=5,
-        )
-        already_started = self.interaction.update_right_drag(
-            QPointF(20, 20),
-            scale=1.0,
-            drag_distance=5,
-        )
-
-        self.assertFalse(below_threshold)
-        self.assertTrue(started)
-        self.assertFalse(already_started)
-        self.assertTrue(self.interaction.right_dragging)
+        self.assertEqual(self.interaction.right_press_pos, QPointF(5, 5))
+        self.assertIs(self.interaction.right_press_shape, self.first)
 
         self.interaction.finish_right_press()
+        self.assertIsNone(self.interaction.right_press_pos)
         self.assertIsNone(self.interaction.right_press_shape)
-        self.assertFalse(self.interaction.right_dragging)
 
     def test_hover_target_keeps_vertex_and_edge_mutually_exclusive(self):
         self.interaction.set_hover(self.first, vertex=2)

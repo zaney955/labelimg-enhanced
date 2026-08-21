@@ -72,6 +72,9 @@ from labelimg.workbench.commands import (
     TopCommandBar,
     ZoomControl,
 )
+from labelimg.workbench.canvas_context_menu import (
+    CanvasContextMenuController,
+)
 from labelimg.annotations.ui.candidate_label_dialog import CandidateLabelDialog
 from labelimg.annotations.ui.label_list import (
     LabelListItemDelegate,
@@ -968,7 +971,6 @@ class WorkbenchComposer:
                                         edit, copy_annotations, paste_annotations,
                                         copy_prev_bounding, copy, delete,
                                         None, color1, self.draw_squares_option),
-                              canvasContext=(create, edit, copy, delete),
                                onLoadActive=(
                                    close, select_tool, pan_tool, create,
                                    remove_colored_frames, crop_image,
@@ -1134,18 +1136,20 @@ class WorkbenchComposer:
             self._history_shortcuts.qobject
         )
 
-        # Custom context menu for the canvas widget:
-        add_actions(self.canvas.menus[0], self.actions.canvasContext)
-        self.copy_here_action = action(
-            tr('action.copyHere'), self.copy_shape
+        self.canvas_context_menu = CanvasContextMenuController(
+            self.canvas,
+            draw_action=create,
+            edit_action=edit,
+            copy_action=copy_annotations,
+            duplicate_action=copy,
+            paste_action=paste_annotations,
+            delete_action=delete,
+            clipboard_count=lambda: len(self.annotation_clipboard),
+            set_selection_visible=self.label_visibility_requested,
         )
-        self.move_here_action = action(
-            tr('action.moveHere'), self.move_shape
+        self.canvas.contextMenuRequested.connect(
+            self.canvas_context_menu.show
         )
-        add_actions(self.canvas.menus[1], (
-            self.copy_here_action,
-            self.move_here_action,
-        ))
 
         self.review_control = ReviewControl(self)
         self.review_control.setEnabled(False)
@@ -1254,8 +1258,6 @@ class WorkbenchComposer:
             self.auto_saving: ('autoSaveMode', None),
             self.single_class_mode: ('singleClsMode', None),
             self.display_label_option: ('displayLabel', None),
-            self.copy_here_action: ('action.copyHere', None),
-            self.move_here_action: ('action.moveHere', None),
         }
         self.retranslate_ui()
 

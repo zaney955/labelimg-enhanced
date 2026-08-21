@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -68,6 +69,21 @@ class GeometryTransformDialogTest(unittest.TestCase):
         self.assertEqual(dialog.request.paths, (self.first, self.second))
         self.assertEqual(dialog.request.operation, GeometryOperation.RESIZE)
         self.assertEqual(dialog.request.resize_percent, 50)
+
+    def test_preview_pixel_budget_does_not_change_reported_source_size(self):
+        with patch.object(
+            GeometryTransformDialog,
+            "PREVIEW_MAX_PIXELS",
+            1_000,
+        ):
+            dialog = GeometryTransformDialog(
+                self.first,
+                preselected=GeometryOperation.ROTATE_CLOCKWISE,
+            )
+
+        self.assertLessEqual(dialog._preview.pixels.shape[0]
+                             * dialog._preview.pixels.shape[1], 1_000)
+        self.assertEqual(dialog.preview_size_label.text(), "40 × 80")
 
 
 if __name__ == "__main__":

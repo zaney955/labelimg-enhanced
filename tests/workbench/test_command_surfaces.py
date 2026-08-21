@@ -14,6 +14,7 @@ from PyQt5.QtWidgets import QApplication
 from labelimg.annotations.domain.model import AnnotationFormat
 from labelimg.workbench.bootstrap import WorkbenchLaunchOptions, create_workbench
 from labelimg.canvas.widget import Canvas
+from labelimg.canvas.shape import Shape
 from labelimg.localization.runtime import ENGLISH, SIMPLIFIED_CHINESE, set_language
 
 
@@ -53,6 +54,30 @@ class CommandSurfacesTest(unittest.TestCase):
         self.assertTrue(image.save(image_path))
         self.assertTrue(self.window.load_file(image_path))
         return image_path
+
+    def load_canvas_shapes(self, count):
+        shapes = []
+        for index in range(count):
+            shape = Shape(label="label-%d" % index)
+            left = 1 + index * 6
+            for point in (
+                QPointF(left, 1),
+                QPointF(left + 4, 1),
+                QPointF(left + 4, 5),
+                QPointF(left, 5),
+            ):
+                shape.add_point(point)
+            shape.close()
+            shapes.append(shape)
+        self.window.canvas.load_shapes(shapes)
+        return shapes
+
+    @staticmethod
+    def menu_labels(menu):
+        return [
+            None if action.isSeparator() else action.text()
+            for action in menu.actions()
+        ]
 
     def test_left_rail_is_fixed_and_contains_only_canvas_tools(self):
         rail = self.window.tools
@@ -242,6 +267,79 @@ class CommandSurfacesTest(unittest.TestCase):
                 chinese_widths[object_name],
                 english_widths[object_name],
             )
+
+    def test_canvas_context_menus_are_target_scoped_and_bilingual(self):
+        self.load_image()
+        controller = self.window.canvas_context_menu
+
+        self.assertEqual(
+            self.menu_labels(controller.build("blank")),
+            ["Draw Box"],
+        )
+        self.window.annotation_clipboard = [object(), object()]
+        self.assertEqual(
+            self.menu_labels(controller.build("blank")),
+            ["Draw Box", "Paste 2 Annotations"],
+        )
+
+        shapes = self.load_canvas_shapes(2)
+        self.window.canvas.set_selected_shapes(
+            [shapes[0]],
+            active_shape=shapes[0],
+        )
+        single = controller.build("single")
+        self.assertEqual(
+            self.menu_labels(single),
+            [
+                "Edit Label…",
+                "Copy Annotation",
+                "Duplicate Annotation",
+                "Hide Annotation",
+                None,
+                "Delete Annotation",
+            ],
+        )
+        self.assertEqual(single.defaultAction().text(), "Edit Label…")
+        self.assertTrue(all(
+            action.shortcut().isEmpty()
+            for action in single.actions()
+            if not action.isSeparator()
+        ))
+
+        self.window.canvas.set_selected_shapes(
+            shapes,
+            active_shape=shapes[1],
+        )
+        self.window.canvas.set_shape_visible(shapes[0], False)
+        multiple = controller.build("multiple")
+        self.assertEqual(
+            self.menu_labels(multiple),
+            [
+                "Copy 2 Annotations",
+                "Duplicate 2 Annotations",
+                "Show 2 Annotations",
+                None,
+                "Delete 2 Annotations",
+            ],
+        )
+        multiple.actions()[2].trigger()
+        self.assertTrue(all(
+            self.window.canvas.isVisible(shape) for shape in shapes
+        ))
+        self.window.canvas.set_shape_visible(shapes[0], False)
+
+        self.window.change_language(SIMPLIFIED_CHINESE)
+        self.assertFalse(self.window.canvas.isVisible(shapes[0]))
+        self.assertEqual(
+            self.menu_labels(controller.build("multiple")),
+            [
+                "复制 2 个标注",
+                "创建 2 个标注副本",
+                "显示 2 个标注",
+                None,
+                "删除 2 个标注",
+            ],
+        )
 
     def test_top_bar_controls_share_one_height(self):
         bar = self.window.top_commands

@@ -2,6 +2,7 @@ import json
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 from PIL import Image
@@ -68,6 +69,14 @@ class ImageQualityScannerTest(unittest.TestCase):
         self.assertIn("aspect_anomaly", {
             item.code for item in results[outlier].findings
         })
+
+    def test_large_image_metrics_use_bounded_pixels_and_keep_source_size(self):
+        path = self.save("large.png", np.full((300, 400, 3), 120))
+
+        with patch.object(self.scanner, "ANALYSIS_MAX_PIXELS", 10_000):
+            result = self.scanner.scan(path)
+
+        self.assertEqual(result.size, (400, 300))
 
 
 class ImageQualityCacheTest(unittest.TestCase):

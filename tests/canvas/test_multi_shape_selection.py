@@ -5,7 +5,14 @@ import unittest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt5.QtCore import QEvent, QPoint, QPointF, Qt
-from PyQt5.QtGui import QColor, QImage, QKeyEvent, QMouseEvent, QPixmap
+from PyQt5.QtGui import (
+    QColor,
+    QContextMenuEvent,
+    QImage,
+    QKeyEvent,
+    QMouseEvent,
+    QPixmap,
+)
 from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication, QLabel, QWidget, QAbstractItemView
 
@@ -425,7 +432,7 @@ class CanvasMultiSelectionTest(unittest.TestCase):
 
         self.assertIsNone(self.canvas.interaction_snapshot.hover.shape)
 
-    def test_right_click_preserves_selected_member_and_collapses_on_other(self):
+    def test_right_click_targets_selected_member_other_or_blank(self):
         first = rectangle("first", 10, 10, 30, 30)
         second = rectangle("second", 40, 40, 60, 60)
         third = rectangle("third", 80, 80, 100, 100)
@@ -455,7 +462,7 @@ class CanvasMultiSelectionTest(unittest.TestCase):
             button=Qt.RightButton,
             buttons=Qt.RightButton,
         ))
-        self.assertEqual(self.canvas.selected_shapes, [first, second])
+        self.assertEqual(self.canvas.selected_shapes, [])
 
     def test_right_click_uses_the_same_overlap_target_as_hover(self):
         nearer = rectangle("nearer", 37, 20, 100, 80)
@@ -475,7 +482,7 @@ class CanvasMultiSelectionTest(unittest.TestCase):
         self.assertEqual(self.canvas.selected_shapes, [nearer])
         self.assertIs(self.canvas.right_press_shape, nearer)
 
-    def test_right_drag_from_multi_selection_collapses_to_one_shape(self):
+    def test_right_drag_does_not_create_a_shadow_copy(self):
         first = rectangle("first", 10, 10, 30, 30)
         second = rectangle("second", 50, 50, 80, 80)
         self.canvas.load_shapes([first, second])
@@ -493,8 +500,80 @@ class CanvasMultiSelectionTest(unittest.TestCase):
             buttons=Qt.RightButton,
         ))
 
-        self.assertEqual(self.canvas.selected_shapes, [first])
-        self.assertIsNotNone(self.canvas.selected_shape_copy)
+        self.assertEqual(self.canvas.selected_shapes, [first, second])
+        self.assertFalse(hasattr(self.canvas, "selected_shape_copy"))
+
+    def test_right_click_cancels_an_in_progress_box_without_changing_tool(self):
+        self.canvas.set_mode(Canvas.CREATE)
+        self.canvas.handle_drawing(QPointF(10, 10))
+        self.assertIsNotNone(self.canvas.current)
+
+        self.canvas.mousePressEvent(mouse_event(
+            QEvent.MouseButtonPress,
+            (30, 30),
+            button=Qt.RightButton,
+            buttons=Qt.RightButton,
+        ))
+
+        self.assertIsNone(self.canvas.current)
+        self.assertEqual(self.canvas.mode, Canvas.CREATE)
+
+    def test_context_menu_requests_follow_selection_and_keyboard_context(self):
+        first = rectangle("first", 10, 10, 30, 30)
+        second = rectangle("second", 40, 40, 60, 60)
+        self.canvas.load_shapes([first, second])
+        requests = []
+        self.canvas.contextMenuRequested.connect(requests.append)
+
+        self.canvas.mousePressEvent(mouse_event(
+            QEvent.MouseButtonPress,
+            (20, 20),
+            button=Qt.RightButton,
+            buttons=Qt.RightButton,
+        ))
+        self.canvas.contextMenuEvent(QContextMenuEvent(
+            QContextMenuEvent.Mouse,
+            QPoint(20, 20),
+            QPoint(20, 20),
+        ))
+        self.assertEqual(requests[-1].kind, "single")
+
+        self.canvas.set_selected_shapes(
+            [first, second],
+            active_shape=second,
+        )
+        self.canvas.keyPressEvent(QKeyEvent(
+            QEvent.KeyPress,
+            Qt.Key_Menu,
+            Qt.NoModifier,
+        ))
+        self.assertEqual(requests[-1].kind, "multiple")
+
+        self.canvas.clear_selection()
+        self.canvas.keyPressEvent(QKeyEvent(
+            QEvent.KeyPress,
+            Qt.Key_F10,
+            Qt.ShiftModifier,
+        ))
+        self.assertEqual(requests[-1].kind, "blank")
+
+        count = len(requests)
+        self.canvas.set_mode(Canvas.PAN)
+        self.canvas.contextMenuEvent(QContextMenuEvent(
+            QContextMenuEvent.Mouse,
+            QPoint(20, 20),
+            QPoint(20, 20),
+        ))
+        self.assertEqual(len(requests), count)
+
+        self.canvas.set_mode(Canvas.EDIT)
+        self.canvas.reset_state()
+        self.canvas.keyPressEvent(QKeyEvent(
+            QEvent.KeyPress,
+            Qt.Key_Menu,
+            Qt.NoModifier,
+        ))
+        self.assertEqual(len(requests), count)
 
     def test_arrow_keys_do_not_move_multiple_selected_shapes(self):
         first = rectangle("first", 10, 10, 30, 30)

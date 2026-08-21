@@ -16,6 +16,14 @@ class HoverTarget:
 
 
 @dataclass(frozen=True)
+class CanvasContextRequest:
+    """One target-scoped request to open Canvas context commands."""
+
+    kind: str
+    global_position: object
+
+
+@dataclass(frozen=True)
 class CanvasInteractionSnapshot:
     """Immutable observable state for all transient Canvas gestures."""
 
@@ -26,7 +34,6 @@ class CanvasInteractionSnapshot:
     selection_target: HoverTarget = HoverTarget()
     right_press_pos: object = None
     right_press_shape: object = None
-    right_dragging: bool = False
     hover: HoverTarget = HoverTarget()
 
 
@@ -67,10 +74,6 @@ class CanvasInteraction:
     @property
     def right_press_shape(self):
         return self._snapshot.right_press_shape
-
-    @property
-    def right_dragging(self):
-        return self._snapshot.right_dragging
 
     @property
     def hover_shape(self):
@@ -137,27 +140,13 @@ class CanvasInteraction:
             self._snapshot,
             right_press_pos=QPointF(position),
             right_press_shape=shape,
-            right_dragging=False,
         )
-
-    def update_right_drag(self, position, scale, drag_distance):
-        if self.right_press_shape is None or self.right_dragging:
-            return False
-        delta = position - self.right_press_pos
-        if (
-            delta.manhattanLength() * max(scale, 0.01)
-            < drag_distance
-        ):
-            return False
-        self._snapshot = replace(self._snapshot, right_dragging=True)
-        return True
 
     def finish_right_press(self):
         self._snapshot = replace(
             self._snapshot,
             right_press_pos=None,
             right_press_shape=None,
-            right_dragging=False,
         )
 
     def set_hover(self, shape=None, vertex=None, edge=None):

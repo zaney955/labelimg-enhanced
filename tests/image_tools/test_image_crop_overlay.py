@@ -1,5 +1,6 @@
 import os
 import unittest
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -40,6 +41,37 @@ class ImageCropOverlayTest(unittest.TestCase):
         self.canvas.deleteLater()
         self.viewport.deleteLater()
         self.app.processEvents()
+
+    def test_crop_context_menu_has_stable_history_and_commit_groups(self):
+        menu = self.overlay.build_context_menu()
+        actions = menu.actions()
+        self.assertEqual(
+            [None if action.isSeparator() else action.text() for action in actions],
+            ["Undo Crop", "Redo Crop", None, "Apply Crop", "Cancel"],
+        )
+        self.assertFalse(actions[0].isEnabled())
+        self.assertFalse(actions[1].isEnabled())
+        self.assertFalse(actions[3].isEnabled())
+        self.assertTrue(actions[4].isEnabled())
+
+        self.overlay.set_region(CropRegion(10, 10, 100, 80))
+        menu = self.overlay.build_context_menu()
+        actions = menu.actions()
+        self.assertTrue(actions[0].isEnabled())
+        self.assertFalse(actions[1].isEnabled())
+        self.assertTrue(actions[3].isEnabled())
+
+    def test_crop_context_menu_opens_from_both_context_keys(self):
+        with patch.object(self.overlay, "build_context_menu") as build:
+            QTest.keyClick(self.overlay, Qt.Key_Menu)
+            QTest.keyClick(
+                self.overlay,
+                Qt.Key_F10,
+                Qt.ShiftModifier,
+            )
+
+        self.assertEqual(build.call_count, 2)
+        self.assertEqual(build.return_value.exec_.call_count, 2)
 
     def test_drag_creates_region_with_eight_fixed_screen_handles(self):
         QTest.mousePress(

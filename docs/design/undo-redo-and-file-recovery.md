@@ -245,7 +245,6 @@ Programmatic history projection, document load, workspace rebase, and file-opera
 | New box | first drawing point | valid geometry plus confirmed label | label cancel or invalid geometry |
 | Existing label/properties | dialog open or direct control activation | one accepted changed result | cancel or unchanged value |
 | Left drag move/resize/edge/vertex | mouse press on a mutation target | mouse release | `Esc`, `Ctrl+Z`, lost mouse grab, or unchanged geometry |
-| Right-drag move/copy | right-drag activation | chosen Move or Copy menu action | menu dismissal |
 | Arrow nudge | first accepted arrow press | all held arrow keys released or Canvas loses focus | no coordinate changed |
 | Delete/duplicate/paste/copy previous | immediately before command | complete resulting scene | empty target or command failure |
 | Current review state | before toggle | complete mutually exclusive review state | no change or mutation failure |
@@ -306,7 +305,6 @@ Visibility changes, `choose_color1`, display-label options, selection, and view 
 | `choose_color1` | default drawing preference; no dirty state |
 | `delete_selected_shape` | bulk delete transaction |
 | `choose_shape_line_color` / `choose_shape_fill_color` | property transaction |
-| `copy_shape` / `move_shape` | right-drag copy or move transaction |
 | `paste_copied_bounding_boxes` | paste transaction |
 | `toggle_image_status` | review-state transaction plus immediate revision-bound save |
 

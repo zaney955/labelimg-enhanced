@@ -1,9 +1,12 @@
 import os
 import tempfile
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+import numpy as np
 from PyQt5.QtCore import QEvent, Qt
 from PyQt5.QtGui import QColor, QImage
 from PyQt5.QtTest import QTest
@@ -61,6 +64,24 @@ class ImageAdjustmentDialogTest(unittest.TestCase):
         self.assertEqual(dialog.request.options.contrast, 1.4)
         self.assertEqual(dialog.request.options.gamma, 0.8)
         self.assertTrue(dialog.request.options.grayscale)
+
+    def test_repeated_brightness_steps_do_not_repeat_full_image_prepare(self):
+        prepared = SimpleNamespace(
+            result_pixels=np.zeros((24, 32, 3), dtype=np.uint8),
+            changed=False,
+        )
+        with patch(
+            "labelimg.image_tools.application.adjustment."
+            "ImageAdjustmentProcessor.prepare",
+            return_value=prepared,
+        ) as prepare:
+            dialog = ImageAdjustmentDialog(self.first)
+            initial_calls = prepare.call_count
+
+            for value in range(1, 6):
+                dialog.brightness_spin.setValue(value)
+
+        self.assertEqual(prepare.call_count, initial_calls)
 
 
 if __name__ == "__main__":

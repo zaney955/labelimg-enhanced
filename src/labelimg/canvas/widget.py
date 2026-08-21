@@ -9,15 +9,20 @@ from PyQt5.QtGui import (
     QPainter,
     QPen,
     QPixmap,
+    QContextMenuEvent,
 )
-from PyQt5.QtWidgets import QApplication, QMenu, QWidget
+from PyQt5.QtWidgets import QApplication, QWidget
 
 from labelimg.localization.runtime import tr
 from labelimg.ui.risk_glyphs import draw_not_equal_glyph
 
 
 from labelimg.canvas.shape import Shape
-from labelimg.canvas.interaction import CanvasInteraction, HoverTarget
+from labelimg.canvas.interaction import (
+    CanvasContextRequest,
+    CanvasInteraction,
+    HoverTarget,
+)
 from labelimg.canvas.selection import SelectionSet
 from labelimg.canvas.geometry import distance
 from labelimg.canvas.near_duplicates import (
@@ -55,6 +60,7 @@ class Canvas(QWidget):
     hoverShapeChanged = pyqtSignal(object)
     shapeLabelEditRequested = pyqtSignal(object)
     nearDuplicateRequested = pyqtSignal(object, object, object)
+    contextMenuRequested = pyqtSignal(object)
 
     CREATE, EDIT, PAN = list(range(3))
 
@@ -76,7 +82,6 @@ class Canvas(QWidget):
         self._near_duplicate_focus = None
         self._near_duplicate_focus_shape = None
         self._near_duplicate_hover_cluster = None
-        self.selected_shape_copy = None
         self.drawing_line_color = QColor(0, 0, 255)
         self.drawing_rect_color = QColor(0, 0, 255)
         self.line = Shape(line_color=self.drawing_line_color)
@@ -90,8 +95,6 @@ class Canvas(QWidget):
         self.hide_background = False
         self._painter = QPainter()
         self._cursor = CURSOR_DEFAULT
-        # Menus:
-        self.menus = (QMenu(), QMenu())
         # Set widget options.
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.WheelFocus)
@@ -297,10 +300,6 @@ class Canvas(QWidget):
     @property
     def right_press_shape(self):
         return self._interaction.right_press_shape
-
-    @property
-    def right_dragging(self):
-        return self._interaction.right_dragging
 
     def _set_hover(self, shape=None, vertex=None, edge=None):
         previous_shape = self._interaction.hover_shape
@@ -646,34 +645,6 @@ class Canvas(QWidget):
             self.repaint()
             return
 
-        # Polygon copy moving.
-        if Qt.RightButton & ev.buttons():
-            if self.right_press_shape is None:
-                return
-            if self._interaction.update_right_drag(
-                pos,
-                self.scale,
-                QApplication.startDragDistance(),
-            ):
-                if len(self.selected_shapes) > 1:
-                    self.set_selected_shapes(
-                        [self.right_press_shape],
-                        active_shape=self.right_press_shape,
-                    )
-                else:
-                    self.set_selected_shapes(
-                        self.selected_shapes,
-                        active_shape=self.right_press_shape,
-                    )
-                self.selected_shape_copy = self.selected_shape.copy()
-                self.prev_point = QPointF(self.right_press_pos)
-
-            if self.selected_shape_copy and self.prev_point:
-                self.override_cursor(CURSOR_MOVE)
-                self.bounded_move_shape(self.selected_shape_copy, pos)
-                self.repaint()
-            return
-
         # Polygon/Vertex moving.
         if Qt.LeftButton & ev.buttons():
             if self.selected_vertex():
@@ -792,12 +763,18 @@ class Canvas(QWidget):
                     QApplication.setOverrideCursor(QCursor(Qt.OpenHandCursor))
                     self.pan_initial_pos = ev.globalPos()
 
-        elif ev.button() == Qt.RightButton and self.editing():
-            target = self.resolve_pointer_target(pos)
-            self._apply_hover_target(target)
-            shape = target.shape
-            if shape is not None:
-                if shape not in self.selected_shapes:
+        elif ev.button() == Qt.RightButton:
+            if self.drawing():
+                self.cancel_current_drawing()
+                ev.accept()
+                return
+            if self.editing():
+                target = self.resolve_pointer_target(pos)
+                self._apply_hover_target(target)
+                shape = target.shape
+                if shape is None:
+                    self.clear_selection()
+                elif shape not in self.selected_shapes:
                     self.set_selected_shapes(
                         [shape],
                         active_shape=shape,
@@ -807,9 +784,7 @@ class Canvas(QWidget):
                         self.selected_shapes,
                         active_shape=shape,
                     )
-                self.calculate_offsets(shape, pos)
-                self.prev_point = pos
-            self._interaction.begin_right_press(pos, shape)
+                self._interaction.begin_right_press(pos, shape)
         self.update()
 
     def mouseReleaseEvent(self, ev):
@@ -824,16 +799,12 @@ class Canvas(QWidget):
             ev.accept()
             return
         if ev.button() == Qt.RightButton:
-            menu = self.menus[bool(self.selected_shape_copy)]
             self.restore_cursor()
-            if not menu.exec_(self.mapToGlobal(ev.pos()))\
-               and self.selected_shape_copy:
-                # Cancel the move by deleting the shadow copy.
-                self.selected_shape_copy = None
-                self.repaint()
             self._interaction.finish_right_press()
             if self.editing():
                 self._refresh_hover(self.transform_pos(ev.pos()))
+            ev.accept()
+            return
         elif (
             ev.button() == Qt.LeftButton
             and self.selection_press_pos is not None
@@ -871,18 +842,6 @@ class Canvas(QWidget):
                     self.transform_pos(ev.pos()),
                     suppress_handles=self.multi_selection_requested(ev),
                 )
-
-    def end_move(self, copy=False):
-        assert self.selected_shape and self.selected_shape_copy
-        shape = self.selected_shape_copy
-        # del shape.fill_color
-        # del shape.line_color
-        if copy:
-            self.shapes.append(shape)
-            self.set_selected_shapes([shape], active_shape=shape)
-        else:
-            self.selected_shape.points = [p for p in shape.points]
-        self.selected_shape_copy = None
 
     def hide_background_shapes(self, value):
         self.hide_background = value
@@ -1305,8 +1264,6 @@ class Canvas(QWidget):
         if self.current:
             self.current.paint(p)
             self.line.paint(p)
-        if self.selected_shape_copy:
-            self.selected_shape_copy.paint(p)
         if self.selection_rect is not None:
             p.save()
             selection_color = QColor(0, 120, 215, 200)
@@ -1639,6 +1596,47 @@ class Canvas(QWidget):
             return self.scale * self.pixmap.size()
         return super(Canvas, self).minimumSizeHint()
 
+    def contextMenuEvent(self, event):
+        if not self._request_context_menu(event.globalPos()):
+            event.ignore()
+            return
+        event.accept()
+
+    def _request_context_menu(self, global_position=None):
+        if (
+            not self.editing()
+            or self.pixmap is None
+            or self.pixmap.isNull()
+        ):
+            return False
+        selected_count = len(self.selected_shapes)
+        kind = (
+            "blank" if not selected_count
+            else "single" if selected_count == 1
+            else "multiple"
+        )
+        if global_position is None:
+            global_position = self.mapToGlobal(self._context_menu_anchor())
+        self.contextMenuRequested.emit(CanvasContextRequest(
+            kind=kind,
+            global_position=global_position,
+        ))
+        return True
+
+    def _context_menu_anchor(self):
+        active = self.selection_snapshot.active
+        if active is None:
+            return self.rect().center()
+        bounds = active.bounding_rect()
+        scene_point = QPointF(bounds.left(), bounds.bottom())
+        widget_point = (
+            scene_point + self.offset_to_center()
+        ) * self.scale
+        return QPoint(
+            max(0, min(self.width() - 1, round(widget_point.x()))),
+            max(0, min(self.height() - 1, round(widget_point.y()))),
+        )
+
     def wheelEvent(self, ev):
         qt_version = 4 if hasattr(ev, "delta") else 5
         if qt_version == 4:
@@ -1663,6 +1661,16 @@ class Canvas(QWidget):
 
     def keyPressEvent(self, ev):
         key = ev.key()
+        if (
+            key == Qt.Key_Menu
+            or (
+                key == Qt.Key_F10
+                and ev.modifiers() & Qt.ShiftModifier
+            )
+        ):
+            if self._request_context_menu():
+                ev.accept()
+                return
         if key == Qt.Key_Escape and self.clear_near_duplicate_focus():
             ev.accept()
             return
@@ -1912,7 +1920,6 @@ class Canvas(QWidget):
         previous_hover_shape = self.interaction_snapshot.hover.shape
         if previous_hover_shape is not None:
             previous_hover_shape.highlight_clear()
-        self.selected_shape_copy = None
         self._annotation_gesture_description = None
         self._annotation_gesture_source = None
         self._held_arrow_keys.clear()

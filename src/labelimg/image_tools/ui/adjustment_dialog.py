@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -24,8 +24,9 @@ from PyQt5.QtWidgets import (
 from labelimg.localization.runtime import localize_dialog_buttons, tr
 from labelimg.image_tools.application.adjustment import (
     ImageAdjustmentOptions,
-    ImageAdjustmentProcessor,
+    apply_adjustments,
 )
+from labelimg.image_tools.infrastructure.image_codec import ImageFileCodec
 from labelimg.image_tools.ui.geometry_dialog import _array_pixmap
 
 
@@ -36,6 +37,9 @@ class ImageAdjustmentRequest:
 
 
 class ImageAdjustmentDialog(QDialog):
+    PREVIEW_MAX_PIXELS = 1_500_000
+    PREVIEW_DEBOUNCE_MS = 40
+
     def __init__(self, current_path, selected_paths=(), parent=None):
         super().__init__(parent)
         self.current_path = os.path.abspath(os.fspath(current_path))
@@ -43,11 +47,18 @@ class ImageAdjustmentDialog(QDialog):
             os.path.abspath(os.fspath(path)) for path in selected_paths
         ))
         self.request = None
-        self._processor = ImageAdjustmentProcessor()
+        self._preview = ImageFileCodec().load_preview(
+            self.current_path,
+            max_pixels=self.PREVIEW_MAX_PIXELS,
+        )
         self._restoring = False
         self._history = []
         self._redo = []
         self._last_options = ImageAdjustmentOptions()
+        self._preview_timer = QTimer(self)
+        self._preview_timer.setSingleShot(True)
+        self._preview_timer.setInterval(self.PREVIEW_DEBOUNCE_MS)
+        self._preview_timer.timeout.connect(self._refresh_preview)
         self.setWindowTitle(tr("adjustment.title"))
         self.resize(920, 640)
 
@@ -160,7 +171,8 @@ class ImageAdjustmentDialog(QDialog):
         self._history.append(self._last_options)
         self._redo.clear()
         self._last_options = current
-        self._refresh_preview()
+        self._update_apply_button()
+        self._schedule_preview()
         self._update_history_buttons()
 
     def _restore_options(self, options):
@@ -174,7 +186,8 @@ class ImageAdjustmentDialog(QDialog):
         finally:
             self._restoring = False
         self._last_options = options
-        self._refresh_preview()
+        self._update_apply_button()
+        self._schedule_preview()
         self._update_history_buttons()
 
     def undo(self):
@@ -192,14 +205,22 @@ class ImageAdjustmentDialog(QDialog):
         self._restore_options(following)
 
     def _refresh_preview(self):
-        prepared = self._processor.prepare(self.current_path, self._options())
-        pixmap = _array_pixmap(prepared.result_pixels)
+        result = apply_adjustments(self._preview.pixels, self._options())
+        pixmap = _array_pixmap(result)
         self.preview_label.setPixmap(pixmap.scaled(
             self.preview_label.size(),
             Qt.KeepAspectRatio,
             Qt.SmoothTransformation,
         ))
-        self.apply_button.setEnabled(prepared.changed)
+        self._update_apply_button()
+
+    def _schedule_preview(self):
+        self._preview_timer.start()
+
+    def _update_apply_button(self):
+        self.apply_button.setEnabled(
+            self._options() != ImageAdjustmentOptions()
+        )
 
     def _update_history_buttons(self):
         self.undo_button.setEnabled(bool(self._history))

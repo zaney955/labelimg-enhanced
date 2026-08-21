@@ -4,6 +4,7 @@ from importlib import import_module
 
 __all__ = (
     "Canvas",
+    "CanvasContextRequest",
     "CanvasInteraction",
     "CanvasInteractionSnapshot",
     "CATEGORY_CONFLICT",
@@ -18,6 +19,7 @@ __all__ = (
 
 _EXPORT_MODULES = {
     "Canvas": "labelimg.canvas.widget",
+    "CanvasContextRequest": "labelimg.canvas.interaction",
     "CanvasInteraction": "labelimg.canvas.interaction",
     "CanvasInteractionSnapshot": "labelimg.canvas.interaction",
     "CATEGORY_CONFLICT": "labelimg.canvas.near_duplicates",

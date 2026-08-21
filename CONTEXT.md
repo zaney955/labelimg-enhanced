@@ -396,6 +396,10 @@ _Avoid_: Corner resize target, edge resize target
 The deterministic choice of the nearest visible annotation-box target at the pointer: the nearest eligible corner, nearest eligible edge, and overlap target among containing box-move targets. Label text never competes with box geometry in ordinary hover, selection, dragging, Ctrl-click, or right-button gestures; resolution depends only on current rendered box state and pointer position, never current selection membership, and distances inside a small equality tolerance resolve to the topmost drawing layer rather than using hover stickiness or approach direction.
 _Avoid_: Drawing-order scan, first hit, stateful selection-through
 
+**Canvas context command surface**:
+The transient secondary-click or context-key commands scoped to exactly one current Canvas interaction context: blank image area, one targeted annotation, the current multi-selection, or an active image crop session. It contains only commands valid for that target; Draw cancels its in-progress box and Pan exposes none, while right-button dragging never changes the command surface.
+_Avoid_: Static Canvas menu, global Edit menu, right-drag drop menu
+
 **Label text placement**:
 The label text position separated from the annotation-box outline, normally above its top-left corner and moved inside the box when the canvas boundary leaves insufficient space above.
 _Avoid_: Text baseline on the outline, clipped label text

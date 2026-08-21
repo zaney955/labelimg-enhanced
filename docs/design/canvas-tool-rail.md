@@ -36,7 +36,7 @@ Pan allows left-button dragging from any image position without selecting or mov
 
 In Selection/Edit, an unmodified left-button double-click on a visible annotation box or its visible label text replaces the selection with that box and opens the existing single-box label editor. The complete interior, outline, adjustment handles, and label text are valid targets. Create, Pan, and Crop retain their existing double-click behavior, and modifier-assisted double-clicks never open the editor.
 
-Label text participates in the same pointer-target model used by hover, ordinary selection, Ctrl-selection, context menus, and double-click. Its screen-space hit region follows the actually rendered text with a stable two-pixel allowance; hidden boxes and hidden label text have no target. Label candidates precede geometry. Among overlapping label regions, strict containment chooses the innermost smallest region, partial overlap chooses the nearest boundary, and equality within tolerance chooses the topmost annotation layer. The resolved box remains locked for the gesture, and the existing dashed hover outline identifies it without adding a separate label-text highlight.
+Label text participates only in the unmodified double-click label-edit gesture. Hover, ordinary selection, Ctrl-selection, dragging, and context menus continue to use geometry-only pointer-target resolution. Its screen-space hit region follows the actually rendered text with a stable two-pixel allowance; hidden boxes and hidden label text have no target. When no box geometry is found for a double-click, overlapping label regions resolve by strict containment, nearest boundary, then topmost annotation layer. The resolved box remains locked for the gesture, and the existing dashed hover outline identifies it without adding a separate label-text highlight.
 
 Double-clicking while several boxes are selected reduces the selection to the resolved box. Every single-box label-edit entry point uses the same pending annotation transaction from dialog opening through cancellation or one atomic commit. Canceling or confirming the existing label creates no history entry; accepting a different label creates one reversible change for that box and its label-derived line color.
 
@@ -92,6 +92,16 @@ The 1024-by-720 layout is a required supported baseline. The same logical hierar
 ## Annotation commands and visibility
 
 Copy and Delete remain available through explicit buttons in the annotation panel, the Canvas context menu, and `Ctrl+D` and `Delete`. They are enabled from selection capabilities and never styled as active Canvas tools.
+
+### Canvas context command surface
+
+The Canvas builds a transient menu for the target under the secondary click instead of retaining one static menu. A blank-image click clears the selection and offers Draw Box plus Paste Annotations only when the annotation clipboard is non-empty. A click on an unselected annotation replaces the selection with that annotation; a click on a selected annotation preserves the selection set and makes the clicked annotation active. Dismissing the menu never restores the earlier selection.
+
+For one selected annotation, the menu contains Edit Label as the default action, then clipboard Copy, in-image Duplicate, and the current Hide or Show command, followed by Delete in a separate final group. For multiple selected annotations, Edit is absent and every remaining label states the affected annotation count. If any selected annotation is hidden, the visibility command shows the entire selection; otherwise it hides the entire selection. Delete remains immediate and undoable without a confirmation dialog.
+
+The blank menu contains no off-pointer selection commands. Draw mode uses a secondary click only to cancel an in-progress box, Pan exposes no context menu, and Crop owns a stable `Undo Crop | Redo Crop | Apply Crop | Cancel` menu whose unavailable history and Apply actions remain visible but disabled. The retired right-button drag never creates a shadow annotation or substitutes a Copy Here or Move Here menu.
+
+The Menu key and Shift+F10 request the same target-scoped command surface. With a selection the menu is anchored beside the active annotation; without one it is anchored at the visible Canvas center. Native `QMenu`, `QAction`, keyboard navigation, screen-edge placement, palette, focus, and high-contrast behavior remain intact. Menu-local actions omit shortcut text, use the coordinated operation icons only for familiar commands, size from current translated content and `QStyle`, and never depend on custom red text to distinguish Delete.
 
 Hide All and Show All become one all-annotations-visible state button in the annotation-panel header. The icon and accessible state change with the result, while the View menu retains separate explicit Hide All and Show All commands and their shortcuts.
 

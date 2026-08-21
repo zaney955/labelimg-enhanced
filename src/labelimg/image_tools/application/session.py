@@ -255,7 +255,11 @@ class ImageProcessingSession:
         if isinstance(change, AdjustmentChange):
             processor = ImageAdjustmentProcessor()
             prepared = tuple(
-                processor.prepare(path, change.options)
+                processor.prepare(
+                    path,
+                    change.options,
+                    retain_pixels=False,
+                )
                 for path in change.paths
             )
             replacements = tuple(

@@ -36,8 +36,8 @@ class ImageAdjustmentOptions:
 class PreparedImageAdjustment:
     path: str
     options: ImageAdjustmentOptions
-    original_pixels: np.ndarray
-    result_pixels: np.ndarray
+    original_pixels: np.ndarray | None
+    result_pixels: np.ndarray | None
     replacement: PreparedImageReplacement | None
 
     @property
@@ -49,7 +49,7 @@ class ImageAdjustmentProcessor:
     def __init__(self, codec=None):
         self._codec = codec or ImageFileCodec()
 
-    def prepare(self, path, options=None):
+    def prepare(self, path, options=None, *, retain_pixels=True):
         path = os.path.abspath(os.fspath(path))
         options = options or ImageAdjustmentOptions()
         expected = fingerprint_path(path)
@@ -64,8 +64,8 @@ class ImageAdjustmentProcessor:
         return PreparedImageAdjustment(
             path=path,
             options=options,
-            original_pixels=loaded.pixels.copy(),
-            result_pixels=result,
+            original_pixels=(loaded.pixels.copy() if retain_pixels else None),
+            result_pixels=(result if retain_pixels else None),
             replacement=replacement,
         )
 
@@ -74,37 +74,47 @@ def apply_adjustments(pixels, options):
     options = options or ImageAdjustmentOptions()
     source = np.asarray(pixels)
     result = source.copy()
-    alpha = None
-    if result.ndim == 3 and result.shape[2] == 4:
-        alpha = result[..., 3].copy()
+    has_alpha = result.ndim == 3 and result.shape[2] == 4
+    if has_alpha:
         color = result[..., :3]
     else:
         color = result
 
     if options.auto_contrast:
         color = _auto_contrast(color)
-    if options.contrast != 1.0 or options.brightness:
-        color = np.clip(
-            color.astype(np.float32) * float(options.contrast)
-            + float(options.brightness) * 2.55,
-            0,
-            255,
-        ).round().astype(np.uint8)
-    if options.gamma != 1.0:
-        table = np.array(
-            [
-                round(((value / 255.0) ** (1.0 / float(options.gamma))) * 255)
-                for value in range(256)
-            ],
-            dtype=np.uint8,
-        )
-        color = table[color]
+    if (
+        options.contrast != 1.0
+        or options.brightness
+        or options.gamma != 1.0
+    ):
+        table = np.arange(256, dtype=np.float32)
+        if options.contrast != 1.0 or options.brightness:
+            table = np.clip(
+                table * float(options.contrast)
+                + float(options.brightness) * 2.55,
+                0,
+                255,
+            ).round()
+        if options.gamma != 1.0:
+            table = np.array(
+                [
+                    round(
+                        ((value / 255.0) ** (1.0 / float(options.gamma)))
+                        * 255
+                    )
+                    for value in table
+                ],
+                dtype=np.uint8,
+            )
+        else:
+            table = table.astype(np.uint8)
+        color = cv2.LUT(color, table)
     if options.grayscale and color.ndim == 3:
         gray = cv2.cvtColor(color, cv2.COLOR_BGR2GRAY)
         color = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
 
-    if alpha is not None:
-        result = np.dstack((color, alpha))
+    if has_alpha:
+        result[..., :3] = color
     else:
         result = color
     return np.ascontiguousarray(result, dtype=np.uint8)
@@ -124,8 +134,10 @@ def _stretch_channel(channel):
     high = int(channel.max())
     if high <= low:
         return channel.copy()
-    return np.clip(
-        (channel.astype(np.float32) - low) * (255.0 / (high - low)),
+    table = np.clip(
+        (np.arange(256, dtype=np.float32) - low)
+        * (255.0 / (high - low)),
         0,
         255,
     ).round().astype(np.uint8)
+    return cv2.LUT(channel, table)
