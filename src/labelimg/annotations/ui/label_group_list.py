@@ -6,6 +6,7 @@ from PyQt5.QtWidgets import QAbstractScrollArea, QToolTip
 
 from labelimg.localization.runtime import language_changed, tr
 from labelimg.canvas import CATEGORY_CONFLICT
+from labelimg.ui.risk_glyphs import draw_not_equal_glyph
 
 def _natural_label_key(text):
     parts = []
@@ -51,7 +52,9 @@ class LabelGroupListWidget(QAbstractScrollArea):
     label_width_ratio = 0.45
     label_left_margin = 6
     label_button_gap = 6
-    count_area_width = 34
+    count_area_width = 50
+    risk_area_width = 16
+    risk_count_gap = 3
     visibility_area_width = 26
     arrow_area_width = 16
     chip_size = 24
@@ -616,8 +619,8 @@ class LabelGroupListWidget(QAbstractScrollArea):
             )
         painter.setPen(foreground)
         painter.drawText(
-            rect.adjusted(3, 0, -4, 0),
-            Qt.AlignBottom | Qt.AlignRight,
+            self._group_count_value_rect(rect).adjusted(0, 0, -4, 0),
+            Qt.AlignVCenter | Qt.AlignRight,
             "×%d" % len(group.shapes),
         )
         painter.restore()
@@ -630,13 +633,12 @@ class LabelGroupListWidget(QAbstractScrollArea):
         painter.save()
         painter.setPen(QPen(color, 1.2, Qt.SolidLine, Qt.RoundCap))
         painter.setBrush(Qt.NoBrush)
+        center = rect.center()
+        icon = QRectF(center.x() - 6, center.y() - 6, 12, 12)
         if risk == CATEGORY_CONFLICT:
-            font = QFont(painter.font())
-            font.setBold(True)
-            painter.setFont(font)
-            painter.drawText(rect, Qt.AlignCenter, "!")
+            draw_not_equal_glyph(painter, icon, color, width=1.2)
         else:
-            box = QRectF(rect.left() + 2, rect.top() + 4, 8, 7)
+            box = icon.adjusted(1, 4, -3, -1)
             painter.drawRect(box)
             painter.drawRect(box.translated(3, -3))
         painter.restore()
@@ -646,17 +648,22 @@ class LabelGroupListWidget(QAbstractScrollArea):
         color = QColor(
             "#C026D3" if cluster.risk == CATEGORY_CONFLICT else "#D97706"
         )
-        corner = QRectF(rect.right() - 8, rect.top(), 8, 8)
+        corner = QRectF(rect.right() - 10, rect.top(), 10, 10)
         painter.save()
         painter.setPen(Qt.NoPen)
         painter.setBrush(color)
         painter.drawEllipse(corner)
-        painter.setPen(QColor("white"))
-        painter.drawText(
-            corner.adjusted(0, -1, 0, 1),
-            Qt.AlignCenter,
-            "!" if cluster.risk == CATEGORY_CONFLICT else "·",
-        )
+        if cluster.risk == CATEGORY_CONFLICT:
+            draw_not_equal_glyph(
+                painter,
+                corner.adjusted(1.5, 1.5, -1.5, -1.5),
+                QColor("white"),
+                width=0.9,
+            )
+        else:
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor("white"))
+            painter.drawEllipse(corner.center(), 1.4, 1.4)
         painter.restore()
 
     def _paint_column_dividers(self, painter, layout):
@@ -1300,7 +1307,7 @@ class LabelGroupListWidget(QAbstractScrollArea):
 
     @staticmethod
     def _near_duplicate_corner_rect_from_chip(chip):
-        return QRect(chip.right() - 9, chip.top() - 1, 11, 11)
+        return QRect(chip.right() - 11, chip.top() - 1, 13, 13)
 
     def _group_near_duplicate_status(self, group):
         clusters = tuple(
@@ -1317,9 +1324,22 @@ class LabelGroupListWidget(QAbstractScrollArea):
         )
         return risk, clusters
 
-    @staticmethod
-    def _group_risk_rect(rect):
-        return QRect(rect.left() + 4, rect.top(), 14, 15)
+    def _group_risk_rect(self, rect):
+        return QRect(
+            rect.left(),
+            rect.top(),
+            self.risk_area_width,
+            rect.height(),
+        )
+
+    def _group_count_value_rect(self, rect):
+        left = rect.left() + self.risk_area_width + self.risk_count_gap
+        return QRect(
+            left,
+            rect.top(),
+            max(0, rect.right() - left + 1),
+            rect.height(),
+        )
 
     def _group_risk_hit(self, group, rect, point):
         _risk, clusters = self._group_near_duplicate_status(group)

@@ -13,6 +13,7 @@ from PyQt5.QtGui import (
 from PyQt5.QtWidgets import QApplication, QMenu, QWidget
 
 from labelimg.localization.runtime import tr
+from labelimg.ui.risk_glyphs import draw_not_equal_glyph
 
 
 from labelimg.canvas.shape import Shape
@@ -1378,7 +1379,12 @@ class Canvas(QWidget):
             painter.setPen(QPen(foreground, 1.3, Qt.SolidLine))
             painter.setBrush(Qt.NoBrush)
             if conflict:
-                painter.drawText(icon_rect, Qt.AlignCenter, "!")
+                draw_not_equal_glyph(
+                    painter,
+                    icon_rect,
+                    foreground,
+                    width=1.3,
+                )
             else:
                 painter.drawRect(icon_rect.adjusted(0, 2, -3, -1))
                 painter.drawRect(icon_rect.adjusted(3, -1, 0, -4))
