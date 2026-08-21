@@ -9,6 +9,7 @@ from PIL import Image
 from labelimg.image_tools.application.adjustment import (
     ImageAdjustmentOptions,
     ImageAdjustmentProcessor,
+    apply_adjustments,
 )
 
 
@@ -87,6 +88,45 @@ class ImageAdjustmentProcessorTest(unittest.TestCase):
             self.assertEqual(original.mode, "L")
         with Image.open(io.BytesIO(result.replacement.content)) as adjusted:
             self.assertEqual(adjusted.mode, "L")
+
+    def test_lookup_adjustment_matches_reference_pipeline(self):
+        pixels = np.arange(256, dtype=np.uint8).reshape(16, 16)
+        options = ImageAdjustmentOptions(
+            brightness=-17,
+            contrast=1.37,
+            gamma=0.8,
+        )
+        linear = np.clip(
+            pixels.astype(np.float32) * options.contrast
+            + options.brightness * 2.55,
+            0,
+            255,
+        ).round().astype(np.uint8)
+        gamma = np.array([
+            round(((value / 255.0) ** (1.0 / options.gamma)) * 255)
+            for value in range(256)
+        ], dtype=np.uint8)
+
+        result = apply_adjustments(pixels, options)
+
+        np.testing.assert_array_equal(result, gamma[linear])
+
+    def test_commit_preparation_can_release_full_resolution_arrays(self):
+        path = self._save(
+            "memory.png",
+            np.full((12, 16, 3), 80, dtype=np.uint8),
+            "RGB",
+        )
+
+        result = ImageAdjustmentProcessor().prepare(
+            path,
+            ImageAdjustmentOptions(brightness=10),
+            retain_pixels=False,
+        )
+
+        self.assertIsNotNone(result.replacement)
+        self.assertIsNone(result.original_pixels)
+        self.assertIsNone(result.result_pixels)
 
 
 if __name__ == "__main__":

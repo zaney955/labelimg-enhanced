@@ -155,6 +155,11 @@ class CanvasActionsMixin:
     def toggle_all_annotations(self, visible):
         """Apply one explicit all-visible state from the annotation header."""
         self.toggle_polygons(bool(visible))
+        self.sync_all_annotations_action(visible)
+
+
+    def sync_all_annotations_action(self, visible):
+        """Retranslate the all-visible projection without changing shapes."""
         action = self.actions.toggleVisibility
         if visible:
             set_action_copy(
@@ -257,24 +262,6 @@ class CanvasActionsMixin:
                 affected=(shape,),
             )
             self.canvas.update()
-
-
-    def copy_shape(self):
-        self._perform_annotation_edit(
-            'Copy box',
-            lambda: self.canvas.end_move(copy=True),
-            affected=lambda _result: self.canvas.selected_shapes,
-        )
-        self.add_label(self.canvas.selected_shape)
-        self.shape_selection_changed(True)
-
-
-    def move_shape(self):
-        self._perform_annotation_edit(
-            'Move box',
-            lambda: self.canvas.end_move(copy=False),
-            affected=lambda _result: self.canvas.selected_shapes,
-        )
 
 
     def toggle_paint_labels_option(self):

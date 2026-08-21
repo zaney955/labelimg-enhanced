@@ -86,6 +86,22 @@ class ImageFileCodecTest(unittest.TestCase):
             self.assertEqual(output.size, (20, 30))
             self.assertEqual(output.getexif().get(274), 1)
 
+    def test_preview_is_bounded_but_reports_oriented_source_dimensions(self):
+        path = self.path("large-oriented.jpg")
+        pixels = np.zeros((300, 400, 3), dtype=np.uint8)
+        exif = Image.Exif()
+        exif[274] = 6
+        Image.fromarray(pixels, "RGB").save(path, exif=exif)
+
+        preview = self.codec.load_preview(path, max_pixels=10_000)
+
+        self.assertEqual(preview.size, (300, 400))
+        self.assertLessEqual(
+            preview.preview_size[0] * preview.preview_size[1],
+            10_000,
+        )
+        self.assertEqual(preview.mode, "RGB")
+
     def test_bmp_round_trip_keeps_bmp_format_and_dimensions(self):
         path = self.path("source.bmp")
         Image.new("RGB", (31, 27), "white").save(path)
@@ -136,6 +152,8 @@ class ImageFileCodecTest(unittest.TestCase):
         ).save(sixteen_bit)
         with self.assertRaises(UnsupportedImageFile):
             self.codec.load(sixteen_bit)
+        with self.assertRaises(UnsupportedImageFile):
+            self.codec.load_preview(sixteen_bit)
 
 
 if __name__ == "__main__":

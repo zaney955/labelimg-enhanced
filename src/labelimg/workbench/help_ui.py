@@ -96,6 +96,7 @@ _CONTEXT_SECTIONS = (
     (
         "shortcuts.section.canvasContext",
         (
+            ("shortcuts.keys.contextMenu", "shortcuts.canvas.contextMenu", "shortcuts.canvas.contextMenuDetail"),
             ("shortcuts.keys.overlapBadge", "shortcuts.canvas.nearDuplicate", "shortcuts.canvas.nearDuplicateDetail"),
             ("shortcuts.keys.doubleClick", "shortcuts.canvas.editLabel", "shortcuts.canvas.editLabelDetail"),
             ("shortcuts.keys.controlHold", "shortcuts.canvas.multiSelect", "shortcuts.canvas.multiSelectDetail"),
@@ -131,6 +132,7 @@ _CONTEXT_SECTIONS = (
     (
         "shortcuts.section.cropContext",
         (
+            ("shortcuts.keys.contextMenu", "shortcuts.crop.contextMenu", "shortcuts.crop.contextMenuDetail"),
             ("Ctrl+Z", "shortcuts.crop.undo", "shortcuts.crop.undoDetail"),
             ("shortcuts.keys.redo", "shortcuts.crop.redo", "shortcuts.crop.redoDetail"),
             ("Enter", "shortcuts.crop.apply", "shortcuts.crop.applyDetail"),

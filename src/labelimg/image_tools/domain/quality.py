@@ -66,6 +66,8 @@ class ImageQualityResult:
 class ImageQualityScanner:
     """Run local metrics without changing image bytes."""
 
+    ANALYSIS_MAX_PIXELS = 2_000_000
+
     def __init__(self, codec=None):
         self._codec = codec or ImageFileCodec()
 
@@ -74,7 +76,10 @@ class ImageQualityScanner:
         path = os.path.abspath(os.fspath(path))
         fingerprint = fingerprint_path(path)
         try:
-            loaded = self._codec.load(path)
+            loaded = self._codec.load_preview(
+                path,
+                max_pixels=self.ANALYSIS_MAX_PIXELS,
+            )
         except Exception as error:
             return ImageQualityResult(
                 path,
@@ -93,13 +98,11 @@ class ImageQualityScanner:
         width, height = loaded.size
         pixels = loaded.pixels
         if pixels.ndim == 2:
-            luminance = pixels.astype(np.float32)
+            luminance = pixels
         else:
-            rgb = pixels[..., :3].astype(np.float32)
-            luminance = (
-                0.299 * rgb[..., 0]
-                + 0.587 * rgb[..., 1]
-                + 0.114 * rgb[..., 2]
+            luminance = cv2.cvtColor(
+                pixels[..., :3],
+                cv2.COLOR_BGR2GRAY,
             )
         mean = float(np.mean(luminance))
         laplacian_variance = float(

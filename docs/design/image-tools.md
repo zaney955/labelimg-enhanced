@@ -139,7 +139,17 @@ One-click recovery is scoped to the current image workspace and clears when the 
 
 ## Concurrency and failure reporting
 
-Preview work runs away from the GUI thread and reports per-image queued, processing, ready, no-frame, unsupported, failed, or excluded status. Closing or canceling the workspace cancels pending preparation and removes temporary results. Commit begins only when every included image is ready.
+Specialized-repair preview work runs away from the GUI thread and reports per-image queued, processing, ready, no-frame, unsupported, failed, or excluded status. Closing or canceling the workspace cancels pending preparation and removes temporary results. Commit begins only when every included image is ready.
+
+Interactive adjustment and geometry previews use one cached,
+display-oriented image bounded to 1.5 million pixels. Rapid control changes are
+coalesced before rendering and never run metadata-preserving full-resolution
+encoding. The explicit Apply step still reloads and processes every source at
+full resolution, then follows the normal atomic replacement contract. Quality
+metrics use at most 2 million decoded pixels while retaining the full source
+dimensions for resolution and aspect checks. Specialized-repair preparation
+remains full-resolution for candidate accuracy, but runs on a single owned
+background queue so large images cannot multiply memory pressure.
 
 Failures identify the affected image and phase without exposing untranslated application text. Verbatim operating-system diagnostics remain unchanged inside a localized explanation, following the application-language contract.
 

@@ -156,6 +156,30 @@ class ImageToolsDialogTest(unittest.TestCase):
                 ).toImage().convertToFormat(QImage.Format_RGBA8888)
                 self.assertEqual(preview, expected)
 
+    def test_preview_pixmap_is_bounded_for_large_result_arrays(self):
+        pixels = np.zeros((300, 400, 3), dtype=np.uint8)
+
+        pixmap = _array_pixmap(pixels, max_pixels=10_000)
+
+        self.assertLessEqual(pixmap.width() * pixmap.height(), 10_000)
+
+    def test_async_option_changes_are_coalesced_on_one_worker_queue(self):
+        dialog = ImageToolsDialog(
+            self.current,
+            commit=lambda _replacements: None,
+            asynchronous=True,
+        )
+        initial_generation = dialog._generation
+
+        for value in range(4, 9):
+            dialog.radius_spin.setValue(value)
+
+        self.assertEqual(dialog._generation, initial_generation)
+        QTest.qWait(dialog.OPTIONS_DEBOUNCE_MS + 80)
+        self.assertEqual(dialog._generation, initial_generation + 1)
+        self.assertEqual(dialog._thread_pool.maxThreadCount(), 1)
+        dialog.reject()
+
     def test_badges_appear_only_on_original_and_result_at_fixed_size(self):
         dialog = self.show_dialog(self.dialog())
         for mode in ("original", "result"):

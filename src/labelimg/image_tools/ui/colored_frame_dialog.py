@@ -3,11 +3,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 import os
 
 import cv2
 import numpy as np
-from PyQt5.QtCore import QObject, QRect, QRunnable, Qt, QThreadPool, pyqtSignal
+from PyQt5.QtCore import (
+    QObject,
+    QRect,
+    QRunnable,
+    Qt,
+    QThreadPool,
+    QTimer,
+    pyqtSignal,
+)
 from PyQt5.QtGui import QColor, QImage, QKeySequence, QPainter, QPen, QPixmap
 from PyQt5.QtWidgets import (
     QAction,
@@ -270,6 +279,8 @@ class _PreviewLabel(QLabel):
 class ImageToolsDialog(QDialog):
     """Preview, filter, and atomically commit an image-tool target set."""
 
+    OPTIONS_DEBOUNCE_MS = 120
+
     def __init__(
         self,
         current_path,
@@ -291,7 +302,11 @@ class ImageToolsDialog(QDialog):
         )
         self._commit = commit
         self._processor = processor or ImageToolProcessor()
-        self._thread_pool = thread_pool or QThreadPool.globalInstance()
+        if thread_pool is None:
+            self._thread_pool = QThreadPool(self)
+            self._thread_pool.setMaxThreadCount(1)
+        else:
+            self._thread_pool = thread_pool
         self._asynchronous = asynchronous
         self._generation = 0
         self._states = {}
@@ -304,6 +319,10 @@ class ImageToolsDialog(QDialog):
         self._candidate_change_active = False
         self.outcome = None
         self._preview_source = None
+        self._prepare_timer = QTimer(self)
+        self._prepare_timer.setSingleShot(True)
+        self._prepare_timer.setInterval(self.OPTIONS_DEBOUNCE_MS)
+        self._prepare_timer.timeout.connect(self._prepare_all)
 
         self.setWindowTitle(tr("imageTools.title"))
         self.setModal(True)
@@ -564,7 +583,10 @@ class ImageToolsDialog(QDialog):
             return
         self._selection_history.clear()
         self._selection_redo.clear()
-        self._prepare_all()
+        if self._asynchronous:
+            self._prepare_timer.start()
+        else:
+            self._prepare_all()
 
     def _prepare_all(self):
         self._generation += 1
@@ -952,8 +974,17 @@ class ImageToolsDialog(QDialog):
         super().reject()
 
 
-def _array_pixmap(array):
+def _array_pixmap(array, *, max_pixels=1_500_000):
     array = np.ascontiguousarray(array)
+    height, width = array.shape[:2]
+    if width * height > max_pixels:
+        scale = math.sqrt(max_pixels / float(width * height))
+        preview_size = (
+            max(1, int(width * scale)),
+            max(1, int(height * scale)),
+        )
+        array = cv2.resize(array, preview_size, interpolation=cv2.INTER_AREA)
+        array = np.ascontiguousarray(array)
     if array.ndim == 2:
         image = QImage(
             array.data,

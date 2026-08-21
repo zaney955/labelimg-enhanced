@@ -284,7 +284,7 @@ class MainWindow(
         self.label_summary_label.setText(self.label_list.summary_text())
         if hasattr(self, 'annotation_editing'):
             self._sync_annotation_history_ui()
-        self.toggle_all_annotations(
+        self.sync_all_annotations_action(
             self.actions.toggleVisibility.isChecked()
         )
         if self.file_list_widget.count():

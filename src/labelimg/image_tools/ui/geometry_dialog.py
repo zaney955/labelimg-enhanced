@@ -42,6 +42,8 @@ class GeometryTransformRequest:
 class GeometryTransformDialog(QDialog):
     """Collect one explicit transform request with a real image preview."""
 
+    PREVIEW_MAX_PIXELS = 1_500_000
+
     def __init__(
         self,
         current_path,
@@ -58,7 +60,11 @@ class GeometryTransformDialog(QDialog):
         self.selected_paths = tuple(dict.fromkeys(selected))
         self.request = None
         self._codec = ImageFileCodec()
-        self._loaded = self._codec.load(self.current_path)
+        self._preview = self._codec.load_preview(
+            self.current_path,
+            max_pixels=self.PREVIEW_MAX_PIXELS,
+        )
+        self._source_size = self._preview.size
         self._updating_size = False
         self.setWindowTitle(tr("geometry.workspace.title"))
         self.resize(900, 620)
@@ -112,7 +118,7 @@ class GeometryTransformDialog(QDialog):
 
         self.resize_panel = QWidget(self)
         resize_form = QFormLayout(self.resize_panel)
-        width, height = self._loaded.size
+        width, height = self._source_size
         self.width_spin = QSpinBox(self.resize_panel)
         self.width_spin.setRange(1, 200000)
         self.width_spin.setValue(width)
@@ -167,7 +173,7 @@ class GeometryTransformDialog(QDialog):
     def _percent_changed(self, value):
         if self._updating_size:
             return
-        width, height = self._loaded.size
+        width, height = self._source_size
         self._updating_size = True
         self.width_spin.setValue(max(1, round(width * value / 100.0)))
         self.height_spin.setValue(max(1, round(height * value / 100.0)))
@@ -177,7 +183,7 @@ class GeometryTransformDialog(QDialog):
     def _width_changed(self, value):
         if self._updating_size:
             return
-        width, height = self._loaded.size
+        width, height = self._source_size
         self._updating_size = True
         percent = 100.0 * value / width
         self.percent_spin.setValue(percent)
@@ -188,7 +194,7 @@ class GeometryTransformDialog(QDialog):
     def _height_changed(self, value):
         if self._updating_size:
             return
-        width, height = self._loaded.size
+        width, height = self._source_size
         self._updating_size = True
         percent = 100.0 * value / height
         self.percent_spin.setValue(percent)
@@ -197,7 +203,7 @@ class GeometryTransformDialog(QDialog):
         self._refresh()
 
     def _output_size(self):
-        width, height = self._loaded.size
+        width, height = self._source_size
         percent = self.percent_spin.value() / 100.0
         return max(1, round(width * percent)), max(1, round(height * percent))
 
@@ -206,11 +212,23 @@ class GeometryTransformDialog(QDialog):
         resize = operation is GeometryOperation.RESIZE
         self.resize_panel.setVisible(resize)
         output_size = self._output_size() if resize else None
-        pixels, size = transform_pixels(
-            self._loaded.pixels,
-            operation,
-            output_size=output_size,
-        )
+        if resize:
+            pixels = self._preview.pixels
+            size = output_size
+        else:
+            pixels, _preview_size = transform_pixels(
+                self._preview.pixels,
+                operation,
+            )
+            width, height = self._source_size
+            size = (
+                (height, width)
+                if operation in (
+                    GeometryOperation.ROTATE_CLOCKWISE,
+                    GeometryOperation.ROTATE_COUNTERCLOCKWISE,
+                )
+                else (width, height)
+            )
         pixmap = _array_pixmap(pixels)
         self.preview_label.setPixmap(pixmap.scaled(
             self.preview_label.size(),

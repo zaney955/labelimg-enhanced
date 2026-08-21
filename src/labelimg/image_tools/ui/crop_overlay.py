@@ -11,7 +11,13 @@ from PyQt5.QtCore import (
     Qt,
     pyqtSignal,
 )
-from PyQt5.QtGui import QColor, QCursor, QPainter, QPen
+from PyQt5.QtGui import (
+    QColor,
+    QContextMenuEvent,
+    QCursor,
+    QPainter,
+    QPen,
+)
 from PyQt5.QtWidgets import (
     QApplication,
     QComboBox,
@@ -19,12 +25,15 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLayout,
+    QMenu,
+    QMenu,
     QPushButton,
     QSpinBox,
     QWidget,
 )
 
 from labelimg.localization.runtime import tr
+from labelimg.ui.actions import new_icon
 from labelimg.image_tools.domain.crop_geometry import CropRegion
 
 
@@ -288,11 +297,76 @@ class CropOverlay(QWidget):
             return
         super().mouseReleaseEvent(event)
 
+    def contextMenuEvent(self, event):
+        global_position = event.globalPos()
+        if event.reason() == QContextMenuEvent.Keyboard:
+            global_position = self.mapToGlobal(self._context_menu_anchor())
+        self._show_context_menu(global_position)
+        event.accept()
+
+    def build_context_menu(self):
+        menu = QMenu(self)
+        undo_action = menu.addAction(
+            new_icon("undo"),
+            tr("crop.undo"),
+            self.undo,
+        )
+        undo_action.setEnabled(self.can_undo)
+        redo_action = menu.addAction(
+            new_icon("redo"),
+            tr("crop.redo"),
+            self.redo,
+        )
+        redo_action.setEnabled(self.can_redo)
+        menu.addSeparator()
+        apply_action = menu.addAction(
+            new_icon("crop"),
+            tr("crop.apply"),
+            self.applyRequested.emit,
+        )
+        apply_action.setEnabled(self._valid_region())
+        menu.addAction(
+            new_icon("close"),
+            tr("common.cancel"),
+            self.cancelRequested.emit,
+        )
+        return menu
+
+    def _show_context_menu(self, global_position):
+        menu = self.build_context_menu()
+        try:
+            menu.exec_(global_position)
+        finally:
+            menu.deleteLater()
+
+    def _valid_region(self):
+        return bool(
+            self._region is not None
+            and not self._region.is_full_image(self._image_size)
+        )
+
+    def _context_menu_anchor(self):
+        if self._region is None:
+            return self.rect().center()
+        return self._widget_region(self._region).bottomLeft().toPoint()
+
     def wheelEvent(self, event):
         self.canvas.wheelEvent(event)
 
     def keyPressEvent(self, event):
         modifiers = event.modifiers()
+        if (
+            event.key() == Qt.Key_Menu
+            or (
+                event.key() == Qt.Key_F10
+                and modifiers & Qt.ShiftModifier
+            )
+        ):
+            self._show_context_menu(
+                self.mapToGlobal(self._context_menu_anchor())
+            )
+            event.accept()
+            return
         if modifiers & Qt.ControlModifier and event.key() == Qt.Key_Z:
             (self.redo if modifiers & Qt.ShiftModifier else self.undo)()
             event.accept()
