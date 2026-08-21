@@ -5,8 +5,8 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt5.QtCore import QEvent, QPointF, Qt
-from PyQt5.QtGui import QColor, QImage, QPixmap
+from PyQt5.QtCore import QEvent, QPointF, QRectF, Qt
+from PyQt5.QtGui import QColor, QFont, QImage, QPixmap
 from PyQt5.QtTest import QSignalSpy, QTest
 from PyQt5.QtWidgets import QApplication
 
@@ -33,6 +33,48 @@ def rectangle(label, left=20, top=20, right=80, bottom=80):
     shape.close()
     shape.line_color = QColor("#2673D9")
     return shape
+
+
+class RecordingPainter(object):
+    def __init__(self):
+        self.texts = []
+        self.lines = []
+
+    def save(self):
+        pass
+
+    def restore(self):
+        pass
+
+    def setRenderHint(self, *_args):
+        pass
+
+    def setPen(self, *_args):
+        pass
+
+    def setBrush(self, *_args):
+        pass
+
+    def setFont(self, *_args):
+        pass
+
+    def font(self):
+        return QFont()
+
+    def drawRoundedRect(self, *_args):
+        pass
+
+    def drawEllipse(self, *_args):
+        pass
+
+    def drawRect(self, *_args):
+        pass
+
+    def drawText(self, *args):
+        self.texts.append(args)
+
+    def drawLine(self, *args):
+        self.lines.append(args)
 
 
 class NearDuplicateCanvasTest(unittest.TestCase):
@@ -110,14 +152,28 @@ class NearDuplicateCanvasTest(unittest.TestCase):
         self.canvas.set_shape_visible(self.first, False)
         self.assertEqual(self.canvas._near_duplicate_marker_layout(), ())
 
-    def test_conflict_marker_text_does_not_repeat_warning_icon(self):
+    def test_conflict_marker_text_does_not_repeat_conflict_glyph(self):
         different_label = rectangle("dog")
         self.canvas.shapes.append(different_label)
         cluster = detect_near_duplicate_clusters(self.canvas.shapes)[0]
 
         self.assertEqual(cluster.risk, CATEGORY_CONFLICT)
-        # The painter already renders a dedicated warning icon.
+        # The painter already renders a dedicated mismatch glyph.
         self.assertEqual(self.canvas._near_duplicate_marker_text(cluster), "3")
+
+    def test_canvas_conflict_icon_uses_not_equal_strokes(self):
+        different_label = rectangle("dog")
+        self.canvas.shapes.append(different_label)
+        cluster = detect_near_duplicate_clusters(self.canvas.shapes)[0]
+        self.canvas.set_near_duplicate_clusters((cluster,))
+        painter = RecordingPainter()
+
+        self.canvas._paint_near_duplicate_markers(painter)
+
+        painted_text = [args[-1] for args in painter.texts]
+        self.assertNotIn("!", painted_text)
+        self.assertIn("3", painted_text)
+        self.assertGreaterEqual(len(painter.lines), 3)
 
     def test_marker_tooltip_summarizes_labels_and_visibility(self):
         different_label = rectangle("dog")
@@ -241,6 +297,70 @@ class NearDuplicateListAndChooserTest(unittest.TestCase):
         self.assertEqual(risk, CATEGORY_CONFLICT)
         self.assertEqual(len(involved), 2)
         widget.deleteLater()
+
+    def test_list_conflict_icons_use_not_equal_strokes(self):
+        painter = RecordingPainter()
+        LabelGroupListWidget._paint_group_risk_icon(
+            painter,
+            self._icon_rect(),
+            CATEGORY_CONFLICT,
+        )
+        LabelGroupListWidget._paint_near_duplicate_corner(
+            painter,
+            self._icon_rect(),
+            detect_near_duplicate_clusters(
+                (self.first, rectangle("dog"))
+            )[0],
+        )
+
+        self.assertNotIn("!", [args[-1] for args in painter.texts])
+        self.assertEqual(len(painter.lines), 6)
+
+    def test_group_risk_and_total_use_centered_fixed_slots(self):
+        dog = rectangle("dog")
+        cluster = detect_near_duplicate_clusters((self.first, dog))[0]
+        widget = LabelGroupListWidget()
+        widget.set_scene((self.first, dog))
+        widget.set_near_duplicate_clusters((cluster,))
+        status_rect = widget.count_rect_for_label("cat")
+        risk_rect = widget._group_risk_rect(status_rect)
+        count_rect = widget._group_count_value_rect(status_rect)
+        painter = RecordingPainter()
+
+        widget._paint_count(
+            painter,
+            widget._groups_by_label["cat"],
+            status_rect,
+            QColor("black"),
+        )
+
+        self.assertEqual(widget.count_area_width, 50)
+        self.assertEqual(risk_rect.center().y(), status_rect.center().y())
+        self.assertEqual(count_rect.center().y(), status_rect.center().y())
+        self.assertLess(risk_rect.right(), count_rect.left())
+        count_call = next(
+            args for args in painter.texts if args[-1] == "×1"
+        )
+        self.assertTrue(count_call[1] & Qt.AlignVCenter)
+        self.assertFalse(count_call[1] & Qt.AlignBottom)
+
+        widget.resize(360, 100)
+        widget.show()
+        self.app.processEvents()
+        status_rect = widget.count_rect_for_label("cat")
+        risk_hit = widget._hit_test(
+            widget._group_risk_rect(status_rect).center()
+        )
+        count_hit = widget._hit_test(
+            widget._group_count_value_rect(status_rect).center()
+        )
+        self.assertEqual(risk_hit[0], "near_duplicate_group")
+        self.assertEqual(count_hit[0], "count")
+        widget.deleteLater()
+
+    @staticmethod
+    def _icon_rect():
+        return QRectF(0, 0, 14, 14)
 
     def test_fully_hidden_instance_keeps_its_list_risk_target(self):
         widget = LabelGroupListWidget()

@@ -429,7 +429,7 @@ A near-duplicate cluster containing more than one label, indicating geometry tha
 _Avoid_: Duplicate-label risk, invalid annotation
 
 **Near-duplicate marker**:
-The single low-interference Canvas indicator attached to one near-duplicate cluster, identifying its dominant risk through symbol and accessible warning color while its stable number means total members. Category conflict dominates duplicate-label risk, and member visibility never changes the number or risk meaning.
+The single low-interference Canvas indicator attached to one near-duplicate cluster, identifying its dominant risk through a distinct symbol and accessible risk color while its stable number means total members. Category conflict uses a mismatch symbol and dominates duplicate-label risk; member visibility never changes the number or risk meaning.
 _Avoid_: Shifted annotation outline, thick warning border, save blocker
 
 **Cluster member chooser**:
@@ -437,7 +437,7 @@ The non-modal compact control opened from a near-duplicate marker or its annotat
 _Avoid_: Implicit bulk mutation, pointer-target cycling, geometry offset, layer control
 
 **Near-duplicate list signal**:
-The annotation-list risk corner attached to each involved annotation instance plus one dominant-risk indicator on each affected label group. It keeps fully hidden clusters discoverable; group detail may report both risk counts even though category conflict dominates the group indicator.
+The annotation-list risk corner attached to each involved annotation instance plus one dominant-risk indicator beside the stable total of each affected label group. It keeps fully hidden clusters discoverable; risk activation and group-total activation remain distinct even though they share one centered status area.
 _Avoid_: Separate quality panel, hidden-only warning, group-wide error state
 
 **Near-duplicate dismissal**:
