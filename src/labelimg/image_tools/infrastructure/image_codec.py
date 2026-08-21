@@ -53,6 +53,35 @@ class LoadedImagePreview:
         return self.pixels.shape[1], self.pixels.shape[0]
 
 
+@dataclass(frozen=True)
+class ImageFileInfo:
+    path: str
+    format: str
+    mode: str
+    size: tuple[int, int]
+
+
+@dataclass(frozen=True)
+class EncodedImageTransform:
+    path: str
+    source_size: tuple[int, int]
+    output_size: tuple[int, int]
+    content: bytes
+
+
+@dataclass(frozen=True)
+class _EncodingProfile:
+    path: str
+    format: str
+    mode: str
+    exif: bytes
+    icc_profile: bytes | None
+    dpi: tuple | None
+    text: tuple[tuple[str, str], ...]
+    jpeg_quantization: object
+    jpeg_subsampling: int | None
+
+
 class ImageFileCodec:
     """Hide supported-format, channel-order, and metadata handling."""
 
@@ -62,6 +91,38 @@ class ImageFileCodec:
         ".png": "PNG",
         ".bmp": "BMP",
     }
+
+    def inspect(self, path):
+        """Read validated image identity and display size without decoding."""
+        path = os.path.abspath(os.fspath(path))
+        extension = os.path.splitext(path)[1].lower()
+        expected_format = self._FORMATS.get(extension)
+        if expected_format is None:
+            raise UnsupportedImageFile(
+                "only 8-bit JPEG, PNG, and BMP images are supported"
+            )
+        try:
+            with Image.open(path) as image:
+                if image.format != expected_format:
+                    raise UnsupportedImageFile(
+                        "the file content does not match its extension"
+                    )
+                if image.mode not in ("L", "RGB", "RGBA"):
+                    raise UnsupportedImageFile(
+                        "only 8-bit L, RGB, and RGBA images are supported"
+                    )
+                orientation = _orientation_from_info(image)
+                size = (
+                    (image.height, image.width)
+                    if orientation in (5, 6, 7, 8)
+                    else tuple(image.size)
+                )
+                mode = image.mode
+        except UnsupportedImageFile:
+            raise
+        except Exception as error:
+            raise UnsupportedImageFile(str(error)) from error
+        return ImageFileInfo(path, expected_format, mode, size)
 
     def load(self, path):
         path = os.path.abspath(os.fspath(path))
@@ -105,7 +166,8 @@ class ImageFileCodec:
                     if image.format == "JPEG"
                     else None
                 )
-                processing_image = ImageOps.exif_transpose(image)
+                ImageOps.exif_transpose(image, in_place=True)
+                processing_image = image
                 pixels = _pil_to_processing_array(processing_image)
                 processing_mode = processing_image.mode
         except UnsupportedImageFile:
@@ -167,7 +229,8 @@ class ImageFileCodec:
                 )
                 image.draft(image.mode, decoder_size)
                 image.thumbnail(decoder_size, Image.Resampling.BILINEAR)
-                processing_image = ImageOps.exif_transpose(image)
+                ImageOps.exif_transpose(image, in_place=True)
+                processing_image = image
                 processing_image.thumbnail(
                     preview_size,
                     Image.Resampling.BILINEAR,
@@ -184,6 +247,84 @@ class ImageFileCodec:
             mode=processing_mode,
             source_size=source_size,
             pixels=pixels,
+        )
+
+    def transform(self, path, operation, *, crop_box=None):
+        """Encode one geometry change without a full NumPy round trip."""
+        path = os.path.abspath(os.fspath(path))
+        extension = os.path.splitext(path)[1].lower()
+        expected_format = self._FORMATS.get(extension)
+        if expected_format is None:
+            raise UnsupportedImageFile(
+                "only 8-bit JPEG, PNG, and BMP images are supported"
+            )
+        try:
+            with Image.open(path) as image:
+                image.load()
+                if image.format != expected_format:
+                    raise UnsupportedImageFile(
+                        "the file content does not match its extension"
+                    )
+                if image.mode not in ("L", "RGB", "RGBA"):
+                    raise UnsupportedImageFile(
+                        "only 8-bit L, RGB, and RGBA images are supported"
+                    )
+                profile = _encoding_profile(path, image)
+                ImageOps.exif_transpose(image, in_place=True)
+                source_size = tuple(image.size)
+                profile = _EncodingProfile(
+                    path=profile.path,
+                    format=profile.format,
+                    mode=image.mode,
+                    exif=profile.exif,
+                    icc_profile=profile.icc_profile,
+                    dpi=profile.dpi,
+                    text=profile.text,
+                    jpeg_quantization=profile.jpeg_quantization,
+                    jpeg_subsampling=profile.jpeg_subsampling,
+                )
+                transpose = {
+                    "rotate-clockwise": Image.Transpose.ROTATE_270,
+                    "rotate-counterclockwise": Image.Transpose.ROTATE_90,
+                    "rotate-180": Image.Transpose.ROTATE_180,
+                    "flip-horizontal": Image.Transpose.FLIP_LEFT_RIGHT,
+                    "flip-vertical": Image.Transpose.FLIP_TOP_BOTTOM,
+                }.get(str(operation))
+                if transpose is not None:
+                    result = image.transpose(transpose)
+                elif operation == "crop":
+                    box = tuple(int(value) for value in crop_box or ())
+                    if (
+                        len(box) != 4
+                        or box[0] < 0
+                        or box[1] < 0
+                        or box[2] <= box[0]
+                        or box[3] <= box[1]
+                        or box[2] > source_size[0]
+                        or box[3] > source_size[1]
+                    ):
+                        raise ValueError("crop region is outside the image")
+                    result = image.crop(box)
+                else:
+                    raise ValueError("unsupported image transform: %s" % operation)
+                encoded_size = tuple(result.size)
+                output = io.BytesIO()
+                result.save(
+                    output,
+                    format=profile.format,
+                    **self._save_arguments(profile, encoded_size),
+                )
+                content = output.getvalue()
+                self._validate_encoded(profile, content, encoded_size)
+        except (UnsupportedImageFile, ValueError):
+            raise
+        except Exception as error:
+            raise UnsupportedImageFile(str(error)) from error
+        return EncodedImageTransform(
+            path=path,
+            source_size=source_size,
+            output_size=encoded_size,
+            content=content,
         )
 
     def encode(self, loaded, pixels, *, output_size=None):
@@ -290,6 +431,47 @@ def _processing_array_to_pil(pixels, mode):
         raise UnsupportedImageFile("RGBA sources must retain their alpha channel")
     rgba = cv2.cvtColor(pixels, cv2.COLOR_BGRA2RGBA)
     return Image.fromarray(rgba)
+
+
+def _encoding_profile(path, image):
+    quantization = (
+        {
+            key: tuple(values)
+            for key, values in image.quantization.items()
+        }
+        if image.format == "JPEG" and getattr(image, "quantization", None)
+        else None
+    )
+    subsampling = (
+        JpegImagePlugin.get_sampling(image)
+        if image.format == "JPEG"
+        else None
+    )
+    return _EncodingProfile(
+        path=path,
+        format=image.format,
+        mode=image.mode,
+        exif=image.getexif().tobytes(),
+        icc_profile=image.info.get("icc_profile"),
+        dpi=image.info.get("dpi"),
+        text=tuple(
+            sorted(
+                (str(key), str(value))
+                for key, value in getattr(image, "text", {}).items()
+            )
+        ),
+        jpeg_quantization=quantization,
+        jpeg_subsampling=subsampling,
+    )
+
+
+def _orientation_from_info(image):
+    encoded_exif = image.info.get("exif")
+    if not encoded_exif:
+        return 1
+    exif = Image.Exif()
+    exif.load(encoded_exif)
+    return int(exif.get(274, 1) or 1)
 
 
 def _bounded_size(size, max_pixels):

@@ -32,11 +32,20 @@ class ImageCropProcessor:
         self._codec = codec or ImageFileCodec()
 
     def prepare(self, path, region, snapshot):
-        loaded = self._codec.load(path)
-        region.validate(loaded.size)
-        if region.is_full_image(loaded.size):
+        expected = fingerprint_path(path)
+        transformed = self._codec.transform(
+            path,
+            "crop",
+            crop_box=(
+                region.x,
+                region.y,
+                region.right,
+                region.bottom,
+            ),
+        )
+        region.validate(transformed.source_size)
+        if region.is_full_image(transformed.source_size):
             raise ValueError("crop region must change the image bounds")
-        pixels = crop_pixels(loaded.pixels, region)
         annotation_result = transform_annotation_boxes(
             snapshot.boxes,
             region,
@@ -46,18 +55,17 @@ class ImageCropProcessor:
             image_size=region.size,
             boxes=annotation_result.boxes,
         )
-        content = self._codec.encode(
-            loaded,
-            pixels,
-            output_size=region.size,
-        )
+        if transformed.output_size != region.size:
+            raise ValueError("encoded crop dimensions do not match the region")
+        if fingerprint_path(path) != expected:
+            raise ValueError("the image changed while its crop was prepared")
         return PreparedCrop(
-            path=loaded.path,
+            path=transformed.path,
             region=region,
             image_replacement=PreparedImageReplacement(
-                path=loaded.path,
-                expected_fingerprint=fingerprint_path(loaded.path),
-                content=content,
+                path=transformed.path,
+                expected_fingerprint=expected,
+                content=transformed.content,
             ),
             snapshot=transformed_snapshot,
             clipped_count=annotation_result.clipped_count,

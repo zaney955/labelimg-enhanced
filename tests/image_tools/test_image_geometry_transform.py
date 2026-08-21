@@ -2,6 +2,8 @@ import io
 import os
 import tempfile
 import unittest
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import numpy as np
 from PIL import Image
@@ -54,6 +56,31 @@ class ImageGeometryTransformTest(unittest.TestCase):
             rotated = np.asarray(image)
         np.testing.assert_array_equal(rotated[0, 3], (255, 0, 0))
         np.testing.assert_array_equal(rotated[5, 0], (0, 255, 0))
+
+    def test_orthogonal_transform_uses_native_codec_path(self):
+        codec = Mock()
+        codec.load.side_effect = AssertionError(
+            "full NumPy decode path must not be used"
+        )
+        codec.transform.return_value = SimpleNamespace(
+            path=self.path,
+            source_size=(6, 4),
+            output_size=(4, 6),
+            content=b"encoded",
+        )
+
+        result = ImageGeometryProcessor(codec=codec).prepare(
+            self.path,
+            GeometryOperation.ROTATE_CLOCKWISE,
+            self.snapshot,
+        )
+
+        codec.transform.assert_called_once_with(
+            self.path,
+            GeometryOperation.ROTATE_CLOCKWISE.value,
+        )
+        codec.load.assert_not_called()
+        self.assertEqual(result.snapshot.image_size, (4, 6))
 
     def test_flip_and_resize_use_literal_expected_coordinates(self):
         processor = ImageGeometryProcessor()

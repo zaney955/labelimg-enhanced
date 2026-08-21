@@ -46,35 +46,43 @@ class ImageGeometryProcessor:
 
     def prepare(self, path, operation, snapshot, *, output_size=None):
         operation = GeometryOperation(operation)
-        loaded = self._codec.load(path)
-        if tuple(snapshot.image_size) != tuple(loaded.size):
+        path = os.path.abspath(os.fspath(path))
+        expected = fingerprint_path(path)
+        if operation is GeometryOperation.RESIZE:
+            loaded = self._codec.load(path)
+            source_size = loaded.size
+            result_pixels, result_size = transform_pixels(
+                loaded.pixels,
+                operation,
+                output_size=output_size,
+            )
+            content = self._codec.encode(
+                loaded,
+                result_pixels,
+                output_size=result_size,
+            )
+        else:
+            transformed = self._codec.transform(path, operation.value)
+            source_size = transformed.source_size
+            result_size = transformed.output_size
+            content = transformed.content
+        if tuple(snapshot.image_size) != tuple(source_size):
             raise ValueError(
                 "annotation dimensions do not match the image dimensions"
             )
-        expected = fingerprint_path(loaded.path)
-        result_pixels, result_size = transform_pixels(
-            loaded.pixels,
-            operation,
-            output_size=output_size,
-        )
         boxes = transform_annotation_boxes(
             snapshot.boxes,
-            loaded.size,
+            source_size,
             operation,
             result_size,
         )
-        content = self._codec.encode(
-            loaded,
-            result_pixels,
-            output_size=result_size,
-        )
-        if fingerprint_path(loaded.path) != expected:
+        if fingerprint_path(path) != expected:
             raise ValueError("the image changed while its transform was prepared")
         return PreparedGeometryTransform(
-            path=loaded.path,
+            path=path,
             operation=operation,
             image_replacement=PreparedImageReplacement(
-                path=loaded.path,
+                path=path,
                 expected_fingerprint=expected,
                 content=content,
             ),
@@ -125,14 +133,10 @@ def transform_pixels(pixels, operation, *, output_size=None):
     if output_size is None:
         raise ValueError("resize requires an output size")
     output_width, output_height = (int(value) for value in output_size)
-    if output_width < 1 or output_height < 1:
-        raise ValueError("resize dimensions must be positive")
-    aspect_error = abs(
-        output_width * height - output_height * width
+    _validate_resize_size(
+        (width, height),
+        (output_width, output_height),
     )
-    rounding_tolerance = (width + height) / 2.0
-    if aspect_error > rounding_tolerance:
-        raise ValueError("resize must preserve the source aspect ratio")
     interpolation = (
         cv2.INTER_AREA
         if output_width < width or output_height < height
@@ -144,6 +148,17 @@ def transform_pixels(pixels, operation, *, output_size=None):
         interpolation=interpolation,
     )
     return np.ascontiguousarray(resized), (output_width, output_height)
+
+
+def _validate_resize_size(source_size, output_size):
+    width, height = (int(value) for value in source_size)
+    output_width, output_height = (int(value) for value in output_size)
+    if output_width < 1 or output_height < 1:
+        raise ValueError("resize dimensions must be positive")
+    aspect_error = abs(output_width * height - output_height * width)
+    rounding_tolerance = (width + height) / 2.0
+    if aspect_error > rounding_tolerance:
+        raise ValueError("resize must preserve the source aspect ratio")
 
 
 def transform_annotation_boxes(

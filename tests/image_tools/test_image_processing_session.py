@@ -17,6 +17,7 @@ from labelimg.image_tools.application.session import (
     ImageProcessingProjectionError,
     ImageProcessingSession,
     PreparedPixelChange,
+    _image_worker_count,
 )
 
 
@@ -116,6 +117,25 @@ class ImageProcessingSessionTest(unittest.TestCase):
 
     def tearDown(self):
         self.temporary.cleanup()
+
+    def test_batch_workers_are_bounded_by_image_memory(self):
+        small = tuple(
+            SimpleNamespace(size=(1920, 1080), mode="RGB")
+            for _index in range(8)
+        )
+        huge = tuple(
+            SimpleNamespace(size=(20_000, 15_000), mode="RGB")
+            for _index in range(8)
+        )
+
+        self.assertGreater(
+            _image_worker_count(small, live_copies=2.25),
+            1,
+        )
+        self.assertEqual(
+            _image_worker_count(huge, live_copies=2.25),
+            1,
+        )
 
     def _project(self, request):
         self.events.append(("project", request.kind, request.paths))

@@ -151,6 +151,13 @@ dimensions for resolution and aspect checks. Specialized-repair preparation
 remains full-resolution for candidate accuracy, but runs on a single owned
 background queue so large images cannot multiply memory pressure.
 
+Committed 90/180-degree rotations, flips, and crops use the codec's native
+Pillow geometry operations so pixels do not make an intermediate full-image
+NumPy round trip. Proportional resize keeps the faster OpenCV resampler.
+Multi-image geometry and adjustment preparation may run concurrently, but the
+worker count is capped by both CPU count and a 768 MiB estimated live-pixel
+budget; atomic commit still begins only after every output is ready.
+
 Failures identify the affected image and phase without exposing untranslated application text. Verbatim operating-system diagnostics remain unchanged inside a localized explanation, following the application-language contract.
 
 ## Validation
