@@ -19,8 +19,12 @@ from labelimg.workbench.support import read_image as read
 
 class ImageToolsActionsMixin:
     def update_image_menu(self):
-        self.actions.removeColoredFrames.setEnabled(bool(self.file_path))
-        quick_enabled = bool(self.file_path) and not self._crop_active
+        image_available = (
+            bool(self.file_path)
+            and not self._image_processing_projection_blocked
+        )
+        quick_enabled = image_available and not self._crop_active
+        self.actions.removeColoredFrames.setEnabled(quick_enabled)
         for quick_action in (
             self.actions.rotateClockwise,
             self.actions.rotateCounterclockwise,
@@ -30,15 +34,15 @@ class ImageToolsActionsMixin:
         ):
             quick_action.setEnabled(quick_enabled)
         self.actions.transformImage.setEnabled(quick_enabled)
-        self.actions.adjustImage.setEnabled(bool(self.file_path) and not self._crop_active)
-        self.actions.checkImageQuality.setEnabled(bool(self.file_path))
-        self.actions.cropImage.setEnabled(
-            bool(self.file_path) and not self._crop_active
-        )
-        if self._crop_active:
-            self.actions.cropImage.setEnabled(True)
+        self.actions.adjustImage.setEnabled(quick_enabled)
+        self.actions.checkImageQuality.setEnabled(image_available)
+        self.actions.cropImage.setEnabled(image_available)
         self.actions.undoImageProcessing.setEnabled(
             self._latest_image_processing_recovery() is not None
+            and (
+                not self._crop_active
+                or self._image_processing_projection_blocked
+            )
         )
 
 
@@ -210,9 +214,7 @@ class ImageToolsActionsMixin:
                 action = getattr(self.actions, name, None)
                 if action is not None:
                     action.setEnabled(False)
-            self.actions.undoImageProcessing.setEnabled(
-                self._latest_image_processing_recovery() is not None
-            )
+            self.update_image_menu()
             return None
 
         raise ValueError(
@@ -719,9 +721,11 @@ class ImageToolsActionsMixin:
 
 
     def open_remove_colored_frames(self, _checked=False):
+        if self._crop_active:
+            return False
         if not self.file_path:
             self.status(tr('imageTools.noImage'))
-            return
+            return False
         if (
             self.annotation_editing.pending
             or self.annotation_editing.edit_open
@@ -754,6 +758,11 @@ class ImageToolsActionsMixin:
 
 
     def undo_last_image_processing(self, _checked=False):
+        if (
+            self._crop_active
+            and not self._image_processing_projection_blocked
+        ):
+            return False
         entry = self._latest_image_processing_recovery()
         if entry is None:
             self.status(tr('imageTools.recovery.none'))

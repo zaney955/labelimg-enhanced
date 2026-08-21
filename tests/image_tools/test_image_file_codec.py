@@ -96,6 +96,34 @@ class ImageFileCodecTest(unittest.TestCase):
         self.assertEqual(output.format, "BMP")
         self.assertEqual(output.size, (31, 27))
 
+    def test_resized_round_trip_preserves_every_supported_channel_mode(self):
+        cases = (
+            ("gray.jpg", "L", 80),
+            ("rgb.jpg", "RGB", (40, 80, 120)),
+            ("gray.png", "L", 80),
+            ("rgb.png", "RGB", (40, 80, 120)),
+            ("alpha.png", "RGBA", (40, 80, 120, 160)),
+            ("gray.bmp", "L", 80),
+            ("rgb.bmp", "RGB", (40, 80, 120)),
+        )
+
+        for name, mode, color in cases:
+            with self.subTest(name=name, mode=mode):
+                path = self.path(name)
+                Image.new(mode, (8, 6), color).save(path)
+                loaded = self.codec.load(path)
+                resized = np.ascontiguousarray(loaded.pixels[:3, :4])
+
+                encoded = self.codec.encode(
+                    loaded,
+                    resized,
+                    output_size=(4, 3),
+                )
+
+                with Image.open(io.BytesIO(encoded)) as output:
+                    self.assertEqual(output.mode, mode)
+                    self.assertEqual(output.size, (4, 3))
+
     def test_rejects_unsupported_extension_and_sixteen_bit_png(self):
         gif = self.path("source.gif")
         Image.new("RGB", (10, 10), "white").save(gif)

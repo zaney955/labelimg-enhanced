@@ -110,6 +110,28 @@ class ImageGeometryTransformTest(unittest.TestCase):
 
         self.assertEqual(result.snapshot.image_size, (2, 1))
 
+    def test_grayscale_jpeg_rotation_preserves_channel_mode(self):
+        path = os.path.join(self.temporary.name, "grayscale.jpg")
+        Image.fromarray(
+            np.arange(6 * 8, dtype=np.uint8).reshape(6, 8),
+            "L",
+        ).save(path)
+        snapshot = AnnotationSnapshot(
+            image_key=path,
+            image_size=(8, 6),
+            boxes=(),
+        )
+
+        result = ImageGeometryProcessor().prepare(
+            path,
+            GeometryOperation.ROTATE_CLOCKWISE,
+            snapshot,
+        )
+
+        with Image.open(io.BytesIO(result.image_replacement.content)) as image:
+            self.assertEqual(image.mode, "L")
+            self.assertEqual(image.size, (6, 8))
+
 
 if __name__ == "__main__":
     unittest.main()

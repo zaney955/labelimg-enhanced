@@ -172,8 +172,7 @@ class ImageFileCodec:
                     raise UnsupportedImageFile(
                         "encoded result changed image dimensions"
                     )
-                expected_mode = "RGB" if loaded.format == "JPEG" else loaded.mode
-                if image.mode != expected_mode:
+                if image.mode != loaded.mode:
                     raise UnsupportedImageFile(
                         "encoded result changed image channel mode"
                     )
