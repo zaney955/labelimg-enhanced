@@ -89,6 +89,16 @@ class HelpDialogTest(unittest.TestCase):
             and row.action == "Edit box label"
             for row in rows
         ))
+        self.assertTrue(any(
+            row.keys == "Click overlap badge"
+            and row.action == "Inspect near-duplicate boxes"
+            for row in rows
+        ))
+        self.assertTrue(any(
+            row.keys == "Click risk marker"
+            and row.action == "Manage overlap finding"
+            for row in rows
+        ))
         self.assertEqual(
             self.window.actions.selectTool.statusTip(),
             "Select and edit annotations",
@@ -128,6 +138,11 @@ class HelpDialogTest(unittest.TestCase):
         self.assertTrue(any(
             row.keys == "双击鼠标左键"
             and row.action == "修改标注标签"
+            for row in canvas_section.rows
+        ))
+        self.assertTrue(any(
+            row.keys == "点击重叠徽标"
+            and row.action == "检查近重复标注框"
             for row in canvas_section.rows
         ))
         self.assertEqual(dialog.sections[-1].title, "图像工具对话框")

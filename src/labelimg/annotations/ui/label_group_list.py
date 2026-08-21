@@ -5,6 +5,7 @@ from PyQt5.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPa
 from PyQt5.QtWidgets import QAbstractScrollArea, QToolTip
 
 from labelimg.localization.runtime import language_changed, tr
+from labelimg.canvas import CATEGORY_CONFLICT
 
 def _natural_label_key(text):
     parts = []
@@ -39,6 +40,8 @@ class LabelGroupListWidget(QAbstractScrollArea):
     contextMenuRequested = pyqtSignal(object, object)
     summaryChanged = pyqtSignal(str)
     rowHoverChanged = pyqtSignal(object)
+    nearDuplicateRequested = pyqtSignal(object, object, object)
+    nearDuplicateGroupRequested = pyqtSignal(object, object)
 
     row_height = 32
     marker_width = 3
@@ -80,6 +83,8 @@ class LabelGroupListWidget(QAbstractScrollArea):
         self._dragging_strip = False
         self._context_target = None
         self._label_width_cache = {}
+        self._near_duplicate_clusters = tuple()
+        self._near_duplicate_by_shape = {}
         self.setFocusPolicy(Qt.StrongFocus)
         self.setMouseTracking(True)
         self.viewport().setMouseTracking(True)
@@ -131,6 +136,16 @@ class LabelGroupListWidget(QAbstractScrollArea):
         self._emit_summary()
         self.viewport().update()
 
+    def set_near_duplicate_clusters(self, clusters):
+        self._near_duplicate_clusters = tuple(clusters)
+        self._near_duplicate_by_shape = {
+            shape: cluster
+            for cluster in self._near_duplicate_clusters
+            for shape in cluster.members
+            if shape in self._shape_to_group
+        }
+        self.viewport().update()
+
     def clear(self):
         self._selected = tuple()
         self._active = None
@@ -138,6 +153,7 @@ class LabelGroupListWidget(QAbstractScrollArea):
         self._focus_target = None
         self._local_hover = None
         self._projected_hover_shape = None
+        self.set_near_duplicate_clusters(())
         self.set_scene((), visible_shapes=(), reset_scroll=True)
 
     def add_shape(self, shape, visible=True):
@@ -362,13 +378,31 @@ class LabelGroupListWidget(QAbstractScrollArea):
 
     def target_at(self, point):
         hit = self._hit_test(point)
-        return None if hit is None else hit[1]
+        if hit is None:
+            return None
+        kind, target, group = hit
+        if kind == "near_duplicate_instance":
+            return target[1]
+        if kind == "near_duplicate_group":
+            return group.label
+        return target
 
     def tooltip_at(self, point):
         hit = self._hit_test(point)
         if hit is None:
             return ""
         kind, target, group = hit
+        if kind in ("near_duplicate_instance", "near_duplicate_group"):
+            clusters = (target[0],) if kind == "near_duplicate_instance" else target
+            duplicate = sum(
+                cluster.risk != CATEGORY_CONFLICT for cluster in clusters
+            )
+            conflict = len(clusters) - duplicate
+            return tr(
+                "nearDuplicate.listTooltip",
+                duplicate=duplicate,
+                conflict=conflict,
+            )
         if kind == "instance":
             index = group.shapes.index(target) + 1
             bounds = target.bounding_rect()
@@ -529,6 +563,9 @@ class LabelGroupListWidget(QAbstractScrollArea):
                 slash = QColor(self.palette().color(QPalette.Text))
                 painter.setPen(QPen(slash, 1.2, Qt.SolidLine, Qt.RoundCap))
                 painter.drawLine(rect.topLeft() + QPoint(4, 4), rect.bottomRight() - QPoint(4, 4))
+            cluster = self._near_duplicate_by_shape.get(shape)
+            if cluster is not None:
+                self._paint_near_duplicate_corner(painter, rect, cluster)
             painter.restore()
         painter.restore()
 
@@ -569,12 +606,56 @@ class LabelGroupListWidget(QAbstractScrollArea):
         painter.restore()
 
     def _paint_count(self, painter, group, rect, foreground):
+        risk, clusters = self._group_near_duplicate_status(group)
         painter.save()
+        if clusters:
+            self._paint_group_risk_icon(
+                painter,
+                self._group_risk_rect(rect),
+                risk,
+            )
         painter.setPen(foreground)
         painter.drawText(
-            rect.adjusted(3, 0, -5, 0),
-            Qt.AlignVCenter | Qt.AlignRight,
+            rect.adjusted(3, 0, -4, 0),
+            Qt.AlignBottom | Qt.AlignRight,
             "×%d" % len(group.shapes),
+        )
+        painter.restore()
+
+    @staticmethod
+    def _paint_group_risk_icon(painter, rect, risk):
+        color = QColor(
+            "#C026D3" if risk == CATEGORY_CONFLICT else "#D97706"
+        )
+        painter.save()
+        painter.setPen(QPen(color, 1.2, Qt.SolidLine, Qt.RoundCap))
+        painter.setBrush(Qt.NoBrush)
+        if risk == CATEGORY_CONFLICT:
+            font = QFont(painter.font())
+            font.setBold(True)
+            painter.setFont(font)
+            painter.drawText(rect, Qt.AlignCenter, "!")
+        else:
+            box = QRectF(rect.left() + 2, rect.top() + 4, 8, 7)
+            painter.drawRect(box)
+            painter.drawRect(box.translated(3, -3))
+        painter.restore()
+
+    @staticmethod
+    def _paint_near_duplicate_corner(painter, rect, cluster):
+        color = QColor(
+            "#C026D3" if cluster.risk == CATEGORY_CONFLICT else "#D97706"
+        )
+        corner = QRectF(rect.right() - 8, rect.top(), 8, 8)
+        painter.save()
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(color)
+        painter.drawEllipse(corner)
+        painter.setPen(QColor("white"))
+        painter.drawText(
+            corner.adjusted(0, -1, 0, 1),
+            Qt.AlignCenter,
+            "!" if cluster.risk == CATEGORY_CONFLICT else "·",
         )
         painter.restore()
 
@@ -684,6 +765,22 @@ class LabelGroupListWidget(QAbstractScrollArea):
             return
 
         kind, target, group = hit
+        if kind == "near_duplicate_instance":
+            cluster, shape = target
+            self.nearDuplicateRequested.emit(
+                cluster,
+                self.viewport().mapToGlobal(event.pos()),
+                shape,
+            )
+            event.accept()
+            return
+        if kind == "near_duplicate_group":
+            self.nearDuplicateGroupRequested.emit(
+                target,
+                self.viewport().mapToGlobal(event.pos()),
+            )
+            event.accept()
+            return
         if kind == "visibility":
             show = self.group_visibility(group.label) != Qt.Checked
             self.visibilityRequested.emit(group.shapes, show)
@@ -1123,6 +1220,9 @@ class LabelGroupListWidget(QAbstractScrollArea):
         group = groups[row]
         row_rect = self._row_rect(row)
         layout = self._layout(group, row_rect)
+        group_risk = self._group_risk_hit(group, layout["count"], point)
+        if group_risk is not None:
+            return "near_duplicate_group", group_risk, group
         if layout["visibility"].contains(point):
             return "visibility", group.label, group
         if layout["count"].contains(point):
@@ -1133,7 +1233,14 @@ class LabelGroupListWidget(QAbstractScrollArea):
             return "right_arrow", group.label, group
         if layout["buttons"].contains(point):
             for index, shape in enumerate(group.shapes):
-                if self._chip_rect(group, index, layout).contains(point):
+                chip = self._chip_rect(group, index, layout)
+                cluster = self._near_duplicate_by_shape.get(shape)
+                if (
+                    cluster is not None
+                    and self._near_duplicate_corner_rect_from_chip(chip).contains(point)
+                ):
+                    return "near_duplicate_instance", (cluster, shape), group
+                if chip.contains(point):
                     return "instance", shape, group
             return "strip", group.label, group
         if layout["label"].contains(point):
@@ -1144,6 +1251,20 @@ class LabelGroupListWidget(QAbstractScrollArea):
         if hit is None:
             return tuple()
         kind, target, group = hit
+        if kind == "near_duplicate_instance":
+            cluster, _shape = target
+            return tuple(
+                shape for shape in cluster.members
+                if shape in self._visible_shapes
+            )
+        if kind == "near_duplicate_group":
+            involved = {
+                shape for cluster in target for shape in cluster.members
+            }
+            return tuple(
+                shape for shape in self._scene_shapes
+                if shape in involved and shape in self._visible_shapes
+            )
         if kind == "instance":
             return (target,) if target in self._visible_shapes else tuple()
         return tuple(
@@ -1171,6 +1292,40 @@ class LabelGroupListWidget(QAbstractScrollArea):
         if self._local_hover is not None and self._local_hover[0] == "instance":
             return self._local_hover[1]
         return self._projected_hover_shape
+
+    def _near_duplicate_corner_rect(self, shape):
+        return self._near_duplicate_corner_rect_from_chip(
+            self.instance_rect(shape)
+        )
+
+    @staticmethod
+    def _near_duplicate_corner_rect_from_chip(chip):
+        return QRect(chip.right() - 9, chip.top() - 1, 11, 11)
+
+    def _group_near_duplicate_status(self, group):
+        clusters = tuple(
+            cluster for cluster in self._near_duplicate_clusters
+            if any(shape in group.shapes for shape in cluster.members)
+        )
+        risk = (
+            CATEGORY_CONFLICT
+            if any(
+                cluster.risk == CATEGORY_CONFLICT
+                for cluster in clusters
+            )
+            else (clusters[0].risk if clusters else None)
+        )
+        return risk, clusters
+
+    @staticmethod
+    def _group_risk_rect(rect):
+        return QRect(rect.left() + 4, rect.top(), 14, 15)
+
+    def _group_risk_hit(self, group, rect, point):
+        _risk, clusters = self._group_near_duplicate_status(group)
+        if clusters and self._group_risk_rect(rect).contains(point):
+            return clusters
+        return None
 
     def _emit_summary(self):
         self.summaryChanged.emit(self.summary_text())

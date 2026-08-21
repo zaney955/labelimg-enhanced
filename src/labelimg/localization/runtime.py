@@ -195,6 +195,7 @@ _HISTORY_MESSAGE_IDS = {
     "Move box": "history.move",
     "Delete boxes": "history.delete",
     "Delete selected boxes": "history.deleteSelected",
+    "Delete near-duplicate member": "history.deleteNearDuplicate",
     "Change difficult flag": "history.difficult",
     "Duplicate boxes": "history.duplicate",
     "Toggle verified": "history.verified",

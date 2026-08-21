@@ -381,7 +381,7 @@ The visual state of label text belonging to every selected annotation box: white
 _Avoid_: Label-list highlight, active-box-only label, hover label highlight
 
 **Hover target appearance**:
-The edit-mode preview of the one annotation box targeted by the pointer: its ordinary solid outline is replaced by a short-dashed outline with clearly separated, roughly equal dash and gap lengths, the same approximately 1.5-pixel width, and its own label color, without an underlay, added fill, or label-text change; creation mode never shows it. It outlines the complete box for label-text, corner, edge, and interior targets and remains on a locked gesture target, while existing corner enlargement, resize cursors, and selected-box appearance remain intact.
+The edit-mode preview of the one annotation box targeted by the Canvas pointer: its ordinary solid outline is replaced by a short-dashed outline with clearly separated, roughly equal dash and gap lengths, the same approximately 1.5-pixel width, and its own label color, without an underlay, added fill, or label-text change; creation mode never shows it. It outlines the complete box for corner, edge, and interior targets, takes priority over label text when an unmodified double-click is resolved at the same position, and remains on a locked gesture target, while annotation-list hover projections never become Canvas pointer targets.
 _Avoid_: Hover fill, hover label highlight, thick hover outline, white hover underlay
 
 **Corner resize target**:
@@ -393,7 +393,7 @@ The annotation-box interior that remains after corner and edge resize targets ar
 _Avoid_: Corner resize target, edge resize target
 
 **Pointer target resolution**:
-The deterministic choice of the nearest visible annotation target at the pointer: label text first, then the nearest eligible corner, nearest eligible edge, and overlap target among containing box-move targets. It depends only on current rendered annotation state and pointer position, never current selection membership; distances inside a small equality tolerance resolve to the topmost drawing layer rather than using hover stickiness or approach direction.
+The deterministic choice of the nearest visible annotation-box target at the pointer: the nearest eligible corner, nearest eligible edge, and overlap target among containing box-move targets. Label text never competes with box geometry in ordinary hover, selection, dragging, Ctrl-click, or right-button gestures; resolution depends only on current rendered box state and pointer position, never current selection membership, and distances inside a small equality tolerance resolve to the topmost drawing layer rather than using hover stickiness or approach direction.
 _Avoid_: Drawing-order scan, first hit, stateful selection-through
 
 **Label text placement**:
@@ -401,12 +401,12 @@ The label text position separated from the annotation-box outline, normally abov
 _Avoid_: Text baseline on the outline, clipped label text
 
 **Label text hit region**:
-The screen-space bounds of actually rendered label text plus a stable two-pixel allowance, eligible only while both the label text and its annotation box are visible. Selection styling, Canvas scale, and display density never create, remove, or materially resize this target.
-_Avoid_: Hidden label target, annotation-box bounds, image-space padding
+The screen-space bounds of actually rendered label text plus a stable two-pixel allowance, eligible only for an unmodified Canvas label-edit double-click while both the label text and its annotation box are visible. Selection styling, Canvas scale, and display density never create, remove, or materially resize this target.
+_Avoid_: Ordinary selection target, hidden label target, annotation-box bounds, image-space padding
 
 **Label text overlap target**:
-The label text hit region chosen when several regions contain the pointer: strict containment selects the innermost smallest region, partial overlap selects the region whose boundary is nearest, and equality within tolerance selects the topmost annotation layer. It takes priority over annotation-box geometry and remains locked throughout the pointer gesture.
-_Avoid_: First text hit, nearest center, geometry-first label edit
+The label text hit region chosen for a Canvas label-edit double-click only when ordinary pointer target resolution finds no annotation box at that position: strict text containment selects the innermost smallest region, partial text overlap selects the region whose boundary is nearest, and equality within tolerance selects the topmost annotation layer. It never participates in an ordinary pointer gesture; text with no box geometry beneath it therefore remains inert except for an unmodified label-edit double-click.
+_Avoid_: Ordinary pointer target, first text hit, nearest center
 
 **Overlap candidates**:
 The visible annotation boxes whose box-move targets contain the pointer after corner and edge resize targets are resolved. Hidden boxes and boxes that do not contain the pointer never participate in overlap targeting.
@@ -415,6 +415,38 @@ _Avoid_: Nearby boxes, hidden candidates, stateful selection-through
 **Overlap target**:
 The overlap candidate previewed by hover and targeted by an ensuing ordinary click, Ctrl-click, or right-button gesture; modifier keys never change this target. Strict containment chooses the innermost smallest-area candidate, partial overlap chooses the candidate whose boundary is nearest to the pointer, and unresolved geometric equality chooses the topmost drawing layer while lower identical boxes remain selectable from the annotation list.
 _Avoid_: Nearest center, drawing-order-only target, stateful selection-through
+
+**Near-duplicate cluster**:
+Two or more similarly sized annotation boxes whose four corresponding boundaries are pairwise closely aligned in image coordinates. Its membership is stable across Canvas zoom, it is distinct from ordinary partial overlap or a materially larger box containing a smaller box, and it never proves that any member should be deleted.
+_Avoid_: Any overlap, containment pair, duplicate annotation, automatic deletion set
+
+**Duplicate-label risk**:
+A near-duplicate cluster whose members share one label, indicating a likely accidental repeated annotation without asserting that the repetition is invalid.
+_Avoid_: Confirmed duplicate, save error
+
+**Category-conflict cluster**:
+A near-duplicate cluster containing more than one label, indicating geometry that may have inconsistent categories or an intentional multi-label interpretation.
+_Avoid_: Duplicate-label risk, invalid annotation
+
+**Near-duplicate marker**:
+The single low-interference Canvas indicator attached to one near-duplicate cluster, identifying its dominant risk through symbol and accessible warning color while its stable number means total members. Category conflict dominates duplicate-label risk, and member visibility never changes the number or risk meaning.
+_Avoid_: Shifted annotation outline, thick warning border, save blocker
+
+**Cluster member chooser**:
+The non-modal compact control opened from a near-duplicate marker or its annotation-list counterpart that lists every cluster member in annotation order by ordinal, label, and visibility, with geometry available on demand. Its highlighted row is the explicit target for focus, visibility, label, and deletion operations, while the cluster itself may be dismissed for the session.
+_Avoid_: Implicit bulk mutation, pointer-target cycling, geometry offset, layer control
+
+**Near-duplicate list signal**:
+The annotation-list risk corner attached to each involved annotation instance plus one dominant-risk indicator on each affected label group. It keeps fully hidden clusters discoverable; group detail may report both risk counts even though category conflict dominates the group indicator.
+_Avoid_: Separate quality panel, hidden-only warning, group-wide error state
+
+**Near-duplicate dismissal**:
+A workspace-session view-state choice that suppresses one acknowledged near-duplicate cluster from both Canvas and annotation-list feedback without changing or validating its annotations. A change to member identity, geometry, or label invalidates the dismissal, while selection and visibility do not; current-image dismissals can be restored together from the annotation-list command surface.
+_Avoid_: Saved annotation property, permanent validation, geometry-only identity
+
+**Cluster focus**:
+The temporary Canvas presentation entered after choosing one near-duplicate member, which replaces any prior selection set: the chosen member retains the ordinary selected appearance and label text, while peer outlines are strongly de-emphasized and peer label text is suppressed. Leaving the cluster or canceling focus restores ordinary presentation without restoring the prior selection or changing annotations.
+_Avoid_: Offset geometry, persistent isolation, annotation edit
 
 **Pointer gesture target**:
 The annotation box recomputed at mouse press and retained for that click or drag until release or cancellation. Hover only previews this target; its complete-box highlight remains fixed during the open gesture, and crossing another box never retargets it.
@@ -457,7 +489,7 @@ An atomic label edit applied to exactly one annotation box, even when other boxe
 _Avoid_: Label-group rename, bulk relabel, candidate-label edit
 
 **Canvas label-edit gesture**:
-An unmodified primary-button double-click on any visible part of one annotation box in the Selection and Editing tool, including its label text, interior, outline, or adjustment handles, that replaces the current selection with that box and opens the existing single-box label editor. The editor owns a pending annotation transaction from opening through cancellation or one atomic commit; other Canvas modes and modified double-clicks retain their existing interactions.
+An unmodified primary-button double-click on a visible annotation box or its visible label text in the Selection and Editing tool that replaces the current selection with that box and opens the existing single-box label editor. The ordinary corner, edge, and interior target is recomputed at the double-click position and takes priority, matching the single Canvas hover target even when unrelated label text overlaps it; only when no box is found does precise label-text resolution choose its owning box, while annotation-list hover projections never affect the result.
 _Avoid_: Label-group rename, property editor, creation-mode double-click
 
 **Label-group filter**:

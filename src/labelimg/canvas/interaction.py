@@ -182,7 +182,6 @@ class CanvasInteraction:
         nearest_vertex_hit,
         nearest_edge_hit,
         distance_tolerance=1e-6,
-        label_hit_rect=None,
     ):
         """Resolve and publish the deterministic target at ``position``."""
         previous = self.hover
@@ -192,7 +191,6 @@ class CanvasInteraction:
             nearest_vertex_hit,
             nearest_edge_hit,
             distance_tolerance,
-            label_hit_rect,
         )
         self.set_hover_target(target)
         return previous, self.hover
@@ -204,25 +202,13 @@ class CanvasInteraction:
         nearest_vertex_hit,
         nearest_edge_hit,
         distance_tolerance=1e-6,
-        label_hit_rect=None,
     ):
-        """Choose one target from visible label text and geometry.
+        """Choose one target from visible box geometry.
 
-        Scene order is bottom-to-top. Labels outrank corners, corners outrank
-        edges, edges outrank interiors, and drawing order is used only for
-        approximate ties.
+        Scene order is bottom-to-top. Corners outrank edges, edges outrank
+        interiors, and drawing order is used only for approximate ties.
         """
         shapes = tuple(shapes)
-        if label_hit_rect is not None:
-            target = self._label_target(
-                shapes,
-                position,
-                label_hit_rect,
-                distance_tolerance,
-            )
-            if target.shape is not None:
-                return target
-
         target = self._nearest_feature_target(
             shapes,
             position,
@@ -246,6 +232,21 @@ class CanvasInteraction:
         return self._interior_target(
             shapes,
             position,
+            distance_tolerance,
+        )
+
+    def resolve_label_target(
+        self,
+        shapes,
+        position,
+        label_hit_rect,
+        distance_tolerance=1e-6,
+    ):
+        """Choose one visible label-text target for a label-edit gesture."""
+        return self._label_target(
+            tuple(shapes),
+            position,
+            label_hit_rect,
             distance_tolerance,
         )
 

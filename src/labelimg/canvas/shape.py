@@ -96,6 +96,7 @@ class Shape(object):
         painter,
         outline_style=Qt.SolidLine,
         outline_dash_pattern=None,
+        paint_label=None,
     ):
         if self.points:
             color = QColor(self.line_color)
@@ -138,7 +139,7 @@ class Shape(object):
                     fill_color.setAlpha(self.selected_fill_alpha)
                 painter.fillPath(line_path, fill_color)
 
-            if self.paint_label:
+            if self.paint_label if paint_label is None else paint_label:
                 self.paint_label_text(painter)
 
     def paint_label_text(self, painter):
