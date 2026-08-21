@@ -2,6 +2,7 @@ import io
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 from PIL import Image, PngImagePlugin
@@ -101,6 +102,42 @@ class ImageFileCodecTest(unittest.TestCase):
             10_000,
         )
         self.assertEqual(preview.mode, "RGB")
+
+    def test_inspection_reads_dimensions_without_decoding_pixels(self):
+        path = self.path("inspect.png")
+        Image.new("RGBA", (40, 30), (10, 20, 30, 40)).save(path)
+
+        with patch.object(
+            Image.Image,
+            "load",
+            side_effect=AssertionError("pixel decode is not allowed"),
+        ):
+            info = self.codec.inspect(path)
+
+        self.assertEqual(info.size, (40, 30))
+        self.assertEqual(info.mode, "RGBA")
+
+    def test_native_rotation_preserves_jpeg_metadata_and_channel_mode(self):
+        path = self.path("native.jpg")
+        exif = Image.Exif()
+        exif[271] = "LabelImg Camera"
+        exif[274] = 1
+        Image.new("L", (64, 48), 90).save(
+            path,
+            exif=exif,
+            dpi=(144, 144),
+        )
+
+        transformed = self.codec.transform(path, "rotate-clockwise")
+
+        self.assertEqual(transformed.source_size, (64, 48))
+        self.assertEqual(transformed.output_size, (48, 64))
+        with Image.open(io.BytesIO(transformed.content)) as output:
+            self.assertEqual(output.format, "JPEG")
+            self.assertEqual(output.mode, "L")
+            self.assertEqual(output.size, (48, 64))
+            self.assertEqual(output.getexif().get(271), "LabelImg Camera")
+            self.assertEqual(output.getexif().get(274), 1)
 
     def test_bmp_round_trip_keeps_bmp_format_and_dimensions(self):
         path = self.path("source.bmp")

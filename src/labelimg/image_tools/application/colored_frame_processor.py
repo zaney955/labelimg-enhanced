@@ -137,7 +137,7 @@ class ImageToolProcessor:
             options=options,
             candidates=analysis.candidates,
             selected_candidate_ids=selected,
-            original_pixels=loaded.pixels.copy(),
+            original_pixels=loaded.pixels,
             result_pixels=rendered.image,
             mask=rendered.mask,
             replacement=replacement,

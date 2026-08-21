@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from enum import Enum
 import os
@@ -117,6 +118,15 @@ class PreparedGeometryTarget:
         ):
             return ()
         return (self.annotation_target,)
+
+
+@dataclass(frozen=True)
+class _GeometryPreparationSource:
+    path: str
+    document: object
+    image_info: object
+    snapshot: object
+    annotation_target: str | None
 
 
 @dataclass(frozen=True)
@@ -254,13 +264,16 @@ class ImageProcessingSession:
 
         if isinstance(change, AdjustmentChange):
             processor = ImageAdjustmentProcessor()
-            prepared = tuple(
-                processor.prepare(
-                    path,
-                    change.options,
-                    retain_pixels=False,
-                )
-                for path in change.paths
+            paths = tuple(
+                os.path.abspath(os.fspath(path)) for path in change.paths
+            )
+            image_infos = tuple(self._codec.inspect(path) for path in paths)
+            prepared = _parallel_map(
+                lambda path: processor.prepare(
+                    path, change.options, retain_pixels=False
+                ),
+                paths,
+                _image_worker_count(image_infos, live_copies=3.0),
             )
             replacements = tuple(
                 result.replacement
@@ -319,22 +332,46 @@ class ImageProcessingSession:
         transforms are the two existing adapters at this seam.
         """
         current_key = _path_key(current_path) if current_path else None
-        targets = []
+        sources = []
         for requested_path in paths:
             path = os.path.abspath(os.fspath(requested_path))
             document = self._document_for_path(path)
-            loaded_image = self._codec.load(path)
+            image_info = self._codec.inspect(path)
             if current_key == _path_key(path) and self._editing.view is not None:
                 snapshot = self._editing.view.snapshot
                 annotation_target = self._editing.view.current_target
             else:
                 snapshot = annotation_snapshot_from_document(
                     document,
-                    loaded_image.size,
+                    image_info.size,
                 )
                 annotation_target = self._workspace.active_document_path(path)
 
-            prepared = prepare(path, snapshot, loaded_image.size)
+            sources.append(_GeometryPreparationSource(
+                path=path,
+                document=document,
+                image_info=image_info,
+                snapshot=snapshot,
+                annotation_target=annotation_target,
+            ))
+
+        prepared_images = _parallel_map(
+            lambda source: prepare(
+                source.path,
+                source.snapshot,
+                source.image_info.size,
+            ),
+            tuple(sources),
+            _image_worker_count(
+                tuple(source.image_info for source in sources),
+                live_copies=2.25,
+            ),
+        )
+        targets = []
+        for source, prepared in zip(sources, prepared_images):
+            path = source.path
+            document = source.document
+            annotation_target = source.annotation_target
             annotation_preparation = None
             if annotation_target and os.path.isfile(annotation_target):
                 annotation_preparation = prepare_crop_annotations(
@@ -524,6 +561,35 @@ class ImageProcessingSession:
             _direction=direction,
             _target_count=target_count,
         )
+
+
+def _image_worker_count(image_infos, *, live_copies):
+    image_infos = tuple(image_infos)
+    if len(image_infos) < 2:
+        return 1
+    channel_counts = {"L": 1, "RGB": 3, "RGBA": 4}
+    largest_estimate = max(
+        info.size[0]
+        * info.size[1]
+        * channel_counts.get(info.mode, 4)
+        * float(live_copies)
+        for info in image_infos
+    )
+    memory_budget = 768 * 1024 * 1024
+    memory_workers = max(1, int(memory_budget // largest_estimate))
+    cpu_workers = min(4, os.cpu_count() or 1)
+    return max(1, min(len(image_infos), memory_workers, cpu_workers))
+
+
+def _parallel_map(function, items, workers):
+    items = tuple(items)
+    if workers <= 1 or len(items) <= 1:
+        return tuple(function(item) for item in items)
+    with ThreadPoolExecutor(
+        max_workers=workers,
+        thread_name_prefix="labelimg-image",
+    ) as executor:
+        return tuple(executor.map(function, items))
 
 
 def _annotation_baseline(annotation_target):

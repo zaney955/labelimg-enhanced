@@ -239,7 +239,7 @@ class ColoredFrameRemover:
                 iterations=self.options.halo_dilate_iterations,
             )
         if not np.any(mask):
-            return FrameRemovalResult(image.copy(), mask, selected)
+            return FrameRemovalResult(image, mask, selected)
 
         color_image, alpha = _split_color_and_alpha(image)
         normalize = (
