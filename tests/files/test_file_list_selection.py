@@ -26,6 +26,7 @@ from labelimg.files.ui.list_widget import (
     CURRENT_IMAGE_ROLE,
     FILE_ANNOTATION_STATE_ROLE,
     FILE_PERSISTENCE_FLAGS_ROLE,
+    FILE_QUALITY_FINDINGS_ROLE,
     FILE_REVIEW_STATE_ROLE,
     FileListItemDelegate,
     PRESERVED_SELECTION_APPEARANCE_ROLE,
@@ -423,6 +424,10 @@ class FileListSelectionTest(unittest.TestCase):
         item.setData(FILE_ANNOTATION_STATE_ROLE, "annotated")
         item.setData(FILE_REVIEW_STATE_ROLE, "verified")
         item.setData(
+            FILE_QUALITY_FINDINGS_ROLE,
+            ({"explanation": "图像过暗"},),
+        )
+        item.setData(
             FILE_PERSISTENCE_FLAGS_ROLE,
             ("dirty", "conflict", "ambiguous", "degraded"),
         )
@@ -446,6 +451,12 @@ class FileListSelectionTest(unittest.TestCase):
                 layout["name"].center()
             ),
             item.data(Qt.UserRole),
+        )
+        self.assertEqual(
+            self.window.file_list_widget.tooltip_at(
+                layout["quality"].center()
+            ),
+            "图像过暗",
         )
         alert = self.window.file_list_widget.tooltip_at(
             layout["alert"].center()

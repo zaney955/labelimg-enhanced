@@ -1,3 +1,4 @@
+import io
 import os
 import tempfile
 import unittest
@@ -68,6 +69,24 @@ class ImageAdjustmentProcessorTest(unittest.TestCase):
             result.result_pixels[..., 3],
             np.array([[17, 231]], dtype=np.uint8),
         )
+
+    def test_brightness_preserves_grayscale_jpeg_channel_mode(self):
+        pixels = np.array(
+            [[10, 80], [160, 240]],
+            dtype=np.uint8,
+        )
+        path = self._save("grayscale.jpg", pixels, "L")
+
+        result = ImageAdjustmentProcessor().prepare(
+            path,
+            ImageAdjustmentOptions(brightness=10),
+        )
+
+        self.assertIsNotNone(result.replacement)
+        with Image.open(path) as original:
+            self.assertEqual(original.mode, "L")
+        with Image.open(io.BytesIO(result.replacement.content)) as adjusted:
+            self.assertEqual(adjusted.mode, "L")
 
 
 if __name__ == "__main__":

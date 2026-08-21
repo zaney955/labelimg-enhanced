@@ -146,7 +146,7 @@ class CommandSurfacesTest(unittest.TestCase):
         self.assertEqual(len(pans), 2)
         self.assertEqual(gestures, [])
 
-    def test_top_bar_collapses_only_image_quick_actions(self):
+    def test_top_bar_collapses_by_measured_available_width(self):
         bar = self.window.top_commands
         bar.update_responsive_layout(800)
         self.assertTrue(bar.image_quick_widget_action.isVisible())
@@ -159,16 +159,89 @@ class CommandSurfacesTest(unittest.TestCase):
             for button in self.window.review_control.buttons.values()
         ))
 
-        bar.update_responsive_layout(1100)
+        bar.update_responsive_layout(4000)
         self.assertFalse(bar.image_quick_widget_action.isVisible())
         self.assertTrue(bar.rotate_widget_action.isVisible())
         self.assertTrue(bar.flip_widget_action.isVisible())
-        self.assertEqual(bar.open_button.width(), 156)
-        self.assertEqual(self.window.format_selector.width(), 132)
+        for button in (
+            bar.open_button,
+            self.window.format_selector,
+            *self.window.review_control.buttons.values(),
+        ):
+            self.assertEqual(
+                button.toolButtonStyle(),
+                Qt.ToolButtonTextBesideIcon,
+            )
+            self.assertGreaterEqual(button.width(), button.sizeHint().width())
+
+        self.window.resize(1024, 720)
+        self.window.show()
+        self.app.processEvents()
+        bar.update_responsive_layout(bar.width())
+        self.assertLessEqual(bar.sizeHint().width(), bar.width())
+        self.assertTrue(bar.open_button.isVisible())
         self.assertTrue(all(
-            button.width() == 98
+            button.isVisible()
             for button in self.window.review_control.buttons.values()
         ))
+        self.assertTrue(self.window.format_selector.isVisible())
+        self.assertTrue(bar.save_button.isVisible())
+
+    def test_expanded_top_bar_widths_follow_the_current_language(self):
+        bar = self.window.top_commands
+        text_controls = [
+            bar.open_button,
+            *self.window.review_control.buttons.values(),
+            self.window.format_selector,
+        ]
+
+        def expanded_widths(language):
+            self.window.change_language(language)
+            bar.update_responsive_layout(4000)
+            widths = {}
+            for control in text_controls:
+                self.assertEqual(
+                    control.toolButtonStyle(),
+                    Qt.ToolButtonTextBesideIcon,
+                    control.objectName(),
+                )
+                self.assertGreaterEqual(
+                    control.width(),
+                    control.sizeHint().width(),
+                    "%s clips %r: actual=%d, required=%d" % (
+                        control.objectName(),
+                        control.text(),
+                        control.width(),
+                        control.sizeHint().width(),
+                    ),
+                )
+                self.assertGreaterEqual(
+                    control.height(),
+                    control.sizeHint().height(),
+                    "%s clips vertically: actual=%d, required=%d" % (
+                        control.objectName(),
+                        control.height(),
+                        control.sizeHint().height(),
+                    ),
+                )
+                widths[control.objectName()] = control.width()
+            return widths
+
+        english_widths = expanded_widths(ENGLISH)
+        chinese_widths = expanded_widths(SIMPLIFIED_CHINESE)
+        english_widths_again = expanded_widths(ENGLISH)
+
+        self.assertEqual(english_widths_again, english_widths)
+        self.assertLess(
+            chinese_widths["openWorkspaceButton"],
+            english_widths["openWorkspaceButton"],
+        )
+        for state in self.window.review_control.buttons:
+            object_name = "review_%s" % state
+            self.assertLess(
+                chinese_widths[object_name],
+                english_widths[object_name],
+            )
 
     def test_top_bar_controls_share_one_height(self):
         bar = self.window.top_commands

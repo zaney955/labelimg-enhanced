@@ -55,6 +55,7 @@ from labelimg.files.model import (
     FileListQuery,
     compare_relative_image_paths,
     portable_logical_compare,
+    quality_finding_value,
 )
 from labelimg.localization.runtime import language_changed, localize_dialog_buttons, tr
 
@@ -1052,7 +1053,7 @@ class FileListWidget(QListView):
             )
         if layout["quality"].contains(point):
             return "\n".join(
-                str(_quality_value(value, "explanation") or value)
+                str(quality_finding_value(value, "explanation") or value)
                 for value in item.data(FILE_QUALITY_FINDINGS_ROLE) or ()
             )
         if layout["name"].contains(point):

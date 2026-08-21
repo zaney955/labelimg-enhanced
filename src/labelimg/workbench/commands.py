@@ -42,6 +42,22 @@ BUTTON_SIZE = QSize(44, 44)
 ICON_SIZE = QSize(24, 24)
 
 
+def _set_text_button_compact(button, compact):
+    """Size a command button for its current text, font, and Qt style."""
+    button.setToolButtonStyle(
+        Qt.ToolButtonIconOnly if compact
+        else Qt.ToolButtonTextBesideIcon
+    )
+    if compact:
+        button.setFixedSize(BUTTON_SIZE)
+        return
+    hint = button.sizeHint()
+    button.setFixedSize(
+        max(BUTTON_SIZE.width(), hint.width()),
+        max(BUTTON_SIZE.height(), hint.height()),
+    )
+
+
 def _sync_button_accessibility(button):
     action = button.defaultAction()
     if action is None:
@@ -136,6 +152,7 @@ class ReviewControl(QFrame):
     def __init__(self, parent=None):
         super(ReviewControl, self).__init__(parent)
         self.setObjectName("currentImageReviewControl")
+        self._compact = False
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -152,8 +169,6 @@ class ReviewControl(QFrame):
             )
             self.group.addAction(action)
             button = _tool_button(action)
-            button.setFixedSize(98, BUTTON_SIZE.height())
-            button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
             button.setObjectName("review_%s" % state)
             layout.addWidget(button)
             self.actions[state] = action
@@ -176,21 +191,17 @@ class ReviewControl(QFrame):
             button.setToolTip(tooltip)
             button.setAccessibleName(title)
             button.setAccessibleDescription(tooltip)
+        self.set_compact(self._compact)
 
     def set_state(self, state):
         action = self.actions.get(state, self.actions["unreviewed"])
         action.setChecked(True)
 
     def set_compact(self, compact):
+        self._compact = bool(compact)
         for button in self.buttons.values():
-            button.setFixedSize(
-                BUTTON_SIZE.width() if compact else 98,
-                BUTTON_SIZE.height(),
-            )
-            button.setToolButtonStyle(
-                Qt.ToolButtonIconOnly if compact
-                else Qt.ToolButtonTextBesideIcon
-            )
+            _set_text_button_compact(button, self._compact)
+        self.updateGeometry()
 
     def setEnabled(self, enabled):
         super(ReviewControl, self).setEnabled(enabled)
@@ -210,12 +221,10 @@ class FormatSelector(QToolButton):
     def __init__(self, annotation_format, parent=None):
         super(FormatSelector, self).__init__(parent)
         self.setObjectName("annotationFormatSelector")
+        self._compact = False
         self.setAutoRaise(True)
-        self.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.setIconSize(ICON_SIZE)
         self.setPopupMode(QToolButton.InstantPopup)
-        self.setFixedWidth(132)
-        self.setFixedHeight(BUTTON_SIZE.height())
         self.menu = QMenu(self)
         self.menu.setIcon(new_icon("file"))
         self.group = QActionGroup(self.menu)
@@ -247,13 +256,12 @@ class FormatSelector(QToolButton):
         action.setChecked(True)
         self.setText(action.text())
         self.setIcon(action.icon())
+        self.set_compact(self._compact)
 
     def set_compact(self, compact):
-        self.setFixedWidth(44 if compact else 132)
-        self.setToolButtonStyle(
-            Qt.ToolButtonIconOnly if compact
-            else Qt.ToolButtonTextBesideIcon
-        )
+        self._compact = bool(compact)
+        _set_text_button_compact(self, self._compact)
+        self.updateGeometry()
 
 
 class TopCommandBar(QToolBar):
@@ -270,13 +278,11 @@ class TopCommandBar(QToolBar):
         self.setIconSize(ICON_SIZE)
         self.setToolButtonStyle(Qt.ToolButtonIconOnly)
         self.toggleViewAction().setVisible(False)
+        self._last_available_width = None
 
         self.open_button = _tool_button(open_action, getattr(
             open_action, "_toolbar_menu", None
         ))
-        self.open_button.setFixedHeight(44)
-        self.open_button.setMinimumWidth(44)
-        self.open_button.setMaximumWidth(156)
         self.open_button.setObjectName("openWorkspaceButton")
         self.addWidget(self.open_button)
         self.addSeparator()
@@ -352,6 +358,11 @@ class TopCommandBar(QToolBar):
         self.image_quick_button.setToolTip(title)
         self.image_quick_button.setAccessibleName(title)
         self.image_quick_button.setAccessibleDescription(title)
+        self.update_responsive_layout(
+            self.width()
+            if self._last_available_width is None
+            else self._last_available_width
+        )
 
     def set_counter(self, current, total):
         self.counter_label.setText("%d / %d" % (current, total))
@@ -364,20 +375,36 @@ class TopCommandBar(QToolBar):
         self.update_responsive_layout(self.width())
 
     def update_responsive_layout(self, available_width):
-        collapsed = available_width < 1020
-        self.rotate_widget_action.setVisible(not collapsed)
-        self.flip_widget_action.setVisible(not collapsed)
-        self.image_quick_widget_action.setVisible(collapsed)
-        self.review_control.set_compact(collapsed)
-        self.format_selector.set_compact(collapsed)
-        compact_open = available_width < 820
-        self.open_button.setToolButtonStyle(
-            Qt.ToolButtonIconOnly if compact_open
-            else Qt.ToolButtonTextBesideIcon
+        self._last_available_width = max(0, int(available_width))
+
+        layouts = (
+            (False, False, False),
+            (True, False, False),
+            (True, True, False),
+            (True, True, True),
         )
-        self.open_button.setFixedWidth(
-            44 if compact_open else 156
-        )
+        for quick_actions_compact, open_compact, context_compact in layouts:
+            self._apply_responsive_state(
+                quick_actions_compact,
+                open_compact,
+                context_compact,
+            )
+            if self.sizeHint().width() <= self._last_available_width:
+                break
+
+    def _apply_responsive_state(
+        self,
+        quick_actions_compact,
+        open_compact,
+        context_compact,
+    ):
+        self.rotate_widget_action.setVisible(not quick_actions_compact)
+        self.flip_widget_action.setVisible(not quick_actions_compact)
+        self.image_quick_widget_action.setVisible(quick_actions_compact)
+        _set_text_button_compact(self.open_button, open_compact)
+        self.review_control.set_compact(context_compact)
+        self.format_selector.set_compact(context_compact)
+        self.layout().invalidate()
 
 
 class ZoomControl(QFrame):

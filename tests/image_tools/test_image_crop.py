@@ -144,6 +144,31 @@ class ImageCropTest(unittest.TestCase):
             ) as result:
                 self.assertEqual(result.size, (4, 4))
 
+    def test_processor_preserves_grayscale_jpeg_channel_mode(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = os.path.join(temporary, "grayscale.jpg")
+            Image.fromarray(
+                np.arange(6 * 8, dtype=np.uint8).reshape(6, 8),
+                "L",
+            ).save(path)
+            snapshot = AnnotationSnapshot(
+                image_key=path,
+                image_size=(8, 6),
+                boxes=(),
+            )
+
+            result = ImageCropProcessor().prepare(
+                path,
+                CropRegion(1, 1, 4, 3),
+                snapshot,
+            )
+
+            with Image.open(io.BytesIO(
+                result.image_replacement.content
+            )) as image:
+                self.assertEqual(image.mode, "L")
+                self.assertEqual(image.size, (4, 3))
+
     def test_create_ml_preparation_changes_only_the_current_record(self):
         with tempfile.TemporaryDirectory() as temporary:
             image_path = os.path.join(temporary, "first.png")

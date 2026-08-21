@@ -12,6 +12,7 @@ from PyQt5.QtCore import QEvent, QPoint, Qt
 from PyQt5.QtGui import QColor, QCursor, QImage, QKeySequence, QPixmap
 from PyQt5.QtTest import QSignalSpy, QTest
 from PyQt5.QtWidgets import QApplication, QDialog, QMessageBox, QToolButton
+from PIL import Image
 
 from labelimg.workbench.bootstrap import WorkbenchLaunchOptions, create_workbench
 from labelimg.annotations.domain.model import (
@@ -285,6 +286,82 @@ class ImageToolsAppTest(unittest.TestCase):
         QTest.keyClick(self.window.file_list_widget, Qt.Key_C)
         self.assertFalse(self.window._crop_active)
 
+    def test_crop_mode_keeps_incompatible_image_menu_commands_disabled(self):
+        recovery_entry = SimpleNamespace(
+            operation=ImageProcessingOperation.PROCESS,
+            recoverable=True,
+        )
+        with patch.object(
+            type(self.window.image_processing),
+            "recovery_entries",
+            new_callable=PropertyMock,
+            return_value=(recovery_entry,),
+        ):
+            self.assertTrue(self.window.enter_crop_mode())
+            self.window.update_image_menu()
+
+            for image_action in (
+                self.window.actions.removeColoredFrames,
+                self.window.actions.rotateClockwise,
+                self.window.actions.rotateCounterclockwise,
+                self.window.actions.rotate180,
+                self.window.actions.flipHorizontal,
+                self.window.actions.flipVertical,
+                self.window.actions.transformImage,
+                self.window.actions.adjustImage,
+                self.window.actions.undoImageProcessing,
+            ):
+                self.assertFalse(
+                    image_action.isEnabled(),
+                    image_action.text(),
+                )
+            self.assertTrue(self.window.actions.cropImage.isEnabled())
+            self.assertTrue(self.window.actions.cropImage.isChecked())
+
+            with patch(
+                "labelimg.image_tools.ui.colored_frame_dialog.ImageToolsDialog"
+            ) as repair_dialog, patch.object(
+                self.window,
+                "_confirm_file_recovery",
+            ) as recover:
+                self.assertFalse(self.window.open_remove_colored_frames())
+                self.assertFalse(self.window.undo_last_image_processing())
+
+            repair_dialog.assert_not_called()
+            recover.assert_not_called()
+
+        self.window.cancel_crop()
+
+    def test_projection_failure_during_crop_keeps_recovery_available(self):
+        recovery_entry = SimpleNamespace(
+            operation=ImageProcessingOperation.PROCESS,
+            recoverable=True,
+            entry_id="crop-projection-failure",
+        )
+        with patch.object(
+            type(self.window.image_processing),
+            "recovery_entries",
+            new_callable=PropertyMock,
+            return_value=(recovery_entry,),
+        ), patch.object(
+            self.window,
+            "_confirm_file_recovery",
+        ) as recover:
+            self.assertTrue(self.window.enter_crop_mode())
+            self.window._project_image_processing(SimpleNamespace(
+                kind=ImageProcessingProjectionKind.PROJECTION_FAILED,
+            ))
+
+            self.assertTrue(
+                self.window.actions.undoImageProcessing.isEnabled()
+            )
+            self.window.undo_last_image_processing()
+
+            recover.assert_called_once_with("crop-projection-failure")
+
+        self.window._image_processing_projection_blocked = False
+        self.window.cancel_crop()
+
     def test_quick_rotation_commits_current_image_without_a_shortcut(self):
         rectangular_path = os.path.join(self.temporary.name, "rectangular.png")
         image = QImage(60, 40, QImage.Format_RGB32)
@@ -312,6 +389,40 @@ class ImageToolsAppTest(unittest.TestCase):
         entry = self.window._latest_image_processing_recovery()
         self.assertEqual(entry.target_count, 1)
         self.assertEqual(entry.payload[0].image_path, rectangular_path)
+
+    def test_every_quick_geometry_menu_action_supports_grayscale_jpeg(self):
+        cases = (
+            (self.window.actions.rotateClockwise, (4, 6)),
+            (self.window.actions.rotateCounterclockwise, (4, 6)),
+            (self.window.actions.rotate180, (6, 4)),
+            (self.window.actions.flipHorizontal, (6, 4)),
+            (self.window.actions.flipVertical, (6, 4)),
+        )
+
+        for index, (menu_action, expected_size) in enumerate(cases):
+            with self.subTest(action=menu_action.text()):
+                path = os.path.join(
+                    self.temporary.name,
+                    "gray-geometry-%d.jpg" % index,
+                )
+                Image.new("L", (6, 4), 120).save(path)
+                self.assertTrue(self.window.load_file(path))
+                trash_dir = os.path.join(
+                    self.temporary.name,
+                    "trash-gray-geometry-%d" % index,
+                )
+                os.makedirs(trash_dir)
+                self.window.system_trash = _FakeTrash(trash_dir)
+
+                with patch(
+                    "labelimg.image_tools.ui.controller.localized_warning"
+                ) as warning:
+                    menu_action.trigger()
+
+                self.assertFalse(warning.called, warning.call_args)
+                with Image.open(path) as transformed:
+                    self.assertEqual(transformed.mode, "L")
+                    self.assertEqual(transformed.size, expected_size)
 
     def test_top_bar_exposes_rotate_and_flip_split_buttons(self):
         buttons = self.window.top_commands.findChildren(QToolButton)
@@ -445,6 +556,66 @@ class ImageToolsAppTest(unittest.TestCase):
             {self.image_path, second},
         )
 
+    def test_grayscale_jpeg_transform_adjust_and_crop_menu_commands(self):
+        path = os.path.join(self.temporary.name, "gray-menu-workflow.jpg")
+        Image.new("L", (12, 8), 100).save(path)
+        self.assertTrue(self.window.load_file(path))
+        trash_dir = os.path.join(
+            self.temporary.name,
+            "trash-gray-menu-workflow",
+        )
+        os.makedirs(trash_dir)
+        self.window.system_trash = _FakeTrash(trash_dir)
+
+        transform_dialog = SimpleNamespace(
+            exec_=lambda: QDialog.Accepted,
+            request=GeometryTransformRequest(
+                paths=(path,),
+                operation=GeometryOperation.ROTATE_COUNTERCLOCKWISE,
+            ),
+        )
+        with patch(
+            "labelimg.image_tools.ui.geometry_dialog.GeometryTransformDialog",
+            return_value=transform_dialog,
+        ), patch(
+            "labelimg.image_tools.ui.controller.localized_warning"
+        ) as warning:
+            self.window.actions.transformImage.trigger()
+        self.assertFalse(warning.called, warning.call_args)
+        with Image.open(path) as transformed:
+            self.assertEqual(transformed.mode, "L")
+            self.assertEqual(transformed.size, (8, 12))
+
+        adjustment_dialog = SimpleNamespace(
+            exec_=lambda: QDialog.Accepted,
+            request=ImageAdjustmentRequest(
+                paths=(path,),
+                options=ImageAdjustmentOptions(brightness=10),
+            ),
+        )
+        with patch(
+            "labelimg.image_tools.ui.adjustment_dialog.ImageAdjustmentDialog",
+            return_value=adjustment_dialog,
+        ), patch(
+            "labelimg.image_tools.ui.controller.localized_warning"
+        ) as warning:
+            self.window.actions.adjustImage.trigger()
+        self.assertFalse(warning.called, warning.call_args)
+        with Image.open(path) as adjusted:
+            self.assertEqual(adjusted.mode, "L")
+            self.assertEqual(adjusted.size, (8, 12))
+
+        self.window.actions.cropImage.trigger()
+        self.window.crop_overlay.set_region(CropRegion(1, 2, 4, 5))
+        with patch(
+            "labelimg.image_tools.ui.controller.localized_warning"
+        ) as warning:
+            self.assertTrue(self.window.apply_crop())
+        self.assertFalse(warning.called, warning.call_args)
+        with Image.open(path) as cropped:
+            self.assertEqual(cropped.mode, "L")
+            self.assertEqual(cropped.size, (4, 5))
+
     def test_quality_command_populates_badge_cache_and_nonmodal_panel(self):
         self.window.populate_file_list((self.image_path,))
         request = ImageQualityRequest(
@@ -463,10 +634,14 @@ class ImageToolsAppTest(unittest.TestCase):
             self.window.actions.checkImageQuality.trigger()
 
         for _ in range(200):
-            if self.window.image_quality_panel.result_paths:
+            if (
+                self.window.image_quality_panel.result_paths
+                and self.window._image_quality_thread is None
+            ):
                 break
             QTest.qWait(10)
 
+        self.assertIsNone(self.window._image_quality_thread)
         item = self.window.file_list_widget.item(0)
         self.assertTrue(item.data(FILE_QUALITY_FINDINGS_ROLE))
         self.assertEqual(
@@ -762,6 +937,7 @@ class ImageToolsAppTest(unittest.TestCase):
             self.window._project_image_processing(SimpleNamespace(
                 kind=ImageProcessingProjectionKind.PROJECTION_FAILED,
             ))
+            self.window.update_image_menu()
 
             self.assertFalse(self.window.canvas.isEnabled())
             for action in (
@@ -769,7 +945,15 @@ class ImageToolsAppTest(unittest.TestCase):
                 self.window.actions.save,
                 self.window.actions.openNext,
                 self.window.actions.cropImage,
+                self.window.actions.rotateClockwise,
+                self.window.actions.rotateCounterclockwise,
+                self.window.actions.rotate180,
+                self.window.actions.flipHorizontal,
+                self.window.actions.flipVertical,
                 self.window.actions.transformImage,
+                self.window.actions.adjustImage,
+                self.window.actions.checkImageQuality,
+                self.window.actions.removeColoredFrames,
             ):
                 self.assertFalse(action.isEnabled())
             self.assertTrue(

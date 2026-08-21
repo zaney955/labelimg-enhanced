@@ -266,21 +266,21 @@ class FileListProjection:
         if query.quality == "passed" and quality:
             return False
         if query.quality in ("error", "warning") and not any(
-            _quality_value(finding, "severity") == query.quality
+            quality_finding_value(finding, "severity") == query.quality
             for finding in quality
         ):
             return False
         if query.quality not in (
             "all", "issues", "passed", "error", "warning"
         ) and not any(
-            _quality_value(finding, "code") == query.quality
+            quality_finding_value(finding, "code") == query.quality
             for finding in quality
         ):
             return False
         return True
 
 
-def _quality_value(finding, field):
+def quality_finding_value(finding, field):
     if isinstance(finding, dict):
         return finding.get(field)
     if hasattr(finding, field):
