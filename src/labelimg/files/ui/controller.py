@@ -681,7 +681,7 @@ class FileActionsMixin:
         try:
             if platform.system() == 'Windows':
                 subprocess.Popen(
-                    ['explorer.exe', '/select,', path]
+                    ['explorer.exe', '/select,%s' % path]
                 )
             elif platform.system() == 'Darwin':
                 subprocess.Popen(['open', '-R', path])

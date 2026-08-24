@@ -625,6 +625,24 @@ class FileListSelectionTest(unittest.TestCase):
             ],
         )
 
+    def test_reveal_file_passes_selection_target_to_windows_explorer(self):
+        self.click_row(0)
+
+        with patch(
+            "labelimg.files.ui.controller.platform.system",
+            return_value="Windows",
+        ), patch(
+            "labelimg.files.ui.controller.subprocess.Popen"
+        ) as popen:
+            self.window.reveal_selected_file()
+
+        popen.assert_called_once_with(
+            [
+                "explorer.exe",
+                "/select,%s" % os.path.abspath(self.paths[0]),
+            ]
+        )
+
     def test_file_context_menu_splits_annotation_and_review_selection(self):
         self.click_row(0)
         point = self.window.file_list_widget.visualItemRect(
