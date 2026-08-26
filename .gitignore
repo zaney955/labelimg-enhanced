@@ -1,24 +1,46 @@
-resources/icons/.DS_Store
+# Python bytecode and tool caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pytype/
+.hypothesis/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
 
-.idea*
-*.egg-info/
+# Python environments and packaging outputs
 .venv/
-.test-state/
-
-*.pyc
-.*.swp
-
+venv/
+env/
+ENV/
+*.egg-info/
+.eggs/
 build/
 dist/
+/release-assets/
 
-tags
-cscope*
-.ycm_extra_conf.py
-.subvimrc
-.vscode
-*.pkl
+# LabelImg local settings and test artifacts
+.labelImgSettings.pkl
+/.test-settings-*/
+/.test-state/
 
-# MacOS System-Generated
+# Editors and language-server indexes
+/.idea/
+/.vscode/
+*.swp
+*.swo
+*~
+/tags
+/cscope.*
+/.ycm_extra_conf.py
+/.subvimrc
+
+# Operating-system metadata
 .DS_Store
 .DS_Store?
 ._*

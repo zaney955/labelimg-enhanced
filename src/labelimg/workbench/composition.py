@@ -19,7 +19,9 @@ from PyQt5.QtGui import QBrush, QColor, QCursor, QImage, QImageReader, QPainter,
 from PyQt5.QtWidgets import QAbstractItemView, QAction, QActionGroup, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDockWidget, QFileDialog, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QProgressDialog, QPushButton, QScrollArea, QSizePolicy, QStackedWidget, QStyle, QStyleOptionViewItem, QStyledItemDelegate, QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget, QWidgetAction
 
 import labelimg.ui.generated_resources  # noqa: F401 - registers Qt resources
+from labelimg import __version__
 from labelimg.platform.settings_keys import (
+    SETTING_AUTO_CHECK_UPDATES,
     SETTING_AUTO_SAVE,
     SETTING_DRAW_SQUARE,
     SETTING_FILENAME,
@@ -163,6 +165,7 @@ from labelimg.annotations.ui.workbench_controller import AnnotationActionsMixin
 from labelimg.canvas.workbench_controller import CanvasActionsMixin
 from labelimg.files.ui.controller import FileActionsMixin
 from labelimg.image_tools.ui.controller import ImageToolsActionsMixin
+from labelimg.updates.ui import UpdateUiCoordinator
 from labelimg.workbench.recovery_ui import RecoveryActionsMixin
 
 __appname__ = APP_NAME
@@ -849,6 +852,19 @@ class WorkbenchComposer:
         toggle_visibility.setChecked(True)
 
         help_default = action(get_str('tutorialDefault'), self.show_default_tutorial_dialog, None, 'tutorial', get_str('tutorialDetail'))
+        self.update_ui = UpdateUiCoordinator(
+            self,
+            settings,
+            __version__,
+            self.status,
+        )
+        check_updates = action(
+            tr('updates.check'),
+            self.update_ui.check_manual,
+            None,
+            'check-updates',
+            tr('updates.checkDetail'),
+        )
         show_info = action(get_str('info'), self.show_info_dialog, None, 'about', get_str('infoDetail'))
         show_shortcut = action(get_str('shortcut'), self.show_shortcuts_dialog, None, 'keyboard-shortcuts', get_str('shortcutDetail'))
 
@@ -960,6 +976,7 @@ class WorkbenchComposer:
                                toggleVisibility=toggle_visibility,
                                labels=labels,
                                helpDefault=help_default,
+                               checkUpdates=check_updates,
                                showInfo=show_info,
                                showShortcut=show_shortcut,
                                zoom=zoom, zoomIn=zoom_in, zoomOut=zoom_out, zoomOrg=zoom_org,
@@ -1078,6 +1095,17 @@ class WorkbenchComposer:
         self.single_class_mode.setCheckable(True)
         self.single_class_mode.setChecked(settings.get(SETTING_SINGLE_CLASS, False))
         self.lastLabel = None
+        self.auto_update_check = QAction(tr('updates.autoCheck'), self)
+        self.auto_update_check.setIcon(new_icon('auto-update'))
+        self.auto_update_check.setCheckable(True)
+        self.auto_update_check.setChecked(
+            settings.get(SETTING_AUTO_CHECK_UPDATES, True)
+        )
+        self.auto_update_check.setStatusTip(tr('updates.autoCheckDetail'))
+        self.auto_update_check.toggled.connect(
+            self.update_ui.set_auto_enabled
+        )
+        self.actions.autoUpdateCheck = self.auto_update_check
         # Add option to enable/disable labels being displayed at the top of bounding boxes
         self.display_label_option = QAction(get_str('displayLabel'), self)
         self.display_label_option.setIcon(new_icon('show-box-labels'))
@@ -1109,12 +1137,13 @@ class WorkbenchComposer:
             None,
             self.auto_saving,
             self.single_class_mode,
+            self.auto_update_check,
             None,
             reset_all,
         ))
         add_actions(
             self.menus.help,
-            (help_default, show_shortcut, None, show_info),
+            (help_default, show_shortcut, None, check_updates, None, show_info),
         )
         add_actions(self.menus.view, (
             self.display_label_option,
@@ -1243,6 +1272,7 @@ class WorkbenchComposer:
             show_all: ('showAllBox', 'showAllBoxDetail'),
             toggle_visibility: ('hideAllBox', 'hideAllBoxDetail'),
             help_default: ('tutorialDefault', 'tutorialDetail'),
+            check_updates: ('updates.check', 'updates.checkDetail'),
             show_info: ('info', 'infoDetail'),
             show_shortcut: ('shortcut', 'shortcutDetail'),
             zoom_in: ('zoomin', 'zoominDetail'),
@@ -1257,6 +1287,10 @@ class WorkbenchComposer:
             self.draw_squares_option: ('drawSquares', None),
             self.auto_saving: ('autoSaveMode', None),
             self.single_class_mode: ('singleClsMode', None),
+            self.auto_update_check: (
+                'updates.autoCheck',
+                'updates.autoCheckDetail',
+            ),
             self.display_label_option: ('displayLabel', None),
         }
         self.retranslate_ui()
@@ -1335,4 +1369,5 @@ class WorkbenchComposer:
             self.label_coordinates.setText
         )
         self.top_commands.set_counter(0, 0)
+        QTimer.singleShot(3000, self.update_ui.check_automatic)
 

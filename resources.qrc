@@ -83,5 +83,7 @@
 <file alias="review-questioned">resources/icons/review-questioned.svg</file>
 <file alias="review-verified">resources/icons/review-verified.svg</file>
 <file alias="image-actions">resources/icons/image-actions.svg</file>
+<file alias="check-updates">resources/icons/check-updates.svg</file>
+<file alias="auto-update">resources/icons/auto-update.svg</file>
 </qresource>
 </RCC>

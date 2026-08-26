@@ -30,6 +30,12 @@ labelImg
 
 You can also run `python -m labelimg`. Use the interface to open an image directory, choose an annotation directory, and select the save format.
 
+## Updates
+
+By default, the application checks asynchronously for the latest stable release after launch, at most once every 24 hours. Disable this under Settings → Automatically Check for Updates, or check immediately with Help → Check for Updates. Python environments can copy an upgrade command, managed Windows installations can explicitly download and verify an update installer, and portable builds can only open the Release. The application never runs `pip`, installs silently, or bypasses unsaved-work guards.
+
+Maintainers trigger the release workflow with an annotated tag that exactly matches `src/labelimg/__init__.py` (for example, `v2.1.0`). CI validates the version on Windows, runs tests, builds the wheel, PyInstaller onedir bundle, and current-user Inno Setup EXE, then generates a SHA-256 manifest and provenance attestation before creating a draft GitHub Release. The installer is currently unsigned and therefore produces an unknown-publisher warning; SHA-256 verifies integrity relative to the Release manifest, not publisher identity.
+
 ## Development and validation
 
 ```powershell

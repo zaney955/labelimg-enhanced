@@ -19,6 +19,7 @@ from PyQt5.QtWidgets import QAbstractItemView, QAction, QActionGroup, QCheckBox,
 
 import labelimg.ui.generated_resources  # noqa: F401 - registers Qt resources
 from labelimg.platform.settings_keys import (
+    SETTING_AUTO_CHECK_UPDATES,
     SETTING_AUTO_SAVE,
     SETTING_DRAW_SQUARE,
     SETTING_FILENAME,
@@ -867,6 +868,9 @@ class MainWindow(
             settings[SETTING_LAST_OPEN_DIR] = ''
 
         settings[SETTING_AUTO_SAVE] = self.auto_saving.isChecked()
+        settings[SETTING_AUTO_CHECK_UPDATES] = (
+            self.auto_update_check.isChecked()
+        )
         settings[SETTING_SINGLE_CLASS] = self.single_class_mode.isChecked()
         settings[SETTING_PAINT_LABEL] = self.display_label_option.isChecked()
         settings[SETTING_DRAW_SQUARE] = self.draw_squares_option.isChecked()
@@ -878,6 +882,7 @@ class MainWindow(
             self.file_list_controls.state.descending
         )
         settings[SETTING_LANGUAGE] = current_language()
+        self.update_ui.close()
         settings.save()
 
     def _resolve_conflicts_for_close(self):

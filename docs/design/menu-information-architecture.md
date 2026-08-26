@@ -17,6 +17,6 @@ Image is the complete catalog for annotation-preparation image work. Its separat
 
 View owns visible presentation and Canvas scale: box-label rendering, the annotation panel, box visibility, zoom, and fit commands. It does not own application preferences.
 
-Settings owns Language, Autosave, Single Class Mode, and Reset All Settings. Save As retains `Ctrl+Shift+S`; Single Class Mode has no shortcut so the sequence is unambiguous.
+Settings owns Language, Autosave, Single Class Mode, Automatically Check for Updates, and Reset All Settings. Save As retains `Ctrl+Shift+S`; Single Class Mode and update checking have no shortcuts so the sequence is unambiguous.
 
-Help presents Tutorial and Keyboard Shortcuts first, followed by About LabelImg Enhanced.
+Help presents Tutorial and Keyboard Shortcuts first, then Check for Updates, followed by About LabelImg Enhanced. The update command is informational and belongs in Help; only its automatic-check preference belongs in Settings.

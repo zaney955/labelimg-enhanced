@@ -463,12 +463,13 @@ class CommandSurfacesTest(unittest.TestCase):
                 actions[1],
                 self.window.auto_saving,
                 self.window.single_class_mode,
-                actions[4],
+                self.window.auto_update_check,
+                actions[5],
                 self.window.actions.resetAll,
             ],
         )
         self.assertTrue(actions[1].isSeparator())
-        self.assertTrue(actions[4].isSeparator())
+        self.assertTrue(actions[5].isSeparator())
         self.assertTrue(self.window.single_class_mode.shortcut().isEmpty())
 
     def test_every_static_menu_option_has_a_distinct_semantic_icon(self):
@@ -611,10 +612,13 @@ class CommandSurfacesTest(unittest.TestCase):
                 self.window.actions.helpDefault,
                 self.window.actions.showShortcut,
                 help_actions[2],
+                self.window.actions.checkUpdates,
+                help_actions[4],
                 self.window.actions.showInfo,
             ],
         )
         self.assertTrue(help_actions[2].isSeparator())
+        self.assertTrue(help_actions[4].isSeparator())
         self.assertEqual(
             self.window.actions.showInfo.text(),
             "About LabelImg Enhanced",

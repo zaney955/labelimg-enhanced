@@ -9,15 +9,47 @@ The independently maintained derivative whose GitHub repository and Python distr
 _Avoid_: Upstream LabelImg, GitHub fork, `libs` distribution
 
 **GitHub release**:
-The canonical public distribution record for one LabelImg Enhanced version in the project's GitHub repository, containing an annotated version tag and wheel while GitHub supplies source archives. It does not imply publication to PyPI.
+The canonical public distribution record for one LabelImg Enhanced version in the project's GitHub repository, containing an annotated version tag, wheel, SHA-256 manifest, build provenance, and an unsigned Windows installer while GitHub supplies source archives. It does not imply publication to PyPI or a trusted Windows publisher identity.
 _Avoid_: PyPI release, tag-only version, GitHub version
+
+**Stable update check**:
+The read-only comparison between the running application version and the repository's latest published, non-prerelease GitHub release. Automatic checks are enabled by default, run asynchronously no more than once every 24 hours with bounded failure backoff, and may be disabled in Settings; Help also provides an explicit check that reports success or failure. It uses one ordinary GET of GitHub's public latest-release web redirect, does not call the rate-limited REST API, never uses an embedded GitHub credential, and never changes the installed application.
+_Avoid_: Silent updater, prerelease channel, startup blocker, authenticated client
+
+**Manual update check feedback**:
+The single non-modal notice that follows a user-requested stable update check from its visible busy state to an acknowledged latest-version or failure result, with cancellation while checking and retry after failure. Automatic checks do not show this notice, and a newer release replaces it with the update notification.
+_Avoid_: Status-bar message, modal alert sequence, automatic-check activity notice, transient toast
+
+**Update notification**:
+The non-modal application notice shown for a newer stable release, containing a plain-text release summary and distribution-specific actions: a Python installation may copy a wheel upgrade command, a managed Windows installation may explicitly download an unsigned installer, and a portable frozen build may only open the release. Every installation may defer the notice for 24 hours or ignore exactly that version. A later release remains eligible even when an earlier one was ignored.
+_Avoid_: Forced update, automatic pip execution, permanent update dismissal
+
+**Distribution strategy**:
+The runtime ownership of application replacement: Python when launched from source or an environment, portable frozen when bundled without an installer marker, or managed Windows when the executable and the exact current-user Inno installation marker share one installation directory. Frozen status alone never grants self-update capability.
+_Avoid_: Operating system, package format, `sys.frozen` as installer proof
+
+**Managed Windows installation**:
+The unsigned Windows 10/11 x64 onedir application installed for the current user beneath LocalAppData by the project Inno Setup package. It requires no elevation, owns shortcuts and uninstallation, preserves user settings and annotation data, and is the only distribution strategy allowed to launch an application update installer.
+_Avoid_: Portable archive, pip environment, machine-wide installation, trusted publisher
+
+**Update package**:
+The versioned Windows x64 setup executable and its exact entry in the same GitHub Release `SHA256SUMS` asset. The package has no Authenticode signature, so matching the SHA-256 manifest detects corruption or substitution relative to that release but does not establish a publisher identity.
+_Avoid_: Signed installer, wheel, checksum as publisher authentication
+
+**Downloaded candidate**:
+An update package streamed into a private temporary directory within a fixed 512 MiB limit and retained only after its SHA-256 matches the unique release-manifest entry. A matching candidate remains inert until the user acknowledges the unknown-publisher warning and the workbench accepts its ordinary guarded close.
+_Avoid_: Installed version, trusted publisher, background execution
+
+**Update rollback**:
+The Inno Setup transaction restoring the prior installed files when replacement fails before installation completes. Phase 2 does not monitor the newly installed application after launch and does not automatically return to a prior version after a successful installation transaction.
+_Avoid_: Post-launch health recovery, session restore, version-channel downgrade
 
 **Application language**:
 The user-selected language used for all visible LabelImg interface text. It is either Simplified Chinese or English, persists across launches, initially maps every `zh-*` system locale to Simplified Chinese and every other locale to English, and immediately updates the current application surface when changed without requiring a restart.
 _Avoid_: Annotation language, label language, system-locale lock
 
 **Application settings menu**:
-The stable top-level Settings menu that owns application preferences: language, automatic saving, single-class mode, and resetting all settings. View owns only visible presentation and Canvas scale, while File and Edit retain file/workspace commands and annotation-editing commands respectively.
+The stable top-level Settings menu that owns application preferences: language, automatic saving, single-class mode, automatic stable-update checks, and resetting all settings. View owns only visible presentation and Canvas scale, while File and Edit retain file/workspace commands and annotation-editing commands respectively.
 _Avoid_: View-menu preferences, File-menu reset command, duplicated settings entry
 
 **Keyboard shortcut catalog**:
@@ -29,7 +61,7 @@ Application-authored text visible during operation, including commands, panels, 
 _Avoid_: User data, translated path, rewritten system error
 
 **Operation icon set**:
-The 76 coordinated flat, duotone SVG symbols used by LabelImg actions and buttons, excluding the separate application identity icon. The restrained light-theme set prioritizes clarity at 16 pixels, uses functional-family colors, shares a base motif between related actions, and remains distinguishable without color; annotation formats use structural symbols rather than names, while language choices may use font-independent path glyphs.
+The 78 coordinated flat, duotone SVG symbols used by LabelImg actions and buttons, excluding the separate application identity icon. The restrained light-theme set prioritizes clarity at 16 pixels, uses functional-family colors, shares a base motif between related actions, and remains distinguishable without color; annotation formats use structural symbols rather than names, while language choices may use font-independent path glyphs.
 _Avoid_: Application icon, dark-theme icon set, monochrome action icons, high-saturation icon set, color-only distinction, unrelated family motifs, text-dependent format icon
 
 **Canvas tool rail**:
