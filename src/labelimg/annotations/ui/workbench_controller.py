@@ -941,6 +941,12 @@ class AnnotationActionsMixin:
 
 
     def delete_annotation_shapes(self, shapes, description='Delete boxes'):
+        if (
+            self.annotation_editing.pending
+            or self.annotation_editing.edit_open
+        ):
+            self.status(tr('status.finishEdit'))
+            return tuple()
         requested = set(shapes)
         targets = tuple(
             shape for shape in self.canvas.shapes
