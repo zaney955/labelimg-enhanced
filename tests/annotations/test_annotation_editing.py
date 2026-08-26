@@ -802,6 +802,29 @@ class MainWindowHistoryIntegrationTest(unittest.TestCase):
         save.assert_not_called()
         self.window.annotation_editing.cancel_edit(restore=False)
 
+    def test_delete_refuses_an_open_annotation_gesture_without_crashing(self):
+        self.window.annotation_clipboard = [
+            (
+                "cat",
+                ((10, 10), (30, 10), (30, 30), (10, 30)),
+                None,
+                None,
+                False,
+            ),
+        ]
+        self.window.paste_copied_bounding_boxes()
+        shape = self.window.canvas.selected_shape
+        self.window.canvas._begin_annotation_gesture(
+            "Move box", source="mouse"
+        )
+
+        self.window.delete_selected_shape()
+
+        self.assertEqual(self.window.canvas.shapes, [shape])
+        self.assertTrue(self.window.annotation_editing.edit_open)
+        self.assertTrue(self.window.annotation_editing.pending)
+        self.window.canvas.cancel_annotation_gesture()
+
     def test_format_change_refuses_an_open_annotation_edit(self):
         original_format = self.window.annotation_format
         self.window.annotation_editing.begin_edit("Move box")
