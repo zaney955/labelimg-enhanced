@@ -30,6 +30,12 @@ labelImg
 
 也可以使用 `python -m labelimg`。启动后可从界面打开图像目录、选择标注目录和保存格式。
 
+## 更新
+
+程序默认在启动后异步检查最新稳定版，且最多每 24 小时检查一次；可在“设置 → 自动检查更新”中关闭，也可从“帮助 → 检查更新…”立即检查。发现新版时，Python 环境可复制升级命令；由官方 Inno 安装器安装的 Windows 版本可主动下载并校验更新安装包；便携版只打开发布页。程序不会自行运行 `pip`、静默安装或绕过未保存内容检查。
+
+维护者通过与 `src/labelimg/__init__.py` 版本一致的 annotated tag（例如 `v2.1.0`）触发发布工作流。CI 在 Windows 上验证版本、运行测试、构建 wheel、PyInstaller onedir 和按用户安装的 Inno Setup EXE，再生成 SHA-256 清单和来源证明，并创建待人工发布的 Draft GitHub Release。当前安装包未进行 Windows 代码签名，运行前会明确提示“未知发布者”；SHA-256 只验证相对发布清单的完整性，不能证明发布者身份。
+
 ## 开发与验证
 
 ```powershell

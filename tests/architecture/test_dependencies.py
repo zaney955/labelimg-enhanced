@@ -80,6 +80,8 @@ class ModularArchitectureTest(unittest.TestCase):
             PACKAGE_ROOT / "files" / "application",
             PACKAGE_ROOT / "image_tools" / "domain",
             PACKAGE_ROOT / "image_tools" / "application",
+            PACKAGE_ROOT / "updates" / "domain",
+            PACKAGE_ROOT / "updates" / "application",
         )
         violations = []
         for root in roots:
@@ -97,7 +99,13 @@ class ModularArchitectureTest(unittest.TestCase):
         self.assertEqual(importers, ["workbench/bootstrap.py"])
 
     def test_feature_dependencies_are_acyclic_and_use_public_exports(self):
-        features = {"annotations", "canvas", "files", "image_tools"}
+        features = {
+            "annotations",
+            "canvas",
+            "files",
+            "image_tools",
+            "updates",
+        }
         graph = {feature: set() for feature in features}
         private_imports = []
         for feature in features:
@@ -135,7 +143,13 @@ class ModularArchitectureTest(unittest.TestCase):
         self.assertEqual(cycles, [])
 
     def test_public_feature_exports_are_resolvable(self):
-        for feature in ("annotations", "canvas", "files", "image_tools"):
+        for feature in (
+            "annotations",
+            "canvas",
+            "files",
+            "image_tools",
+            "updates",
+        ):
             module = importlib.import_module("labelimg.%s" % feature)
             missing = [
                 name for name in module.__all__
