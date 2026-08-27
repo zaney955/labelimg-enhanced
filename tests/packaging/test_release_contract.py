@@ -39,6 +39,9 @@ class ReleaseContractTest(unittest.TestCase):
         content = WORKFLOW.read_text(encoding="utf-8")
 
         self.assertIn("tags:", content)
+        self.assertIn("workflow_dispatch:", content)
+        self.assertIn("RELEASE_TAG:", content)
+        self.assertIn("git ls-remote --tags origin", content)
         self.assertIn("tools/validate_release.py", content)
         self.assertIn("git cat-file", content)
         self.assertIn("tools/run_tests.py", content)
