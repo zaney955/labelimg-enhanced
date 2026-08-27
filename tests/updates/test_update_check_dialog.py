@@ -1,56 +1,99 @@
 import unittest
 
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication
 
-from labelimg.updates import UpdateCheckDialog
+from labelimg.updates import (
+    DistributionStrategy,
+    StableRelease,
+    StableVersion,
+    UpdateCenterWindow,
+)
 
 
-class UpdateCheckDialogTest(unittest.TestCase):
+def release():
+    version = StableVersion.parse("2.2.0")
+    return StableRelease(
+        version=version,
+        tag_name="v2.2.0",
+        name="LabelImg Enhanced 2.2.0",
+        summary="Stable release",
+        html_url="https://github.com/example/release",
+        published_at="",
+        wheel_url="https://github.com/example/package.whl",
+        installer_url="https://github.com/example/setup.exe",
+        sha256_url="https://github.com/example/SHA256SUMS",
+    )
+
+
+class UpdateCenterWindowTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.application = QApplication.instance() or QApplication([])
 
     def setUp(self):
-        self.dialog = UpdateCheckDialog()
-        self.dialog.show()
+        self.center = UpdateCenterWindow()
+        self.center.show()
         self.application.processEvents()
 
     def tearDown(self):
-        self.dialog.close()
+        self.center.shutdown()
         self.application.processEvents()
 
-    def test_checking_is_visible_non_modal_and_cancelable(self):
+    def test_is_an_independent_minimizable_window(self):
+        self.assertIsNone(self.center.parentWidget())
+        self.assertTrue(self.center.isWindow())
+        self.assertTrue(
+            self.center.windowFlags() & Qt.WindowMinimizeButtonHint
+        )
+        self.assertFalse(self.center.isModal())
+
+    def test_checking_is_cancelable_and_failure_is_retryable(self):
         canceled = []
-        self.dialog.cancelRequested.connect(lambda: canceled.append(True))
+        retried = []
+        self.center.cancelCheckRequested.connect(
+            lambda: canceled.append(True)
+        )
+        self.center.retryCheckRequested.connect(lambda: retried.append(True))
 
-        self.dialog.show_checking()
-
-        self.assertFalse(self.dialog.isModal())
-        self.assertTrue(self.dialog.progress.isVisible())
-        self.assertTrue(self.dialog.cancel_button.isVisible())
-        self.assertFalse(self.dialog.retry_button.isVisible())
-        self.dialog.cancel_button.click()
+        self.center.show_checking()
+        self.center.cancel_check_button.click()
         self.assertEqual(canceled, [True])
 
-    def test_up_to_date_waits_for_explicit_close(self):
-        self.dialog.show_up_to_date("2.1.0")
-
-        self.assertTrue(self.dialog.isVisible())
-        self.assertFalse(self.dialog.progress.isVisible())
-        self.assertIn("2.1.0", self.dialog.heading.text())
-        self.assertTrue(self.dialog.close_button.isVisible())
-        self.assertFalse(self.dialog.retry_button.isVisible())
-
-    def test_failure_shows_detail_and_offers_retry(self):
-        retried = []
-        self.dialog.retryRequested.connect(lambda: retried.append(True))
-
-        self.dialog.show_failure("Connection closed")
-
-        self.assertEqual(self.dialog.detail.text(), "Connection closed")
-        self.assertTrue(self.dialog.retry_button.isVisible())
-        self.dialog.retry_button.click()
+        self.center.show_check_failure("Connection closed")
+        self.assertEqual(self.center.detail.text(), "Connection closed")
+        self.center.retry_check_button.click()
         self.assertEqual(retried, [True])
+
+    def test_downloading_close_hides_and_keeps_the_operation_alive(self):
+        canceled = []
+        self.center.cancelDownloadRequested.connect(
+            lambda: canceled.append(True)
+        )
+        self.center.show_downloading(release())
+
+        self.center.close()
+        self.application.processEvents()
+
+        self.assertFalse(self.center.isVisible())
+        self.assertEqual(self.center.state, "downloading")
+        self.assertEqual(canceled, [])
+
+    def test_download_outcomes_have_explicit_recovery_actions(self):
+        self.center.show_download_failure(release(), "HTTP 404")
+        self.assertEqual(self.center.state, "download_failed")
+        self.assertTrue(self.center.retry_download_button.isVisible())
+        self.assertTrue(self.center.view_button.isVisible())
+
+        self.center.show_download_canceled(release())
+        self.assertEqual(self.center.state, "download_canceled")
+        self.assertTrue(self.center.retry_download_button.isVisible())
+
+        self.center.show_install_ready(release())
+        self.assertEqual(self.center.state, "install_ready")
+        self.assertTrue(self.center.install_button.isVisible())
+        self.assertTrue(self.center.later_button.isVisible())
+        self.assertTrue(self.center.view_button.isVisible())
 
 
 if __name__ == "__main__":

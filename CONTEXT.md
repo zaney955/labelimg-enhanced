@@ -16,13 +16,17 @@ _Avoid_: PyPI release, tag-only version, GitHub version
 The read-only comparison between the running application version and the repository's latest published, non-prerelease GitHub release. Automatic checks are enabled by default, run asynchronously no more than once every 24 hours with bounded failure backoff, and may be disabled in Settings; Help also provides an explicit check that reports success or failure. It uses one ordinary GET of GitHub's public latest-release web redirect, does not call the rate-limited REST API, never uses an embedded GitHub credential, and never changes the installed application.
 _Avoid_: Silent updater, prerelease channel, startup blocker, authenticated client
 
+**Update center**:
+The single ordinary independent application window that presents update checking, availability, download, failure, cancellation, and installation-readiness states without owning or blocking the annotation workbench. It may be minimized or placed behind the workbench; asynchronous attention states raise it without taking Canvas focus.
+_Avoid_: Owned dialog, modal alert sequence, status-bar message, transient toast
+
 **Manual update check feedback**:
-The single non-modal notice that follows a user-requested stable update check from its visible busy state to an acknowledged latest-version or failure result, with cancellation while checking and retry after failure. Automatic checks do not show this notice, and a newer release replaces it with the update notification.
-_Avoid_: Status-bar message, modal alert sequence, automatic-check activity notice, transient toast
+The checking, current-version, or failure state shown in the update center after a user-requested stable update check, with cancellation while checking and retry after failure. Automatic check failures remain silent.
+_Avoid_: Separate check dialog, automatic-check activity notice, status-only feedback
 
 **Update notification**:
-The non-modal application notice shown for a newer stable release, containing a plain-text release summary and distribution-specific actions: a Python installation may copy a wheel upgrade command, a managed Windows installation may explicitly download an unsigned installer, and a portable frozen build may only open the release. Every installation may defer the notice for 24 hours or ignore exactly that version. A later release remains eligible even when an earlier one was ignored.
-_Avoid_: Forced update, automatic pip execution, permanent update dismissal
+The update-center state for a newer stable release, containing compact distribution-specific actions: a Python installation may copy a wheel upgrade command, a managed Windows installation may download an installer, and a portable frozen build may only open the release. Every installation may defer the notice for 24 hours or ignore exactly that version.
+_Avoid_: Separate release dialog, forced update, automatic pip execution, permanent update dismissal
 
 **Distribution strategy**:
 The runtime ownership of application replacement: Python when launched from source or an environment, portable frozen when bundled without an installer marker, or managed Windows when the executable and the exact current-user Inno installation marker share one installation directory. Frozen status alone never grants self-update capability.
@@ -37,7 +41,7 @@ The versioned Windows x64 setup executable and its exact entry in the same GitHu
 _Avoid_: Signed installer, wheel, checksum as publisher authentication
 
 **Downloaded candidate**:
-An update package streamed into a private temporary directory within a fixed 512 MiB limit and retained only after its SHA-256 matches the unique release-manifest entry. A matching candidate remains inert until the user acknowledges the unknown-publisher warning and the workbench accepts its ordinary guarded close.
+An update package streamed into a private temporary directory within a fixed 512 MiB limit and retained only after its SHA-256 matches the unique release-manifest entry. A matching candidate remains inert until the user explicitly requests installation from the update center and the workbench accepts its ordinary guarded close.
 _Avoid_: Installed version, trusted publisher, background execution
 
 **Update rollback**:

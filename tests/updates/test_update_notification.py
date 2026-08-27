@@ -6,7 +6,7 @@ from labelimg.updates import (
     DistributionStrategy,
     StableRelease,
     StableVersion,
-    UpdateNotificationDialog,
+    UpdateCenterWindow,
 )
 
 
@@ -24,40 +24,44 @@ def release():
     )
 
 
-class UpdateNotificationDialogTest(unittest.TestCase):
+class UpdateCenterAvailabilityTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.application = QApplication.instance() or QApplication([])
 
-    def test_managed_install_offers_unsigned_installer_not_pip(self):
-        dialog = UpdateNotificationDialog(
-            release(),
-            distribution_strategy=DistributionStrategy.MANAGED_WINDOWS,
+    def setUp(self):
+        self.center = UpdateCenterWindow()
+        self.center.show()
+        self.application.processEvents()
+
+    def tearDown(self):
+        self.center.shutdown()
+        self.application.processEvents()
+
+    def test_managed_install_offers_installer_not_pip(self):
+        self.center.show_available(
+            release(), DistributionStrategy.MANAGED_WINDOWS
         )
 
-        self.assertIsNotNone(dialog.install_button)
-        self.assertIsNone(dialog.copy_button)
-        dialog.close()
+        self.assertTrue(self.center.download_button.isVisible())
+        self.assertEqual(
+            self.center.download_button.text(), "Download and Install"
+        )
+        self.assertFalse(self.center.copy_button.isVisible())
 
     def test_python_install_keeps_explicit_pip_command(self):
-        dialog = UpdateNotificationDialog(
-            release(),
-            distribution_strategy=DistributionStrategy.PYTHON,
-        )
+        self.center.show_available(release(), DistributionStrategy.PYTHON)
 
-        self.assertIsNone(dialog.install_button)
-        self.assertIsNotNone(dialog.copy_button)
-        dialog.close()
+        self.assertFalse(self.center.download_button.isVisible())
+        self.assertTrue(self.center.copy_button.isVisible())
 
     def test_portable_build_does_not_claim_it_can_install(self):
-        dialog = UpdateNotificationDialog(
-            release(),
-            distribution_strategy=DistributionStrategy.PORTABLE_FROZEN,
+        self.center.show_available(
+            release(), DistributionStrategy.PORTABLE_FROZEN
         )
 
-        self.assertIsNone(dialog.install_button)
-        self.assertIsNone(dialog.copy_button)
-        dialog.close()
+        self.assertFalse(self.center.download_button.isVisible())
+        self.assertFalse(self.center.copy_button.isVisible())
 
 
 if __name__ == "__main__":
