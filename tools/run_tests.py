@@ -38,12 +38,23 @@ def main() -> int:
         relative_test_file = test_file.relative_to(repository_root / "tests")
         print(f"RUN {relative_test_file}", flush=True)
         result = subprocess.run(
-            [sys.executable, "-B", str(test_file)],
+            [
+                sys.executable,
+                "-X",
+                "faulthandler",
+                "-B",
+                str(test_file),
+            ],
             cwd=repository_root,
             env=environment,
             check=False,
         )
         if result.returncode:
+            print(
+                "TEST_PROCESS_FAILED "
+                f"{relative_test_file} exit_code={result.returncode}",
+                flush=True,
+            )
             failed.append(str(relative_test_file))
 
     if failed:
