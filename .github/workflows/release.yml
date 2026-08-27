@@ -4,6 +4,15 @@ on:
   push:
     tags:
       - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing annotated release tag to build
+        required: true
+        type: string
+
+env:
+  RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
 
 permissions:
   contents: write
@@ -19,6 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ env.RELEASE_TAG }}
           fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
@@ -27,8 +37,15 @@ jobs:
       - name: Require an annotated, version-matched tag
         shell: pwsh
         run: |
-          if ((git cat-file -t $env:GITHUB_REF_NAME) -ne "tag") { exit 1 }
-          python tools/validate_release.py --tag $env:GITHUB_REF_NAME
+          $tagRef = "refs/tags/$env:RELEASE_TAG"
+          $tagLine = @(git ls-remote --tags origin $tagRef)
+          $peeledLine = @(git ls-remote --tags origin "${tagRef}^{}")
+          if ($tagLine.Count -ne 1 -or $peeledLine.Count -ne 1) { exit 1 }
+          $tagObject = ($tagLine[0] -split "\s+")[0]
+          $tagCommit = ($peeledLine[0] -split "\s+")[0]
+          if ((git cat-file -t $tagObject) -ne "tag") { exit 1 }
+          if ((git rev-parse HEAD) -ne $tagCommit) { exit 1 }
+          python tools/validate_release.py --tag $env:RELEASE_TAG
 
       - name: Install test, bundle, and build dependencies
         run: python -m pip install --upgrade pip build pyinstaller
@@ -46,7 +63,7 @@ jobs:
         run: |
           $wheels = @(Get-ChildItem dist -Filter *.whl)
           if ($wheels.Count -ne 1) { exit 1 }
-          python tools/validate_release.py --tag $env:GITHUB_REF_NAME --wheel $wheels[0].FullName
+          python tools/validate_release.py --tag $env:RELEASE_TAG --wheel $wheels[0].FullName
 
       - name: Build PyInstaller onedir application
         run: python -m PyInstaller --clean --noconfirm packaging/labelimg-enhanced.spec
@@ -57,10 +74,10 @@ jobs:
       - name: Build unsigned per-user installer
         shell: pwsh
         run: |
-          $version = $env:GITHUB_REF_NAME.Substring(1)
+          $version = $env:RELEASE_TAG.Substring(1)
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DAppVersion=$version" "packaging\windows\labelimg-enhanced.iss"
           $installer = Get-Item "dist\installer\LabelImg-Enhanced-$version-windows-x64-setup.exe"
-          python tools/validate_release.py --tag $env:GITHUB_REF_NAME --installer $installer.FullName
+          python tools/validate_release.py --tag $env:RELEASE_TAG --installer $installer.FullName
 
       - name: Stage release assets and generate SHA-256 manifest
         shell: pwsh
@@ -84,4 +101,4 @@ jobs:
         shell: pwsh
         run: |
           $assets = Get-ChildItem release-assets -File | ForEach-Object { $_.FullName }
-          gh release create $env:GITHUB_REF_NAME $assets --draft --verify-tag --generate-notes
+          gh release create $env:RELEASE_TAG $assets --draft --verify-tag --generate-notes
