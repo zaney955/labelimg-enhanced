@@ -8,6 +8,7 @@ from xml.etree import ElementTree
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt5.QtCore import QCoreApplication, QEvent
 from PyQt5.QtGui import QColor, QImage, QImageReader, QKeySequence
 from PyQt5.QtWidgets import QApplication, QMessageBox
 
@@ -91,6 +92,7 @@ class DeleteImageNavigationTest(unittest.TestCase):
     def tearDown(self):
         self.window.close()
         self.window.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
         self.app.processEvents()
         self.temp_dir.cleanup()
 
