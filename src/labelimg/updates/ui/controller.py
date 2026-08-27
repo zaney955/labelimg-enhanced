@@ -5,9 +5,9 @@ import time
 from PyQt5.QtCore import QObject, QProcess, QTimer, QUrl, pyqtSignal
 from PyQt5.QtGui import QDesktopServices
 from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
-from PyQt5.QtWidgets import QMessageBox, QProgressDialog
+from PyQt5.QtWidgets import QApplication
 
-from labelimg.localization.runtime import tr, warning as localized_warning
+from labelimg.localization.runtime import tr
 from labelimg.platform.settings_keys import (
     SETTING_AUTO_CHECK_UPDATES,
     SETTING_UPDATE_CACHED_RELEASE,
@@ -33,7 +33,7 @@ from labelimg.updates.infrastructure import (
     detect_distribution_strategy,
 )
 from .installer import InstallerDownloadClient
-from .notification import UpdateCheckDialog, UpdateNotificationDialog
+from .notification import UpdateCenterWindow
 
 
 class GitHubReleaseClient(QObject):
@@ -351,6 +351,7 @@ class UpdateUiCoordinator(QObject):
         *,
         client=None,
         distribution_strategy=None,
+        download_client_factory=InstallerDownloadClient,
     ):
         super().__init__(window)
         self.window = window
@@ -362,10 +363,13 @@ class UpdateUiCoordinator(QObject):
             client=client,
             parent=self,
         )
-        self.check_dialog = None
-        self.dialog = None
+        self.center = None
         self.download_client = None
-        self.progress_dialog = None
+        self.current_release = None
+        self.download_client_factory = download_client_factory
+        self._last_check_manual = False
+        self._launching_installer = False
+        self._center_positioned = False
         self.distribution_strategy = (
             distribution_strategy
             if distribution_strategy is not None
@@ -377,15 +381,23 @@ class UpdateUiCoordinator(QObject):
         self.controller.checkFailed.connect(self._failed)
 
     def check_manual(self):
-        if self.check_dialog is not None:
-            self.check_dialog.show()
-            self.check_dialog.raise_()
-            self.check_dialog.activateWindow()
+        if (
+            self.download_client is not None
+            and self.download_client.candidate_path is not None
+            and self.current_release is not None
+        ):
+            center = self._ensure_center()
+            center.show_install_ready(self.current_release)
+            self._show_active(center)
             return False
+        if self.center is not None:
+            self._show_active(self.center)
+            if self.center.state in {"checking", "downloading"}:
+                return False
         return self.controller.check(manual=True)
 
     def check_automatic(self):
-        if not self.window.isVisible():
+        if not self.window.isVisible() or self.download_client is not None:
             return False
         return self.controller.check(manual=False)
 
@@ -393,163 +405,168 @@ class UpdateUiCoordinator(QObject):
         self.controller.set_auto_enabled(enabled)
 
     def close(self):
-        if self.check_dialog is not None:
-            dialog = self.check_dialog
-            self.check_dialog = None
-            dialog.dismiss()
-        if self.dialog is not None:
-            self.dialog.close()
+        center = self.center
+        self.center = None
+        if center is not None:
+            center.shutdown()
         self.controller.close()
-        if self.download_client is not None:
-            self.download_client.cancel()
+        if self.download_client is not None and not self._launching_installer:
+            self._clear_download()
 
     def _started(self, manual):
+        self._last_check_manual = bool(manual)
         if manual:
-            dialog = self._ensure_check_dialog()
-            dialog.show_checking()
-            dialog.show()
-            dialog.raise_()
-            dialog.activateWindow()
+            center = self._ensure_center()
+            center.show_checking()
+            self._show_active(center)
 
-    def _ensure_check_dialog(self):
-        if self.check_dialog is not None:
-            return self.check_dialog
-        dialog = UpdateCheckDialog(self.window)
-        dialog.cancelRequested.connect(self._cancel_check)
-        dialog.retryRequested.connect(self._retry_check)
-        dialog.destroyed.connect(
-            lambda _object=None: self._clear_check_dialog(dialog)
+    def _ensure_center(self):
+        if self.center is not None:
+            return self.center
+        center = UpdateCenterWindow()
+        self._center_positioned = False
+        center.cancelCheckRequested.connect(self._cancel_check)
+        center.retryCheckRequested.connect(self._retry_check)
+        center.viewRequested.connect(self._view_release)
+        center.ignoreRequested.connect(self._ignore_release)
+        center.laterRequested.connect(self.controller.snooze)
+        center.commandCopied.connect(
+            lambda: self.status(tr("updates.commandCopied"), 5000)
         )
-        self.check_dialog = dialog
-        return dialog
+        center.downloadRequested.connect(self._download_installer)
+        center.retryDownloadRequested.connect(self._download_installer)
+        center.cancelDownloadRequested.connect(self._cancel_download)
+        center.installRequested.connect(self._launch_installer)
+        center.closed.connect(lambda: self._clear_center(center))
+        center.destroyed.connect(
+            lambda _object=None: self._clear_center(center)
+        )
+        self.center = center
+        return center
 
-    def _clear_check_dialog(self, dialog):
-        if self.check_dialog is dialog:
-            self.check_dialog = None
+    def _clear_center(self, center):
+        if self.center is center:
+            self.center = None
+            self._center_positioned = False
 
-    def _dismiss_check_dialog(self):
-        dialog = self.check_dialog
-        if dialog is None:
+    @staticmethod
+    def _view_release(release):
+        QDesktopServices.openUrl(QUrl(release.html_url))
+
+    def _ignore_release(self, release):
+        self.controller.ignore_version(release.version)
+
+    def _position_center(self, center):
+        if self._center_positioned:
             return
-        self.check_dialog = None
-        dialog.dismiss()
+        geometry = center.frameGeometry()
+        geometry.moveCenter(self.window.frameGeometry().center())
+        center.move(geometry.topLeft())
+        self._center_positioned = True
+
+    def _show_active(self, center):
+        if center.isMinimized():
+            center.showNormal()
+        else:
+            center.show()
+        self._position_center(center)
+        center.raise_()
+        center.activateWindow()
+
+    def _request_attention(self, center):
+        if center.isMinimized():
+            center.showNormal()
+        else:
+            center.show()
+        self._position_center(center)
+        center.raise_()
+        QApplication.alert(center, 0)
 
     def _cancel_check(self):
         self.controller.cancel_check()
-        self.check_dialog = None
 
     def _retry_check(self):
         if not self.controller.check(manual=True):
-            dialog = self.check_dialog
-            if dialog is not None:
-                dialog.raise_()
-                dialog.activateWindow()
+            center = self.center
+            if center is not None:
+                self._show_active(center)
 
     def _show_available(self, release):
-        self._dismiss_check_dialog()
-        if self.dialog is not None:
-            self.dialog.close()
-        dialog = UpdateNotificationDialog(
-            release,
-            self.window,
-            self.distribution_strategy,
-        )
-        dialog.viewRequested.connect(
-            lambda: QDesktopServices.openUrl(QUrl(release.html_url))
-        )
-        dialog.ignoreRequested.connect(
-            lambda: self.controller.ignore_version(release.version)
-        )
-        dialog.laterRequested.connect(self.controller.snooze)
-        dialog.commandCopied.connect(
-            lambda: self.status(tr("updates.commandCopied"), 5000)
-        )
-        dialog.installRequested.connect(self._download_installer)
-        dialog.destroyed.connect(
-            lambda _object=None: self._clear_dialog(dialog)
-        )
-        self.dialog = dialog
-        dialog.show()
-
-    def _clear_dialog(self, dialog):
-        if self.dialog is dialog:
-            self.dialog = None
+        self.current_release = release
+        center = self._ensure_center()
+        center.show_available(release, self.distribution_strategy)
+        if self._last_check_manual:
+            self._show_active(center)
+        else:
+            self._request_attention(center)
+        self._last_check_manual = False
 
     def _up_to_date(self, version):
-        dialog = self._ensure_check_dialog()
-        dialog.show_up_to_date(version)
-        dialog.show()
-        dialog.raise_()
-        dialog.activateWindow()
+        center = self._ensure_center()
+        center.show_up_to_date(version)
+        self._show_active(center)
+        self._last_check_manual = False
 
     def _failed(self, detail):
-        dialog = self._ensure_check_dialog()
-        dialog.show_failure(detail)
-        dialog.show()
-        dialog.raise_()
-        dialog.activateWindow()
+        center = self._ensure_center()
+        center.show_check_failure(detail)
+        self._show_active(center)
+        self._last_check_manual = False
 
     def _download_installer(self, release):
         if self.download_client is not None:
             if self.download_client.candidate_path is not None:
-                self._installer_ready(
-                    self.download_client.candidate_path
-                )
+                self.current_release = release
+                center = self._ensure_center()
+                center.show_install_ready(release)
+                self._request_attention(center)
             return
-        client = InstallerDownloadClient(
+        self.current_release = release
+        client = self.download_client_factory(
             self.controller.current_version,
             parent=self,
         )
-        progress = QProgressDialog(
-            tr("updates.install.downloading"),
-            tr("standard.cancel"),
-            0,
-            100,
-            self.window,
-        )
-        progress.setWindowTitle(tr("updates.install.title"))
-        progress.setAutoClose(False)
-        progress.setAutoReset(False)
-        progress.setMinimumDuration(0)
-        progress.canceled.connect(self._cancel_download)
         client.progress.connect(self._update_download_progress)
         client.succeeded.connect(self._installer_ready)
         client.failed.connect(self._installer_failed)
         self.download_client = client
-        self.progress_dialog = progress
-        progress.show()
+        center = self._ensure_center()
+        center.show_downloading(release)
+        center.show()
         if not client.download(release):
-            self._clear_download()
+            if self.download_client is client:
+                self._clear_download()
 
     def _update_download_progress(self, received, total):
-        if self.progress_dialog is None:
-            return
-        if total > 0:
-            self.progress_dialog.setRange(0, 100)
-            self.progress_dialog.setValue(min(100, int(received * 100 / total)))
-        else:
-            self.progress_dialog.setRange(0, 0)
+        if self.center is not None:
+            self.center.set_download_progress(received, total)
 
     def _installer_ready(self, candidate):
-        if self.progress_dialog is not None:
-            self.progress_dialog.hide()
-        answer = localized_warning(
-            self.window,
-            tr("updates.install.unsignedTitle"),
-            tr("updates.install.unsignedWarning"),
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        if answer != QMessageBox.Yes:
-            self.status(tr("updates.install.kept"), 8000)
-            return
-        if not self.window.close():
-            self.status(tr("updates.install.closeBlocked"), 10000)
-            return
-        candidate = self.download_client.candidate_path
-        if candidate is None:
-            self.window.show()
+        download_client = self.download_client
+        if download_client is None or download_client.candidate_path is None:
             self._installer_failed(tr("updates.install.candidateLost"))
+            return
+        center = self._ensure_center()
+        center.show_install_ready(self.current_release)
+        self._request_attention(center)
+
+    def _launch_installer(self):
+        download_client = self.download_client
+        if download_client is None:
+            self._installer_failed(tr("updates.install.candidateLost"))
+            return
+        candidate = download_client.candidate_path
+        if candidate is None:
+            self._installer_failed(tr("updates.install.candidateLost"))
+            return
+        self._launching_installer = True
+        closed = self.window.close()
+        self._launching_installer = False
+        if not closed:
+            center = self._ensure_center()
+            center.show_install_ready(self.current_release)
+            self._show_active(center)
+            self.status(tr("updates.install.closeBlocked"), 10000)
             return
         result = QProcess.startDetached(str(candidate), [])
         started = result[0] if isinstance(result, tuple) else result
@@ -557,22 +574,29 @@ class UpdateUiCoordinator(QObject):
             self.window.show()
             self._installer_failed(tr("updates.install.launchFailed"))
             return
-        self.download_client.take_candidate()
+        download_client.take_candidate()
 
     def _installer_failed(self, detail):
         self.status(tr("updates.install.failed", detail=detail), 10000)
+        release = self.current_release
         self._clear_download()
+        if release is not None:
+            center = self._ensure_center()
+            center.show_download_failure(release, detail)
+            self._request_attention(center)
 
     def _cancel_download(self):
         self.status(tr("updates.install.canceled"), 5000)
+        release = self.current_release
         self._clear_download()
+        if release is not None:
+            center = self._ensure_center()
+            center.show_download_canceled(release)
+            center.show()
 
     def _clear_download(self):
-        if self.progress_dialog is not None:
-            self.progress_dialog.close()
-            self.progress_dialog.deleteLater()
-        if self.download_client is not None:
-            self.download_client.cancel()
-            self.download_client.deleteLater()
-        self.progress_dialog = None
+        client = self.download_client
         self.download_client = None
+        if client is not None:
+            client.cancel()
+            client.deleteLater()
