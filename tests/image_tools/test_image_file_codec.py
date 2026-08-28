@@ -3,6 +3,7 @@ import os
 import tempfile
 import unittest
 from unittest.mock import patch
+import warnings
 
 import numpy as np
 from PIL import Image, PngImagePlugin
@@ -102,6 +103,22 @@ class ImageFileCodecTest(unittest.TestCase):
             10_000,
         )
         self.assertEqual(preview.mode, "RGB")
+
+    def test_decompression_bomb_warning_does_not_abort_bounded_preview(self):
+        path = self.path("warning.png")
+        Image.new("RGB", (20, 20), "white").save(path)
+
+        with patch.object(Image, "MAX_IMAGE_PIXELS", 300), warnings.catch_warnings(
+            record=True
+        ) as caught:
+            warnings.simplefilter("always")
+            preview = self.codec.load_preview(path, max_pixels=100)
+
+        self.assertEqual(preview.preview_size, (10, 10))
+        self.assertTrue(any(
+            isinstance(item.message, Image.DecompressionBombWarning)
+            for item in caught
+        ))
 
     def test_inspection_reads_dimensions_without_decoding_pixels(self):
         path = self.path("inspect.png")

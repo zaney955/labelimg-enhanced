@@ -25,13 +25,11 @@ from labelimg.platform.settings_keys import (
     SETTING_AUTO_SAVE,
     SETTING_DRAW_SQUARE,
     SETTING_FILENAME,
-    SETTING_FILL_COLOR,
     SETTING_FILE_LIST_SORT_DESCENDING,
     SETTING_FILE_LIST_SORT_KEY,
     SETTING_LABEL_FILE_FORMAT,
     SETTING_LANGUAGE,
     SETTING_LAST_OPEN_DIR,
-    SETTING_LINE_COLOR,
     SETTING_PAINT_LABEL,
     SETTING_RECENT_FILES,
     SETTING_SAVE_DIR,
@@ -47,9 +45,9 @@ from labelimg.ui.actions import (
     new_icon,
     set_action_copy,
 )
-from labelimg.annotations.ui.style import generate_color_by_text
+from labelimg.annotations.ui.style import LabelColorPalette
 from labelimg.platform.settings import Settings
-from labelimg.canvas.shape import Shape, DEFAULT_LINE_COLOR, DEFAULT_FILL_COLOR
+from labelimg.canvas.shape import Shape, DEFAULT_LINE_COLOR
 from labelimg.localization.runtime import (
     ENGLISH,
     LANGUAGE_NAMES,
@@ -151,7 +149,15 @@ from labelimg.image_tools.application.session import (
     ImageProcessingSession,
     PreparedPixelChange,
 )
-from labelimg.image_tools import ImageProcessingTransaction
+from labelimg.image_tools import (
+    CanvasDisplayAdjustmentSession,
+    ImageProcessingTransaction,
+)
+from labelimg.image_tools.ui.display_adjustment import (
+    CanvasDisplayAdjustmentController,
+    DisplayAdjustmentPanel,
+    display_adjustment_icon,
+)
 from labelimg.workbench.session import WorkbenchSession
 from labelimg.workbench.support import (
     APP_NAME,
@@ -231,6 +237,7 @@ class WorkbenchComposer:
         self.annotation_workspace = AnnotationWorkspace(
             save_dir=default_save_dir,
         )
+        self.label_color_palette = LabelColorPalette()
         self.candidate_labels = list(
             self.annotation_workspace.candidate_labels
         )
@@ -239,6 +246,7 @@ class WorkbenchComposer:
         self.candidate_label_dialog = CandidateLabelDialog(
             parent=self,
             list_item=self.candidate_labels,
+            color_for_label=self.label_color_palette.color,
         )
 
         self.annotation_clipboard = []
@@ -275,6 +283,10 @@ class WorkbenchComposer:
         self.delete_button.setObjectName('annotationDeleteButton')
         self.visibility_button = QToolButton()
         self.visibility_button.setObjectName('annotationVisibilityButton')
+        self.label_color_button = QToolButton()
+        self.label_color_button.setObjectName('labelColorPaletteButton')
+        self.label_color_button.setIcon(new_icon('color'))
+        self.label_color_button.clicked.connect(self.manage_label_colors)
         self.near_duplicate_more_button = QToolButton()
         self.near_duplicate_more_button.setObjectName(
             'nearDuplicateMoreButton'
@@ -304,6 +316,7 @@ class WorkbenchComposer:
             self.copy_button,
             self.delete_button,
             self.visibility_button,
+            self.label_color_button,
             self.near_duplicate_more_button,
         ):
             button.setAutoRaise(True)
@@ -516,9 +529,58 @@ class WorkbenchComposer:
         self.canvas.panRequest.connect(self.pan_request)
         self.canvas.statusRequest.connect(self.status)
 
+        self.display_adjustment_session = CanvasDisplayAdjustmentSession()
+        self.display_adjustment_panel = DisplayAdjustmentPanel(self)
+        self.display_adjustment_dock = QDockWidget(
+            tr('displayAdjustment.title'), self
+        )
+        self.display_adjustment_dock.setObjectName('displayAdjustmentDock')
+        self.display_adjustment_dock.setAllowedAreas(Qt.LeftDockWidgetArea)
+        self.display_adjustment_dock.setFeatures(
+            QDockWidget.DockWidgetClosable
+        )
+        self.display_adjustment_dock.setWidget(
+            self.display_adjustment_panel
+        )
+        self.display_adjustment_dock.resize(220, 520)
+        self.display_adjustment_action = (
+            self.display_adjustment_dock.toggleViewAction()
+        )
+        self.display_adjustment_action.setIcon(
+            display_adjustment_icon()
+        )
+        self.display_adjustment_action.setText(
+            tr('displayAdjustment.title')
+        )
+        self.display_adjustment_status = QToolButton(self)
+        self.display_adjustment_status.setObjectName(
+            'displayAdjustmentStatus'
+        )
+        self.display_adjustment_status.setAutoRaise(True)
+        self.display_adjustment_status.setToolButtonStyle(
+            Qt.ToolButtonTextBesideIcon
+        )
+        self.display_adjustment_status.setIcon(
+            display_adjustment_icon()
+        )
+        self.display_adjustment_status.clicked.connect(
+            self._show_display_adjustment_panel
+        )
+        self.display_adjustment_status.hide()
+        self.display_adjustment_controller = (
+            CanvasDisplayAdjustmentController(
+                self.display_adjustment_session,
+                self.display_adjustment_panel,
+                project_pixmap=self._project_display_adjustment_pixmap,
+                active_changed=self._display_adjustment_active_changed,
+                parent=self,
+            )
+        )
+
         self.annotation_scene = CanvasAnnotationScene(
             self.canvas,
             on_project=self._project_annotation_history,
+            color_for_label=self.label_color_palette.color,
         )
         self.annotation_editing = AnnotationEditingController(
             self.annotation_scene.capture,
@@ -606,14 +668,29 @@ class WorkbenchComposer:
         self.canvas.annotationGestureStarted.connect(
             self._begin_annotation_gesture
         )
+        self.canvas.annotationGestureStarted.connect(
+            lambda _description: self.display_adjustment_controller
+            .set_canvas_gesture_active(True)
+        )
         self.canvas.annotationGestureFinished.connect(
             self._finish_annotation_gesture
+        )
+        self.canvas.annotationGestureFinished.connect(
+            lambda _description: self.display_adjustment_controller
+            .set_canvas_gesture_active(False)
         )
         self.canvas.annotationGestureCanceled.connect(
             self._cancel_annotation_gesture
         )
+        self.canvas.annotationGestureCanceled.connect(
+            lambda _description: self.display_adjustment_controller
+            .set_canvas_gesture_active(False)
+        )
 
         self.setCentralWidget(scroll)
+        self.addDockWidget(
+            Qt.LeftDockWidgetArea, self.display_adjustment_dock
+        )
         self.addDockWidget(Qt.RightDockWidgetArea, self.dock)
         self.addDockWidget(Qt.RightDockWidgetArea, self.file_dock)
         self.addDockWidget(Qt.RightDockWidgetArea, self.image_quality_dock)
@@ -634,6 +711,9 @@ class WorkbenchComposer:
         )
         self.crop_overlay.applyRequested.connect(self.apply_crop)
         self.crop_overlay.cancelRequested.connect(self.cancel_crop)
+        self.crop_overlay.gestureActiveChanged.connect(
+            self.display_adjustment_controller.set_canvas_gesture_active
+        )
         self._crop_active = False
         self._crop_action_states = {}
         self._crop_previous_canvas_mode = None
@@ -816,9 +896,6 @@ class WorkbenchComposer:
 
         reset_all = action(get_str('resetAll'), self.reset_all, None, 'resetall', get_str('resetAllDetail'))
 
-        color1 = action(get_str('boxLineColor'), self.choose_color1,
-                        'Ctrl+L', 'color_line', get_str('boxLineColorDetail'))
-
         select_tool = action(
             tr('tool.select'), self.set_edit_mode,
             ('V', 'Ctrl+J'), 'select-edit', tr('tool.selectTip'),
@@ -922,13 +999,6 @@ class WorkbenchComposer:
         self.delete_button.setDefaultAction(delete)
         self.visibility_button.setDefaultAction(toggle_visibility)
 
-        shape_line_color = action(get_str('shapeLineColor'), self.choose_shape_line_color,
-                                  icon='color_line', tip=get_str('shapeLineColorDetail'),
-                                  enabled=False)
-        shape_fill_color = action(get_str('shapeFillColor'), self.choose_shape_fill_color,
-                                  icon='color', tip=get_str('shapeFillColorDetail'),
-                                  enabled=False)
-
         labels = self.dock.toggleViewAction()
         labels.setIcon(new_icon('annotation-panel'))
         labels.setText(get_str('showHide'))
@@ -966,15 +1036,15 @@ class WorkbenchComposer:
                               adjustImage=adjust_image,
                               checkImageQuality=check_image_quality,
                               undoImageProcessing=undo_image_processing,
-                              lineColor=color1, selectTool=select_tool,
+                              selectTool=select_tool,
                               panTool=pan_tool, create=create, delete=delete,
                               edit=edit, copy=copy,
                                copyAnnotations=copy_annotations, pasteAnnotations=paste_annotations,
                                copyPrevBounding=copy_prev_bounding,
-                              shapeLineColor=shape_line_color, shapeFillColor=shape_fill_color,
                               hideAll=hide_all, showAll=show_all,
                                toggleVisibility=toggle_visibility,
                                labels=labels,
+                               displayAdjustment=self.display_adjustment_action,
                                helpDefault=help_default,
                                checkUpdates=check_updates,
                                showInfo=show_info,
@@ -987,7 +1057,7 @@ class WorkbenchComposer:
                               editMenu=(undo_annotation, redo_annotation, None,
                                         edit, copy_annotations, paste_annotations,
                                         copy_prev_bounding, copy, delete,
-                                        None, color1, self.draw_squares_option),
+                                        None, self.draw_squares_option),
                                onLoadActive=(
                                    close, select_tool, pan_tool, create,
                                    remove_colored_frames, crop_image,
@@ -1147,7 +1217,9 @@ class WorkbenchComposer:
         )
         add_actions(self.menus.view, (
             self.display_label_option,
-            labels, None,
+            labels,
+            self.display_adjustment_action,
+            None,
             hide_all, show_all, None,
             zoom_in, zoom_out, zoom_org, None,
             fit_window, fit_width))
@@ -1200,7 +1272,12 @@ class WorkbenchComposer:
         self.addToolBar(Qt.TopToolBarArea, self.top_commands)
 
         self.tools = CanvasToolRail(
-            select_tool, create, pan_tool, crop_image, self
+            select_tool,
+            create,
+            pan_tool,
+            crop_image,
+            self.display_adjustment_action,
+            self,
         )
         self.tools.setWindowTitle(tr('toolbar.canvasTools'))
         self.addToolBar(Qt.LeftToolBarArea, self.tools)
@@ -1256,13 +1333,16 @@ class WorkbenchComposer:
             ),
             transform_image: ('geometry.transform', 'geometry.transformTip'),
             adjust_image: ('adjustment.action', 'adjustment.actionTip'),
+            self.display_adjustment_action: (
+                'displayAdjustment.title',
+                'displayAdjustment.activeTip',
+            ),
             check_image_quality: ('quality.action', 'quality.actionTip'),
             undo_image_processing: (
                 'imageTools.action.undoCommitted',
                 'imageTools.action.undoCommittedTip',
             ),
             reset_all: ('resetAll', 'resetAllDetail'),
-            color1: ('boxLineColor', 'boxLineColorDetail'),
             create: ('crtBox', 'crtBoxDetail'),
             select_tool: ('tool.select', 'tool.selectTip'),
             pan_tool: ('tool.pan', 'tool.panTip'),
@@ -1281,8 +1361,6 @@ class WorkbenchComposer:
             fit_window: ('fitWin', 'fitWinDetail'),
             fit_width: ('fitWidth', 'fitWidthDetail'),
             edit: ('editLabel', 'editLabelDetail'),
-            shape_line_color: ('shapeLineColor', 'shapeLineColorDetail'),
-            shape_fill_color: ('shapeFillColor', 'shapeFillColorDetail'),
             labels: ('showHide', None),
             self.draw_squares_option: ('drawSquares', None),
             self.auto_saving: ('autoSaveMode', None),
@@ -1303,8 +1381,6 @@ class WorkbenchComposer:
         self.last_open_dir = None
         self.recent_files = []
         self.max_recent = 7
-        self.line_color = None
-        self.fill_color = None
         self.zoom_level = 100
         self.fit_window = False
         # Add Chris
@@ -1340,10 +1416,15 @@ class WorkbenchComposer:
             )
         self._sync_annotation_directory_ui()
 
-        self.restoreState(settings.get(SETTING_WIN_STATE, QByteArray()))
-        Shape.line_color = self.line_color = QColor(settings.get(SETTING_LINE_COLOR, DEFAULT_LINE_COLOR))
-        Shape.fill_color = self.fill_color = QColor(settings.get(SETTING_FILL_COLOR, DEFAULT_FILL_COLOR))
-        self.canvas.set_drawing_color(self.line_color)
+        saved_window_state = settings.get(SETTING_WIN_STATE, QByteArray())
+        self.restoreState(saved_window_state)
+        if not saved_window_state:
+            self.resizeDocks(
+                [self.display_adjustment_dock],
+                [220],
+                Qt.Horizontal,
+            )
+        self.canvas.set_drawing_color(DEFAULT_LINE_COLOR)
         # Add chris
         Shape.difficult = self.difficult
 
@@ -1364,6 +1445,9 @@ class WorkbenchComposer:
         # Display cursor coordinates at the right of status bar
         self.label_coordinates = QLabel('')
         self.statusBar().addPermanentWidget(self.label_coordinates)
+        self.statusBar().addPermanentWidget(
+            self.display_adjustment_status
+        )
         self.statusBar().addPermanentWidget(self.zoom_widget)
         self.canvas.coordinatesChanged.connect(
             self.label_coordinates.setText

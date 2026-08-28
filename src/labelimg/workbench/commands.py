@@ -86,10 +86,10 @@ def _tool_button(action=None, menu=None, text_beside=False):
 
 
 class CanvasToolRail(QToolBar):
-    """A fixed left rail containing only persistent Canvas tools."""
+    """A fixed left rail for Canvas modes and display controls."""
 
     def __init__(self, select_action, create_action, pan_action, crop_action,
-                 parent=None):
+                 display_adjustment_action, parent=None):
         super(CanvasToolRail, self).__init__(parent)
         self.setObjectName("canvasToolRail")
         self.setAllowedAreas(Qt.LeftToolBarArea)
@@ -124,6 +124,15 @@ class CanvasToolRail(QToolBar):
         crop_button.setObjectName("canvasTool_crop")
         self.addWidget(crop_button)
         self.buttons["crop"] = crop_button
+        self.addSeparator()
+        display_adjustment_button = _tool_button(
+            display_adjustment_action
+        )
+        display_adjustment_button.setObjectName(
+            "canvasTool_displayAdjustment"
+        )
+        self.addWidget(display_adjustment_button)
+        self.buttons["displayAdjustment"] = display_adjustment_button
         select_action.setChecked(True)
         language_changed.connect(self.retranslate_ui)
 

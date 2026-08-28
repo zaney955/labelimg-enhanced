@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -49,7 +50,7 @@ class ImageToolsDialogTest(unittest.TestCase):
         Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB)).save(path)
         return path
 
-    def dialog(self, selected_paths=()):
+    def dialog(self, selected_paths=(), workspace_paths=()):
         def commit(replacements):
             self.commits.append(replacements)
             return "committed"
@@ -57,6 +58,7 @@ class ImageToolsDialogTest(unittest.TestCase):
         return ImageToolsDialog(
             self.current,
             selected_paths,
+            workspace_paths=workspace_paths,
             commit=commit,
             asynchronous=False,
         )
@@ -74,6 +76,23 @@ class ImageToolsDialogTest(unittest.TestCase):
 
         selected_index = dialog.scope_combo.findData("selected")
         dialog.scope_combo.setCurrentIndex(selected_index)
+
+        self.assertEqual(dialog.target_paths, (self.current, self.second))
+        self.assertEqual(dialog.target_list.topLevelItemCount(), 2)
+
+    def test_all_images_scope_targets_every_workspace_image(self):
+        dialog = self.dialog(
+            (self.current,),
+            (self.current, self.second),
+        )
+        workspace_index = dialog.scope_combo.findData("workspace")
+
+        self.assertGreaterEqual(workspace_index, 0)
+        self.assertIn(
+            dialog.scope_combo.itemText(workspace_index),
+            {"All images (2)", "全部图像（2 张）"},
+        )
+        dialog.scope_combo.setCurrentIndex(workspace_index)
 
         self.assertEqual(dialog.target_paths, (self.current, self.second))
         self.assertEqual(dialog.target_list.topLevelItemCount(), 2)
@@ -162,6 +181,43 @@ class ImageToolsDialogTest(unittest.TestCase):
         pixmap = _array_pixmap(pixels, max_pixels=10_000)
 
         self.assertLessEqual(pixmap.width() * pixmap.height(), 10_000)
+
+    def test_preview_allocation_failure_is_contained_in_the_dialog(self):
+        dialog = self.dialog()
+
+        with patch.object(
+            dialog.preview_label,
+            "set_preview_pixmap",
+            side_effect=MemoryError("large-image preview allocation failed"),
+        ):
+            dialog._refresh_preview()
+
+        self.assertIn(
+            "large-image preview allocation failed",
+            dialog.preview_summary.text(),
+        )
+        active_item = dialog._items[self.current]
+        self.assertEqual(
+            active_item.toolTip(1),
+            dialog.preview_summary.text(),
+        )
+        self.assertIn(os.path.basename(self.current), active_item.toolTip(1))
+        self.assertFalse(dialog.apply_button.isEnabled())
+
+    def test_one_failed_batch_preview_disables_apply_for_the_workspace(self):
+        dialog = self.dialog((self.current, self.second))
+        dialog.scope_combo.setCurrentIndex(
+            dialog.scope_combo.findData("selected")
+        )
+
+        with patch(
+            "labelimg.image_tools.ui.colored_frame_dialog._array_pixmap",
+            side_effect=MemoryError("large-image preview allocation failed"),
+        ):
+            dialog._refresh_preview()
+
+        dialog.target_list.setCurrentItem(dialog.target_list.topLevelItem(1))
+        self.assertFalse(dialog.apply_button.isEnabled())
 
     def test_async_option_changes_are_coalesced_on_one_worker_queue(self):
         dialog = ImageToolsDialog(

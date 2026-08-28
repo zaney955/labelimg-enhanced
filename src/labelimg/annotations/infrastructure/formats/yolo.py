@@ -131,7 +131,7 @@ class YoloReader:
 
     def __init__(self, file_path, image, class_list_path=None):
         # shapes type:
-        # [labbel, [(x1,y1), (x2,y2), (x3,y3), (x4,y4)], color, color, difficult]
+        # [label, [(x1,y1), (x2,y2), (x3,y3), (x4,y4)], difficult]
         self.shapes = []
         self.file_path = file_path
 
@@ -166,7 +166,7 @@ class YoloReader:
     def add_shape(self, label, x_min, y_min, x_max, y_max, difficult):
 
         points = [(x_min, y_min), (x_max, y_min), (x_max, y_max), (x_min, y_max)]
-        self.shapes.append((label, points, None, None, difficult))
+        self.shapes.append((label, points, difficult))
 
     def yolo_line_to_shape(self, class_index, x_center, y_center, w, h):
         label = self.classes[int(class_index)]

@@ -227,15 +227,11 @@ class LabelListSortingTest(unittest.TestCase):
             (
                 "car",
                 ((10, 10), (20, 10), (20, 20), (10, 20)),
-                None,
-                None,
                 False,
             ),
             (
                 "car",
                 ((30, 10), (40, 10), (40, 20), (30, 20)),
-                None,
-                None,
                 False,
             ),
         ]
@@ -261,22 +257,16 @@ class LabelListSortingTest(unittest.TestCase):
             (
                 "car",
                 ((10, 10), (20, 10), (20, 20), (10, 20)),
-                None,
-                None,
                 False,
             ),
             (
                 "car",
                 ((30, 10), (40, 10), (40, 20), (30, 20)),
-                None,
-                None,
                 False,
             ),
             (
                 "person",
                 ((50, 10), (60, 10), (60, 20), (50, 20)),
-                None,
-                None,
                 False,
             ),
         ]

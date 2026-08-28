@@ -329,7 +329,7 @@ Annotation-aware effects call the annotations public interface. The files UI nev
 
 #### `canvas` and its workbench bridge
 
-`create_shape`, `toggle_drawing_sensitive`, `set_edit_mode`, `set_pan_mode`, `copy_selected_shape`, `scroll_request`, `pan_request`, `set_zoom`, `add_zoom`, `zoom_request`, `set_fit_window`, `set_fit_width`, `toggle_polygons`, `toggle_all_annotations`, `paint_canvas`, `adjust_scale`, `scale_fit_window`, `scale_fit_width`, `choose_color1`, `delete_selected_shape`, `choose_shape_line_color`, `choose_shape_fill_color`, `copy_shape`, `move_shape`.
+`create_shape`, `toggle_drawing_sensitive`, `set_edit_mode`, `set_pan_mode`, `copy_selected_shape`, `scroll_request`, `pan_request`, `set_zoom`, `add_zoom`, `zoom_request`, `set_fit_window`, `set_fit_width`, `toggle_polygons`, `toggle_all_annotations`, `paint_canvas`, `adjust_scale`, `scale_fit_window`, `scale_fit_width`, `delete_selected_shape`, `copy_shape`, `move_shape`.
 
 Canvas owns transient state and emits typed intents. Annotation mutations still pass through the annotation edit service.
 

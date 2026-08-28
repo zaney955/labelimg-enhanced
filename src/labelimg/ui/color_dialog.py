@@ -7,9 +7,9 @@ from labelimg.localization.runtime import localize_dialog_buttons
 
 class ColorDialog(QColorDialog):
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, show_alpha=False):
         super(ColorDialog, self).__init__(parent)
-        self.setOption(QColorDialog.ShowAlphaChannel)
+        self.setOption(QColorDialog.ShowAlphaChannel, bool(show_alpha))
         # The Mac native dialog does not support our restore button.
         self.setOption(QColorDialog.DontUseNativeDialog)
         # Add a restore defaults button.

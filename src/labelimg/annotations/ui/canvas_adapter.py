@@ -15,12 +15,6 @@ def box_from_shape(shape):
     return AnnotationBox(
         label=shape.label,
         points=tuple((point.x(), point.y()) for point in shape.points),
-        line_color=(
-            shape.line_color.getRgb() if shape.line_color is not None else None
-        ),
-        fill_color=(
-            shape.fill_color.getRgb() if shape.fill_color is not None else None
-        ),
         difficult=bool(shape.difficult),
     )
 
@@ -52,12 +46,7 @@ def shape_from_box(box, snap_point, color_for_label):
         shape.add_point(QPointF(x, y))
     shape.difficult = box.difficult
     shape.close()
-    shape.line_color = (
-        QColor(*box.line_color) if box.line_color else color_for_label(box.label)
-    )
-    shape.fill_color = (
-        QColor(*box.fill_color) if box.fill_color else color_for_label(box.label)
-    )
+    shape.line_color = QColor(color_for_label(box.label))
     return shape, snapped_any
 
 

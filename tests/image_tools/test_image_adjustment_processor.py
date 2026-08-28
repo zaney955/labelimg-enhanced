@@ -2,6 +2,8 @@ import io
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
+import warnings
 
 import numpy as np
 from PIL import Image
@@ -71,19 +73,26 @@ class ImageAdjustmentProcessorTest(unittest.TestCase):
             np.array([[17, 231]], dtype=np.uint8),
         )
 
-    def test_brightness_preserves_grayscale_jpeg_channel_mode(self):
-        pixels = np.array(
-            [[10, 80], [160, 240]],
-            dtype=np.uint8,
-        )
+    def test_issue_2_warning_and_brightness_preserve_grayscale_jpeg_mode(self):
+        pixels = (
+            np.arange(20 * 20, dtype=np.uint16).reshape(20, 20) % 256
+        ).astype(np.uint8)
         path = self._save("grayscale.jpg", pixels, "L")
 
-        result = ImageAdjustmentProcessor().prepare(
-            path,
-            ImageAdjustmentOptions(brightness=10),
-        )
+        with patch.object(Image, "MAX_IMAGE_PIXELS", 300), warnings.catch_warnings(
+            record=True
+        ) as caught:
+            warnings.simplefilter("always")
+            result = ImageAdjustmentProcessor().prepare(
+                path,
+                ImageAdjustmentOptions(brightness=10),
+            )
 
         self.assertIsNotNone(result.replacement)
+        self.assertTrue(any(
+            isinstance(item.message, Image.DecompressionBombWarning)
+            for item in caught
+        ))
         with Image.open(path) as original:
             self.assertEqual(original.mode, "L")
         with Image.open(io.BytesIO(result.replacement.content)) as adjusted:

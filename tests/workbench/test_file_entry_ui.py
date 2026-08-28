@@ -216,8 +216,6 @@ class FileEntryUiTest(unittest.TestCase):
             (
                 "cat",
                 ((5, 5), (20, 5), (20, 20), (5, 20)),
-                None,
-                None,
                 False,
             ),
         ]

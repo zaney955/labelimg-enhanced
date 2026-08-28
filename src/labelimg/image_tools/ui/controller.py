@@ -2,6 +2,7 @@
 
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+from functools import wraps
 import os.path
 
 
@@ -15,6 +16,29 @@ from labelimg.annotations import fingerprint_path
 from labelimg.image_tools.application.recovery import ImageProcessingOperation
 from labelimg.image_tools.application.session import AdjustmentChange, CropChange, GeometryTransformChange, ImageProcessingProjectionKind, PreparedPixelChange
 from labelimg.workbench.support import read_image as read
+
+
+def _image_menu_boundary(title_key, message_key=None):
+    """Keep exceptions from crossing Qt image-menu callback boundaries."""
+
+    def decorate(command):
+        @wraps(command)
+        def guarded(self, *args, **kwargs):
+            try:
+                return command(self, *args, **kwargs)
+            except Exception as error:
+                message = (
+                    str(error)
+                    if message_key is None
+                    else tr(message_key, error=error)
+                )
+                localized_warning(self, tr(title_key), message)
+                return False
+
+        guarded._image_menu_guarded = True
+        return guarded
+
+    return decorate
 
 
 class ImageToolsActionsMixin:
@@ -48,6 +72,10 @@ class ImageToolsActionsMixin:
 
     def _project_image_processing(self, request):
         """Project one committed image-processing result into Qt state."""
+        if request.kind is not ImageProcessingProjectionKind.PROJECTION_FAILED:
+            self.display_adjustment_controller.source_pixels_replaced(
+                request.paths
+            )
         if request.kind is ImageProcessingProjectionKind.PIXEL_COMMIT:
             self._invalidate_image_quality(request.paths)
             self._refresh_current_image_pixels(request.paths)
@@ -66,7 +94,11 @@ class ImageToolsActionsMixin:
             zoom = self.zoom_widget.value()
             self.image_data = target.prepared.image_replacement.content
             self.image = QImage.fromData(self.image_data)
-            self.canvas.replace_pixmap(QPixmap.fromImage(self.image))
+            self.canvas.replace_pixmap(
+                self._activate_display_adjustment_source(
+                    self.image, self.file_path
+                )
+            )
             self.annotation_scene.project(
                 self._history_projection_request(
                     request.snapshot,
@@ -222,6 +254,7 @@ class ImageToolsActionsMixin:
         )
 
 
+    @_image_menu_boundary("geometry.failedTitle", "geometry.failed")
     def open_transform_image(self, _checked=False, preselected=None):
         if not self.file_path or self._crop_active:
             return False
@@ -249,6 +282,7 @@ class ImageToolsActionsMixin:
         dialog = GeometryTransformDialog(
             self.file_path,
             tuple(self.selected_file_paths()),
+            workspace_paths=tuple(self.m_img_list),
             preselected=(
                 GeometryOperation.ROTATE_CLOCKWISE
                 if preselected is None
@@ -313,6 +347,7 @@ class ImageToolsActionsMixin:
         return True
 
 
+    @_image_menu_boundary("adjustment.failedTitle", "adjustment.failed")
     def open_adjust_image(self, _checked=False):
         if not self.file_path or self._crop_active:
             return False
@@ -328,6 +363,7 @@ class ImageToolsActionsMixin:
             self.file_path,
             tuple(self.selected_file_paths()),
             parent=self,
+            workspace_paths=tuple(self.m_img_list),
         )
         if dialog.exec_() != QDialog.Accepted or dialog.request is None:
             return False
@@ -352,6 +388,7 @@ class ImageToolsActionsMixin:
         return True
 
 
+    @_image_menu_boundary("quality.failedTitle", "quality.failed")
     def open_image_quality_check(self, _checked=False):
         if not self.file_path:
             return False
@@ -368,6 +405,7 @@ class ImageToolsActionsMixin:
         return self._run_image_quality_request(dialog.request)
 
 
+    @_image_menu_boundary("quality.failedTitle", "quality.failed")
     def _run_image_quality_request(self, request, *, force=False):
         if (
             self._image_quality_thread is not None
@@ -445,6 +483,7 @@ class ImageToolsActionsMixin:
         return True
 
 
+    @_image_menu_boundary("quality.failedTitle", "quality.failed")
     def _complete_image_quality_scan(self, request, results):
         self.image_quality_cache.put_many(results.values())
         self._apply_image_quality_results(request, results)
@@ -514,6 +553,7 @@ class ImageToolsActionsMixin:
         return True
 
 
+    @_image_menu_boundary("geometry.failedTitle", "geometry.failed")
     def quick_transform_current_image(
         self,
         operation,
@@ -562,6 +602,7 @@ class ImageToolsActionsMixin:
         return True
 
 
+    @_image_menu_boundary("crop.failedTitle", "crop.failed")
     def enter_crop_mode(self, _checked=False):
         if self._crop_active:
             blocker = QSignalBlocker(self.actions.cropImage)
@@ -607,8 +648,6 @@ class ImageToolsActionsMixin:
             self.actions.copyAnnotations,
             self.actions.pasteAnnotations,
             self.actions.copyPrevBounding,
-            self.actions.shapeLineColor,
-            self.actions.shapeFillColor,
             self.actions.toggleVisibility,
             self.actions.hideAll,
             self.actions.showAll,
@@ -638,6 +677,7 @@ class ImageToolsActionsMixin:
         return True
 
 
+    @_image_menu_boundary("crop.failedTitle", "crop.failed")
     def apply_crop(self):
         if not self._crop_active:
             return False
@@ -727,6 +767,10 @@ class ImageToolsActionsMixin:
         return False
 
 
+    @_image_menu_boundary(
+        "imageTools.commitFailedTitle",
+        "imageTools.commitFailed",
+    )
     def open_remove_colored_frames(self, _checked=False):
         if self._crop_active:
             return False
@@ -752,6 +796,7 @@ class ImageToolsActionsMixin:
         dialog = ImageToolsDialog(
             self.file_path,
             tuple(self.selected_file_paths()),
+            workspace_paths=tuple(self.m_img_list),
             commit=commit,
             parent=self,
         )
@@ -764,6 +809,10 @@ class ImageToolsActionsMixin:
         self.status(tr('imageTools.completed', count=len(processed_paths)))
 
 
+    @_image_menu_boundary(
+        "recovery.failed",
+        "recovery.imageProcessingFailed",
+    )
     def undo_last_image_processing(self, _checked=False):
         if (
             self._crop_active
@@ -853,7 +902,11 @@ class ImageToolsActionsMixin:
             return False
         self.image_data = image_data
         self.image = image
-        self.canvas.replace_pixmap(QPixmap.fromImage(image))
+        self.canvas.replace_pixmap(
+            self._activate_display_adjustment_source(
+                image, self.file_path
+            )
+        )
         self.paint_canvas()
         return True
 

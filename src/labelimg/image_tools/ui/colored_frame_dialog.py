@@ -286,6 +286,7 @@ class ImageToolsDialog(QDialog):
         current_path,
         selected_paths=(),
         *,
+        workspace_paths=(),
         commit,
         processor=None,
         thread_pool=None,
@@ -298,6 +299,12 @@ class ImageToolsDialog(QDialog):
             dict.fromkeys(
                 os.path.abspath(os.fspath(path))
                 for path in selected_paths
+            )
+        )
+        self.workspace_paths = tuple(
+            dict.fromkeys(
+                os.path.abspath(os.fspath(path))
+                for path in workspace_paths
             )
         )
         self._commit = commit
@@ -319,6 +326,7 @@ class ImageToolsDialog(QDialog):
         self._candidate_change_active = False
         self.outcome = None
         self._preview_source = None
+        self._preview_failed_paths = set()
         self._prepare_timer = QTimer(self)
         self._prepare_timer.setSingleShot(True)
         self._prepare_timer.setInterval(self.OPTIONS_DEBOUNCE_MS)
@@ -521,19 +529,29 @@ class ImageToolsDialog(QDialog):
                 ),
                 "selected",
             )
+        if len(self.workspace_paths) > 1:
+            self.scope_combo.addItem(
+                tr(
+                    "imageTools.scope.workspace",
+                    count=len(self.workspace_paths),
+                ),
+                "workspace",
+            )
         self.scope_combo.blockSignals(False)
 
     def _scope_changed(self):
         scope = self.scope_combo.currentData()
-        paths = (
-            self.selected_paths
-            if scope == "selected"
-            else (self.current_path,)
-        )
+        if scope == "selected":
+            paths = self.selected_paths
+        elif scope == "workspace":
+            paths = self.workspace_paths or (self.current_path,)
+        else:
+            paths = (self.current_path,)
         self._set_targets(paths)
 
     def _set_targets(self, paths):
         self._generation += 1
+        self._preview_failed_paths.clear()
         self._states = {
             path: _TargetState(path=path)
             for path in tuple(dict.fromkeys(paths))
@@ -590,6 +608,7 @@ class ImageToolsDialog(QDialog):
 
     def _prepare_all(self):
         self._generation += 1
+        self._preview_failed_paths.clear()
         generation = self._generation
         options = self._options()
         for state in self._states.values():
@@ -873,14 +892,37 @@ class ImageToolsDialog(QDialog):
             array = result.mask
         else:
             array = result.result_pixels
-        pixmap = _array_pixmap(array)
-        badges = () if mode == "mask" else self._preview_badges(result)
-        self._preview_source = (
-            pixmap,
-            result.original_pixels.shape[:2],
-            badges,
+        try:
+            pixmap = _array_pixmap(array)
+            badges = () if mode == "mask" else self._preview_badges(result)
+            self._preview_source = (
+                pixmap,
+                result.original_pixels.shape[:2],
+                badges,
+            )
+            if not self._project_preview_pixmap():
+                return
+        except Exception as error:
+            self._fail_preview(state, error)
+            return
+        self._preview_failed_paths.discard(state.path)
+        self._update_apply()
+
+    def _fail_preview(self, state, error):
+        message = tr(
+            "imageTools.preview.failed",
+            path=os.path.basename(state.path),
+            error=error,
         )
-        self._project_preview_pixmap()
+        state.status = TargetStatus.FAILED
+        state.error = message
+        state.included = False
+        self._preview_failed_paths.add(state.path)
+        self._preview_source = None
+        self.preview_label.clear()
+        self.preview_summary.setText(message)
+        self._project_state(state)
+        self._update_apply()
 
     @staticmethod
     def _preview_badges(result):
@@ -908,14 +950,21 @@ class ImageToolsDialog(QDialog):
 
     def _project_preview_pixmap(self):
         if self._preview_source is None:
-            return
+            return True
         pixmap, shape, badges = self._preview_source
         height, width = shape
-        self.preview_label.set_preview_pixmap(
-            pixmap,
-            (width, height),
-            badges,
-        )
+        try:
+            self.preview_label.set_preview_pixmap(
+                pixmap,
+                (width, height),
+                badges,
+            )
+        except Exception as error:
+            state = self._states.get(self._active_path)
+            if state is not None:
+                self._fail_preview(state, error)
+            return False
+        return True
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -939,7 +988,9 @@ class ImageToolsDialog(QDialog):
             and state.result.replacement is not None
             for state in included
         )
-        self.apply_button.setEnabled(ready)
+        self.apply_button.setEnabled(
+            ready and not self._preview_failed_paths
+        )
 
     def _apply(self):
         replacements = tuple(

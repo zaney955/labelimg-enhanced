@@ -40,17 +40,28 @@ class ImageAdjustmentDialog(QDialog):
     PREVIEW_MAX_PIXELS = 1_500_000
     PREVIEW_DEBOUNCE_MS = 40
 
-    def __init__(self, current_path, selected_paths=(), parent=None):
+    def __init__(
+        self,
+        current_path,
+        selected_paths=(),
+        parent=None,
+        *,
+        workspace_paths=(),
+    ):
         super().__init__(parent)
         self.current_path = os.path.abspath(os.fspath(current_path))
         self.selected_paths = tuple(dict.fromkeys(
             os.path.abspath(os.fspath(path)) for path in selected_paths
+        ))
+        self.workspace_paths = tuple(dict.fromkeys(
+            os.path.abspath(os.fspath(path)) for path in workspace_paths
         ))
         self.request = None
         self._preview = ImageFileCodec().load_preview(
             self.current_path,
             max_pixels=self.PREVIEW_MAX_PIXELS,
         )
+        self._preview_failed = False
         self._restoring = False
         self._history = []
         self._redo = []
@@ -70,6 +81,11 @@ class ImageAdjustmentDialog(QDialog):
             self.scope_combo.addItem(
                 tr("imageTools.scope.selected", count=len(self.selected_paths)),
                 "selected",
+            )
+        if len(self.workspace_paths) > 1:
+            self.scope_combo.addItem(
+                tr("imageTools.scope.workspace", count=len(self.workspace_paths)),
+                "workspace",
             )
         top.addRow(tr("geometry.workspace.scope"), self.scope_combo)
         root.addLayout(top)
@@ -142,15 +158,19 @@ class ImageAdjustmentDialog(QDialog):
         self._update_history_buttons()
 
     def _paths(self):
-        return (
-            self.selected_paths
-            if self.scope_combo.currentData() == "selected"
-            else (self.current_path,)
-        )
+        scope = self.scope_combo.currentData()
+        if scope == "selected":
+            return self.selected_paths
+        if scope == "workspace":
+            return self.workspace_paths or (self.current_path,)
+        return (self.current_path,)
 
     def _scope_changed(self):
+        paths = self._paths()
         self.target_list.clear()
-        self.target_list.addItems(os.path.basename(path) for path in self._paths())
+        self.target_list.addItems(os.path.basename(path) for path in paths)
+        for index, path in enumerate(paths):
+            self.target_list.item(index).setToolTip(path)
         self._refresh_preview()
 
     def _options(self):
@@ -205,13 +225,26 @@ class ImageAdjustmentDialog(QDialog):
         self._restore_options(following)
 
     def _refresh_preview(self):
-        result = apply_adjustments(self._preview.pixels, self._options())
-        pixmap = _array_pixmap(result)
-        self.preview_label.setPixmap(pixmap.scaled(
-            self.preview_label.size(),
-            Qt.KeepAspectRatio,
-            Qt.SmoothTransformation,
-        ))
+        try:
+            result = apply_adjustments(self._preview.pixels, self._options())
+            pixmap = _array_pixmap(result)
+            self.preview_label.setPixmap(pixmap.scaled(
+                self.preview_label.size(),
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation,
+            ))
+        except Exception as error:
+            self._preview_failed = True
+            self.preview_label.setText(
+                tr(
+                    "imageTools.preview.failed",
+                    path=os.path.basename(self.current_path),
+                    error=error,
+                )
+            )
+            self._update_apply_button()
+            return
+        self._preview_failed = False
         self._update_apply_button()
 
     def _schedule_preview(self):
@@ -219,7 +252,8 @@ class ImageAdjustmentDialog(QDialog):
 
     def _update_apply_button(self):
         self.apply_button.setEnabled(
-            self._options() != ImageAdjustmentOptions()
+            not self._preview_failed
+            and self._options() != ImageAdjustmentOptions()
         )
 
     def _update_history_buttons(self):

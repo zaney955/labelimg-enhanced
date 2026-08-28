@@ -55,8 +55,6 @@ class AnnotationPoint:
 class AnnotationBox:
     label: str
     points: tuple
-    line_color: tuple | None = None
-    fill_color: tuple | None = None
     difficult: bool = False
 
     def __post_init__(self):
@@ -73,12 +71,10 @@ class AnnotationBox:
 
     @classmethod
     def from_reader_shape(cls, reader_shape):
-        label, points, line_color, fill_color, difficult = reader_shape
+        label, points, difficult = reader_shape
         return cls(
             label=label,
             points=tuple(tuple(point) for point in points),
-            line_color=line_color,
-            fill_color=fill_color,
             difficult=bool(difficult),
         )
 
@@ -86,8 +82,6 @@ class AnnotationBox:
         return {
             "label": self.label,
             "points": list(self.points),
-            "line_color": self.line_color,
-            "fill_color": self.fill_color,
             "difficult": self.difficult,
         }
 

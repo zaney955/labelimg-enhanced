@@ -30,11 +30,11 @@ The Image menu presents Crop first, followed by a Rotate / Flip submenu containi
 
 ## Target selection
 
-Every session begins with an explicit target set. The current Canvas image is always the safe default. When the file list contains multiple selected images, a batch-capable workspace tool offers a separate “Selected images (N)” scope that the user must choose explicitly; opening a tool never infers the complete directory as a batch. Crop is current-image-only because its region is specific to one image's content and coordinate space.
+Every session begins with an explicit target set. The current Canvas image is always the safe default. A batch-capable workspace tool separately offers “Selected images (N)” when the file list contains multiple selected images and “All images (N)” when the annotation workspace contains multiple images. Both batch scopes must be chosen explicitly; All images includes workspace images hidden by the active file-list filter, and opening a tool never infers the complete directory as a batch. Crop is current-image-only because its region is specific to one image's content and coordinate space.
 
 The target list remains visible in the workspace. Results are prepared in the background, each image can be inspected, and any image can be excluded before commit. Images with no selected repair candidates are automatically excluded and retain their exact original bytes.
 
-Rotation, flip, and resize operations use the same explicit current-image or selected-images target rule. A selected geometry batch preflights every image and associated annotation resource, then commits the complete target set atomically; any failure leaves the whole batch unchanged. Crop remains current-image-only.
+Rotation, flip, and resize operations use the same explicit current-image, selected-images, or all-images target rule. A geometry batch preflights every image and associated annotation resource, then commits the complete target set atomically; any failure leaves the whole batch unchanged. Crop remains current-image-only.
 
 ## Workspace and history
 
@@ -46,7 +46,7 @@ Settings return to safe defaults whenever the workspace opens. They are not pers
 
 ## Geometry transforms
 
-Image → Batch Geometry Transform… provides the preview workspace for rotation, flip, and proportional resize. It supports the current image or explicitly selected images and requires an explicit Apply action. Specific menu commands may enter that shared workspace with their corresponding operation preselected.
+Image → Batch Geometry Transform… provides the preview workspace for rotation, flip, and proportional resize. It supports the current image, explicitly selected images, or an explicitly chosen all-images workspace target and requires an explicit Apply action. Specific menu commands may enter that shared workspace with their corresponding operation preselected.
 
 Rotation and flip additionally provide quick transforms for the current image. Rotate clockwise 90 degrees, rotate counter-clockwise 90 degrees, rotate 180 degrees, flip horizontally, and flip vertically skip the workspace and confirmation, then immediately transform the image and annotations and commit them atomically. Each invocation creates its own recoverable image-processing entry. Quick transforms are disabled during a pending annotation gesture, unresolved annotation conflict, or active crop session; selected files never become an implicit quick-transform target.
 
@@ -58,11 +58,39 @@ Resize performs proportional resampling only. Aspect ratio is locked, and the us
 
 ## Pixel correction
 
-Image → Adjust Image… opens one shared modal workspace for brightness, contrast, advanced Gamma, automatic contrast, and grayscale conversion. The current image is the safe default and explicitly selected images are an optional batch target. Corrections can be composed, previewed, temporarily undone or redone, and committed once through the existing recoverable pixel-only replacement path. No correction receives an independent toolbar button, and every invocation starts from safe control defaults.
+Image → Adjust Image… opens one shared modal workspace for brightness, contrast, advanced Gamma, automatic contrast, and grayscale conversion. The current image is the safe default; explicitly selected images and an explicitly chosen all-images workspace target are optional batch scopes. Corrections can be composed, previewed, temporarily undone or redone, and committed once through the existing recoverable pixel-only replacement path. No correction receives an independent toolbar button, and every invocation starts from safe control defaults.
+
+## Canvas display adjustment
+
+The annotation workbench also provides a non-destructive Display Adjustment panel immediately to the right of the existing left Canvas tool rail. A dedicated button in that vertical rail toggles the panel without changing the active Canvas editing mode; the View menu entry remains synchronized with the same action. This separate collapsible panel is expanded on first use, defaults to a 220-pixel width, can be resized from 180 through 360 pixels, and subsequently remembers its expanded or collapsed layout state and width without auto-collapsing at narrower window sizes. Its brightness and contrast values never persist across annotation workspaces or application launches. Image → Adjust Image… remains the distinct workflow for permanently changing source-image pixels.
+
+The panel's master brightness and contrast sliders both use a visible -100 through +100 scale with zero as the neutral value. They affect every image in the annotation workspace, including images hidden by the active file-list filter. One disclosure triangle expands a pair of current-image override sliders; the disclosure remains open during navigation, follows the new current image, and restores each image's session-only override when revisited. Each override is an absolute final value for that image rather than an offset added to the master value. Before an image has an override, the expanded sliders show its inherited master values without creating an override; editing either slider creates the override. Changing either master slider clears every current-image override so the workspace becomes visually uniform again.
+
+Reset All returns both master values to zero and clears every current-image override. Reset Current clears only the current image's override, after which the expanded sliders show and inherit the master values. Display adjustment never changes source-image bytes, annotation documents, annotation save state, or the separate committed image-processing and recovery histories.
+
+Both contrast layers use the same black-anchored contrast algorithm as Image → Adjust Image…. The symmetric display scale maps -100 to a 0.1 factor, zero to the neutral 1.0 factor, and +100 to a 3.0 factor. Display adjustment affects only the Canvas image pixels; annotation boxes, label text, selection handles, crop overlays, file-list presentation, and quality state retain their normal colors and behavior. It creates no dirty state or save prompt and never enters annotation Undo/Redo.
+
+When committed image processing or external replacement changes an image's source pixels, the workspace master values remain active and are reapplied to the replacement pixels, while that image's override is cleared. Other images retain their overrides.
+
+Slider dragging coalesces rapid changes and renders a fast preview at the current Canvas display size. Releasing the slider schedules the latest full-resolution display result away from the GUI thread; stale work is discarded, and zoomed inspection uses the completed full-resolution result. Controls are disabled only while a Canvas pointer gesture is actively in progress and re-enable on release. Drawing and crop modes otherwise retain full access to display adjustment without changing or clearing their geometry state.
+
+The expanded current-image section explicitly reports either Following All or Individually Adjusted; Reset Current is enabled only in the latter state. A display-render failure falls back to the unadjusted source pixels for that image, reports a localized inline failure in the panel, and retains the stored values and every other image's state so the user can retry or reset. It never leaves an older successful rendering visible as though it represented the latest slider values.
+
+The modal Image → Adjust Image… workspace always decodes the unadjusted source image and starts from its own neutral defaults, regardless of active Canvas display values. Returning to the workbench reapplies the display adjustment to the Canvas. The View menu owns a checkable Display Adjustment entry for showing or hiding the left panel; no global keyboard shortcut is assigned.
+
+When a master-slider gesture clears one or more current-image overrides, one non-modal notice reports the number cleared and offers a one-shot Restore action. Restore returns both the prior master values and all overrides from immediately before that gesture without entering annotation Undo/Redo. Reset All uses the same recoverable notice when it clears overrides.
+
+The one-shot restore snapshot survives ordinary image navigation and expires on the next display-adjustment operation or when the annotation workspace closes. All rapid value changes belonging to one pointer or keyboard gesture retain the state from before that gesture rather than replacing the snapshot at every intermediate value.
+
+An override follows its image through an application-owned rename or move and is discarded when that image is deleted. The panel uses the bilingual labels Display Adjustment / 显示调节, All Images / 全部图像, Current Image / 当前图像, Following All / 跟随全部, Individually Adjusted / 单独调整, Reset All / 全部重置, and Reset Current / 重置当前. With no open image, the stable panel remains visible but disables every adjustment and reset control and reports No image open / 未打开图像; values cannot be staged for a future workspace.
+
+Hiding or collapsing the panel never changes its session values or Canvas result. Whenever any master value is non-neutral or any current-image override exists, the status bar displays an active Display Adjustment indicator that reopens the panel when activated. The indicator remains visible even while the panel is open so the active presentation cannot be mistaken for changed source pixels.
+
+Image navigation prepares a coalesced display-sized result for the destination image before replacing the current Canvas content. Until that result is ready, the prior image remains current under a visible loading state; an unadjusted destination image never flashes on screen. Rapid navigation discards stale work so only the latest requested destination can become current. Full-resolution display rendering continues in the background after the responsive Canvas transition.
 
 ## Image quality checking
 
-Image → Check Image Quality… explicitly offers the current image, selected images, or every image in the current annotation workspace; the workspace-wide scope is the default. Checking runs in the background, is cancellable, and reports findings by problem type and severity without changing images or annotations.
+Image → Check Image Quality… explicitly offers the current image, selected images, or All images in the current annotation workspace; the all-images scope is the default. Checking runs in the background, is cancellable, and reports findings by problem type and severity without changing images or annotations.
 
 Findings are cached under the application configuration directory and keyed by file path, content fingerprint, and the check policy that produced them. A changed file or changed check policy invalidates the affected cached result. The file list displays and filters those derived findings without conflating them with annotation review state, and no cache or sidecar is written into image or annotation directories.
 
@@ -160,8 +188,15 @@ budget; atomic commit still begins only after every output is ready.
 
 Failures identify the affected image and phase without exposing untranslated application text. Verbatim operating-system diagnostics remain unchanged inside a localized explanation, following the application-language contract.
 
+Every Image-menu command and every signal-driven preview callback is an
+exception boundary. Decode, codec, and allocation failures become localized
+failure states instead of escaping into Qt's event loop; a workspace whose
+preview failed disables Apply and leaves source files unchanged.
+
 ## Validation
 
 Automated validation covers red, yellow, mixed, no-frame, solid-color negative, per-candidate exclusion, grayscale normalization opt-in, alpha preservation, metadata retention, exact no-op bytes, format rejection, transient Undo/Redo, cancellable preparation, atomic commit rollback, selectable atomic recovery, external-change conflicts, bilingual UI, and preservation of Canvas annotation/view state. Crop coverage additionally includes route-independent cursor ownership, invariant Canvas geometry on entry and exit, draggable floating controls, live pre-region pointer coordinates, complete-edge hit testing at multiple zoom levels, integer region geometry, ratio locking, mouse and keyboard adjustment, focus-safe shortcuts, RGB/grayscale/RGBA output, resized metadata, annotation translation/clipping/removal, Pascal VOC/YOLO/CreateML projection, joint rollback and recovery, synchronous dimension projection into the Canvas, label list, active document, clean baseline, histories and caches, rejection of mixed-coordinate editable state, and post-crop viewport and selection state.
+
+Canvas display-adjustment coverage includes neutral defaults; workspace inheritance across filtered and newly visited images; absolute current-image overrides; override retention across navigation and application-owned rename; override clearing after master changes, source-pixel replacement, and deletion; one-shot restoration after a coalesced master gesture or Reset All; independent Reset Current behavior; session reset on workspace close; layout-only persistence; original-pixel input to permanent adjustment; unchanged annotations, overlays, save state, and histories; pointer-gesture gating; crop-mode coexistence; stale-render rejection during rapid navigation; no unadjusted destination flash; full-resolution completion after responsive preview; per-image render-failure fallback; hidden-panel active-state indication; bilingual copy; keyboard slider operation; and disabled controls without an open image.
 
 The three JPEG files under `C:\Users\GW-LIYU\Downloads\red_box` are the initial real-data acceptance set for red-frame detection and repair. Yellow, mixed-color, and negative-object evidence is synthetic until representative real files are supplied; validation reports must preserve that distinction.

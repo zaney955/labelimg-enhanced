@@ -3,6 +3,7 @@
 from labelimg.annotations.application.editing import SessionIdentityAllocator
 from labelimg.annotations.domain.history import AnnotationBoxState, AnnotationSnapshot
 from labelimg.annotations.infrastructure.storage import fingerprint_image
+from labelimg.annotations.ui.style import label_display_color
 
 class CanvasAnnotationScene:
     """Capture and project immutable snapshots at the real Canvas seam."""
@@ -13,11 +14,13 @@ class CanvasAnnotationScene:
         identity_allocator=None,
         on_project=None,
         default_paint_labels=False,
+        color_for_label=None,
     ):
         self.canvas = canvas
         self.identities = identity_allocator or SessionIdentityAllocator()
         self._on_project = on_project
         self._default_paint_labels = default_paint_labels
+        self._color_for_label = color_for_label or label_display_color
         self._last_snapshots = {}
 
     def capture(self, image_key):
@@ -86,6 +89,7 @@ class CanvasAnnotationScene:
                 state,
                 old_by_id.get(state.session_id),
                 self._default_paint_labels,
+                self._color_for_label,
             )
             for state in snapshot.boxes
         ]
@@ -153,17 +157,16 @@ def _box_state_from_shape(shape, session_id):
             (float(point.x()), float(point.y()))
             for point in shape.points
         ),
-        line_rgba=_rgba(getattr(shape, "line_color", None)),
-        fill_rgba=_rgba(getattr(shape, "fill_color", None)),
         difficult=bool(shape.difficult),
     )
 
 
-def _rgba(color):
-    return tuple(color.getRgb()) if color is not None else None
-
-
-def _shape_from_box_state(state, prior_shape, default_paint_labels):
+def _shape_from_box_state(
+    state,
+    prior_shape,
+    default_paint_labels,
+    color_for_label,
+):
     from PyQt5.QtCore import QPointF
     from PyQt5.QtGui import QColor
 
@@ -175,10 +178,7 @@ def _shape_from_box_state(state, prior_shape, default_paint_labels):
         shape.add_point(QPointF(x, y))
     shape.close()
     shape.difficult = bool(state.difficult)
-    if state.line_rgba is not None:
-        shape.line_color = QColor(*state.line_rgba)
-    if state.fill_rgba is not None:
-        shape.fill_color = QColor(*state.fill_rgba)
+    shape.line_color = QColor(color_for_label(state.label))
     if prior_shape is not None:
         shape.fill = prior_shape.fill
         shape.paint_label = prior_shape.paint_label

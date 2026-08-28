@@ -257,8 +257,6 @@ class ImageCropTest(unittest.TestCase):
             session_id=session_id,
             label="box-%d" % session_id,
             points=tuple(points),
-            line_rgba=(1, 2, 3, 255),
-            fill_rgba=(4, 5, 6, 80),
             difficult=bool(session_id % 2),
         )
 

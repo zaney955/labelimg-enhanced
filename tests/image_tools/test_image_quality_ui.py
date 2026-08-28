@@ -44,6 +44,10 @@ class ImageQualityUiTest(unittest.TestCase):
         self.widgets = (dialog,)
 
         self.assertEqual(dialog.scope_combo.currentData(), "workspace")
+        self.assertIn(
+            dialog.scope_combo.currentText(),
+            {"All images (2)", "全部图像（2 张）"},
+        )
         dialog.min_width.setValue(10)
         dialog.min_height.setValue(10)
         dialog.accept()

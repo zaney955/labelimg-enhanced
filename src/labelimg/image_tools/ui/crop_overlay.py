@@ -41,6 +41,7 @@ class CropOverlay(QWidget):
     regionChanged = pyqtSignal(object)
     pointerPositionChanged = pyqtSignal(object)
     historyChanged = pyqtSignal(bool, bool)
+    gestureActiveChanged = pyqtSignal(bool)
     applyRequested = pyqtSignal()
     cancelRequested = pyqtSignal()
 
@@ -133,6 +134,8 @@ class CropOverlay(QWidget):
         self.update()
 
     def finish(self):
+        if self._drag_mode is not None:
+            self.gestureActiveChanged.emit(False)
         self._drag_mode = None
         self._drag_anchor = None
         self._drag_region = None
@@ -251,6 +254,7 @@ class CropOverlay(QWidget):
         else:
             self._drag_mode = "create"
             self._assign_region(None)
+        self.gestureActiveChanged.emit(True)
         event.accept()
 
     def mouseMoveEvent(self, event):
@@ -293,6 +297,7 @@ class CropOverlay(QWidget):
             if self._region != self._gesture_before:
                 self._record_state(self._region)
             self._gesture_before = None
+            self.gestureActiveChanged.emit(False)
             event.accept()
             return
         super().mouseReleaseEvent(event)

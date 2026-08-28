@@ -10,6 +10,8 @@ __all__ = (
     "ImageProcessingSession",
     "ImageProcessingTransaction",
     "ImageRecoveryBlocked",
+    "CanvasDisplayAdjustmentSession",
+    "DisplayAdjustmentValues",
     "quality_finding_text",
 )
 
@@ -18,6 +20,8 @@ _EXPORT_MODULES = {
     "ImageProcessingSession": "labelimg.image_tools.application.session",
     "ImageProcessingTransaction": "labelimg.image_tools.application.transaction",
     "ImageRecoveryBlocked": "labelimg.image_tools.application.transaction",
+    "CanvasDisplayAdjustmentSession": "labelimg.image_tools.application.display_adjustment",
+    "DisplayAdjustmentValues": "labelimg.image_tools.application.display_adjustment",
     "quality_finding_text": "labelimg.image_tools.ui.quality_panel",
 }
 

@@ -79,7 +79,7 @@ class CommandSurfacesTest(unittest.TestCase):
             for action in menu.actions()
         ]
 
-    def test_left_rail_is_fixed_and_contains_only_canvas_tools(self):
+    def test_left_rail_is_fixed_and_contains_canvas_display_controls(self):
         rail = self.window.tools
 
         self.assertEqual(rail.width(), 52)
@@ -96,6 +96,7 @@ class CommandSurfacesTest(unittest.TestCase):
                 self.window.actions.create,
                 self.window.actions.panTool,
                 self.window.actions.cropImage,
+                self.window.actions.displayAdjustment,
             ],
         )
         self.assertTrue(self.window.actions.selectTool.isChecked())
@@ -118,6 +119,37 @@ class CommandSurfacesTest(unittest.TestCase):
         self.assertTrue(forbidden.isdisjoint(
             button.defaultAction() for button in rail.buttons.values()
         ))
+
+        display_button = rail.buttons["displayAdjustment"]
+        self.assertEqual(
+            display_button.objectName(),
+            "canvasTool_displayAdjustment",
+        )
+        self.assertNotIn(
+            self.window.actions.displayAdjustment,
+            rail.tool_group.actions(),
+        )
+
+    def test_left_rail_display_adjustment_button_toggles_panel(self):
+        action = self.window.actions.displayAdjustment
+        button = self.window.tools.buttons["displayAdjustment"]
+        self.window.show()
+        self.app.processEvents()
+        self.window.actions.panTool.setEnabled(True)
+        self.window.actions.panTool.trigger()
+
+        self.assertTrue(self.window.display_adjustment_dock.isVisible())
+        self.assertTrue(action.isChecked())
+        button.click()
+        self.assertFalse(self.window.display_adjustment_dock.isVisible())
+        self.assertFalse(action.isChecked())
+        self.assertTrue(self.window.actions.panTool.isChecked())
+        self.assertEqual(self.window.canvas.mode, Canvas.PAN)
+        button.click()
+        self.assertTrue(self.window.display_adjustment_dock.isVisible())
+        self.assertTrue(action.isChecked())
+        self.assertTrue(self.window.actions.panTool.isChecked())
+        self.assertEqual(self.window.canvas.mode, Canvas.PAN)
 
     def test_selection_and_pan_are_explicit_stable_modes(self):
         self.window.actions.panTool.setEnabled(True)
@@ -552,12 +584,28 @@ class CommandSurfacesTest(unittest.TestCase):
                 self.window.actions.copy,
                 self.window.actions.delete,
                 edit_actions[10],
-                self.window.actions.lineColor,
                 self.window.draw_squares_option,
             ],
         )
         self.assertTrue(edit_actions[3].isSeparator())
         self.assertTrue(edit_actions[10].isSeparator())
+
+    def test_annotation_header_exposes_session_label_color_palette(self):
+        self.assertEqual(
+            self.window.label_color_button.objectName(),
+            "labelColorPaletteButton",
+        )
+        self.assertEqual(
+            self.window.label_color_button.accessibleName(),
+            "Manage Label Colors",
+        )
+
+        self.window.change_language(SIMPLIFIED_CHINESE)
+
+        self.assertEqual(
+            self.window.label_color_button.accessibleName(),
+            "管理标签颜色",
+        )
 
     def test_file_menu_presents_annotation_format_as_a_selector(self):
         format_entry = self.window.menus.file.actions()[9]
@@ -589,21 +637,26 @@ class CommandSurfacesTest(unittest.TestCase):
             [
                 self.window.display_label_option,
                 self.window.actions.labels,
-                view_actions[2],
+                self.window.actions.displayAdjustment,
+                view_actions[3],
                 self.window.actions.hideAll,
                 self.window.actions.showAll,
-                view_actions[5],
+                view_actions[6],
                 self.window.actions.zoomIn,
                 self.window.actions.zoomOut,
                 self.window.actions.zoomOrg,
-                view_actions[9],
+                view_actions[10],
                 self.window.actions.fitWindow,
                 self.window.actions.fitWidth,
             ],
         )
-        for index in (2, 5, 9):
+        for index in (3, 6, 10):
             self.assertTrue(view_actions[index].isSeparator())
         self.assertEqual(self.window.actions.labels.text(), "Annotation Panel")
+        self.assertEqual(
+            self.window.actions.displayAdjustment.text(),
+            "Display Adjustment",
+        )
 
         help_actions = self.window.menus.help.actions()
         self.assertEqual(
