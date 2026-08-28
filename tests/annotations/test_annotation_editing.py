@@ -29,6 +29,7 @@ from labelimg.annotations.domain.model import (
 )
 from labelimg.annotations.infrastructure.document import AnnotationDocument
 from labelimg.canvas.widget import Canvas
+from labelimg.localization.runtime import tr
 from labelimg.workbench.bootstrap import WorkbenchLaunchOptions, create_workbench
 FORMAT_YOLO = AnnotationFormat.YOLO.display_name
 from labelimg.canvas.shape import Shape
@@ -543,8 +544,6 @@ class MainWindowHistoryIntegrationTest(unittest.TestCase):
             (
                 "cat",
                 ((10, 10), (30, 10), (30, 30), (10, 30)),
-                None,
-                None,
                 False,
             ),
         ]
@@ -563,20 +562,128 @@ class MainWindowHistoryIntegrationTest(unittest.TestCase):
             ["cat"],
         )
 
+    def test_session_palette_recolors_category_without_changing_history(self):
+        self.window.annotation_clipboard = [
+            (
+                "cat",
+                ((10, 10), (30, 10), (30, 30), (10, 30)),
+                False,
+            ),
+        ]
+        self.window.paste_copied_bounding_boxes()
+        before = self.window.annotation_editing.view.snapshot
+
+        self.window.label_color_palette.set_color(
+            "cat", QColor(12, 34, 56, 20)
+        )
+        self.window._refresh_label_color_projection("cat")
+
+        self.assertEqual(
+            self.window.canvas.shapes[0].line_color,
+            QColor(12, 34, 56, 255),
+        )
+        self.assertEqual(self.window.annotation_editing.view.snapshot, before)
+        self.assertTrue(self.window.restore_label_color("cat"))
+        self.assertNotEqual(
+            self.window.canvas.shapes[0].line_color,
+            QColor(12, 34, 56, 255),
+        )
+
+    def test_starting_another_workspace_session_clears_palette(self):
+        self.window.label_color_palette.set_color("cat", QColor("red"))
+
+        self.window._begin_workspace_editing_session()
+
+        self.assertIsNone(self.window.label_color_palette.override("cat"))
+
+    def test_switching_standalone_image_clears_palette(self):
+        second = os.path.join(self.temp_dir.name, "second.png")
+        image = QPixmap(20, 20)
+        self.assertTrue(image.save(second))
+        self.window.label_color_palette.set_color("cat", QColor("red"))
+
+        self.assertTrue(self.window.load_file(second))
+
+        self.assertIsNone(self.window.label_color_palette.override("cat"))
+
+    def test_opening_file_outside_directory_workspace_clears_palette(self):
+        current = self.window.file_path
+        self.window.dir_name = os.path.dirname(current)
+        self.window.m_img_list = [current]
+        second = os.path.join(self.temp_dir.name, "outside.png")
+        image = QPixmap(20, 20)
+        self.assertTrue(image.save(second))
+        self.window.label_color_palette.set_color("cat", QColor("red"))
+
+        self.assertTrue(self.window.load_file(second))
+
+        self.assertIsNone(self.window.label_color_palette.override("cat"))
+
+    def test_navigation_inside_directory_workspace_retains_palette(self):
+        current = self.window.file_path
+        second = os.path.join(self.temp_dir.name, "inside.png")
+        image = QPixmap(20, 20)
+        self.assertTrue(image.save(second))
+        self.window.dir_name = self.temp_dir.name
+        self.window.m_img_list = [current, second]
+        self.window.label_color_palette.set_color("cat", QColor("red"))
+
+        self.assertTrue(self.window.load_file(second))
+
+        self.assertEqual(
+            self.window.label_color_palette.override("cat"),
+            QColor("red"),
+        )
+
+    def test_closing_standalone_image_clears_palette(self):
+        self.window.label_color_palette.set_color("cat", QColor("red"))
+
+        self.window.close_file()
+
+        self.assertIsNone(self.window.label_color_palette.override("cat"))
+
+    def test_label_group_menu_exposes_category_color_commands(self):
+        self.window.annotation_clipboard = [
+            (
+                "cat",
+                ((10, 10), (30, 10), (30, 30), (10, 30)),
+                False,
+            ),
+        ]
+        self.window.paste_copied_bounding_boxes()
+
+        menus = []
+        with mock.patch(
+            "labelimg.annotations.ui.workbench_controller.QMenu.exec_",
+            new=lambda menu, _position: menus.append(menu),
+        ):
+            self.window.pop_label_group_menu(("group", "cat"), QPoint())
+        menu = menus[-1]
+        self.assertIn(tr("labelColor.set"), [
+            action.text() for action in menu.actions()
+        ])
+
+        self.window.label_color_palette.set_color("cat", QColor("red"))
+        with mock.patch(
+            "labelimg.annotations.ui.workbench_controller.QMenu.exec_",
+            new=lambda menu, _position: menus.append(menu),
+        ):
+            self.window.pop_label_group_menu(("group", "cat"), QPoint())
+        menu = menus[-1]
+        self.assertIn(tr("labelColor.restore"), [
+            action.text() for action in menu.actions()
+        ])
+
     def test_canvas_double_click_edits_one_box_with_pending_guard(self):
         self.window.annotation_clipboard = [
             (
                 "cat",
                 ((20, 40), (60, 40), (60, 80), (20, 80)),
-                None,
-                None,
                 False,
             ),
             (
                 "cat",
                 ((80, 40), (120, 40), (120, 80), (80, 80)),
-                None,
-                None,
                 False,
             ),
         ]
@@ -662,8 +769,6 @@ class MainWindowHistoryIntegrationTest(unittest.TestCase):
             (
                 "cat",
                 ((20, 20), (60, 20), (60, 60), (20, 60)),
-                None,
-                None,
                 False,
             ),
         ]
@@ -711,8 +816,6 @@ class MainWindowHistoryIntegrationTest(unittest.TestCase):
             (
                 "cat",
                 ((10, 10), (30, 10), (30, 30), (10, 30)),
-                None,
-                None,
                 False,
             ),
         ]
@@ -807,8 +910,6 @@ class MainWindowHistoryIntegrationTest(unittest.TestCase):
             (
                 "cat",
                 ((10, 10), (30, 10), (30, 30), (10, 30)),
-                None,
-                None,
                 False,
             ),
         ]
@@ -907,8 +1008,6 @@ class MainWindowHistoryIntegrationTest(unittest.TestCase):
             (
                 "cat",
                 ((10, 10), (30, 10), (30, 30), (10, 30)),
-                None,
-                None,
                 False,
             ),
         ]

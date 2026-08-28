@@ -49,6 +49,7 @@ class GeometryTransformDialog(QDialog):
         current_path,
         selected_paths=(),
         *,
+        workspace_paths=(),
         preselected=GeometryOperation.ROTATE_CLOCKWISE,
         parent=None,
     ):
@@ -58,6 +59,10 @@ class GeometryTransformDialog(QDialog):
             os.path.abspath(os.fspath(path)) for path in selected_paths
         )
         self.selected_paths = tuple(dict.fromkeys(selected))
+        workspace = tuple(
+            os.path.abspath(os.fspath(path)) for path in workspace_paths
+        )
+        self.workspace_paths = tuple(dict.fromkeys(workspace))
         self.request = None
         self._codec = ImageFileCodec()
         self._preview = self._codec.load_preview(
@@ -66,6 +71,7 @@ class GeometryTransformDialog(QDialog):
         )
         self._source_size = self._preview.size
         self._updating_size = False
+        self._preview_failed = False
         self.setWindowTitle(tr("geometry.workspace.title"))
         self.resize(900, 620)
 
@@ -77,6 +83,11 @@ class GeometryTransformDialog(QDialog):
             self.scope_combo.addItem(
                 tr("imageTools.scope.selected", count=len(self.selected_paths)),
                 "selected",
+            )
+        if len(self.workspace_paths) > 1:
+            self.scope_combo.addItem(
+                tr("imageTools.scope.workspace", count=len(self.workspace_paths)),
+                "workspace",
             )
         controls.addRow(tr("geometry.workspace.scope"), self.scope_combo)
 
@@ -154,17 +165,21 @@ class GeometryTransformDialog(QDialog):
         self._scope_changed()
 
     def _paths(self):
-        return (
-            self.selected_paths
-            if self.scope_combo.currentData() == "selected"
-            else (self.current_path,)
-        )
+        scope = self.scope_combo.currentData()
+        if scope == "selected":
+            return self.selected_paths
+        if scope == "workspace":
+            return self.workspace_paths or (self.current_path,)
+        return (self.current_path,)
 
     def _scope_changed(self):
+        paths = self._paths()
         self.target_list.clear()
         self.target_list.addItems(
-            os.path.basename(path) for path in self._paths()
+            os.path.basename(path) for path in paths
         )
+        for index, path in enumerate(paths):
+            self.target_list.item(index).setToolTip(path)
         current_only = self.scope_combo.currentData() == "current"
         self.width_spin.setEnabled(current_only)
         self.height_spin.setEnabled(current_only)
@@ -212,32 +227,49 @@ class GeometryTransformDialog(QDialog):
         resize = operation is GeometryOperation.RESIZE
         self.resize_panel.setVisible(resize)
         output_size = self._output_size() if resize else None
-        if resize:
-            pixels = self._preview.pixels
-            size = output_size
-        else:
-            pixels, _preview_size = transform_pixels(
-                self._preview.pixels,
-                operation,
-            )
-            width, height = self._source_size
-            size = (
-                (height, width)
-                if operation in (
-                    GeometryOperation.ROTATE_CLOCKWISE,
-                    GeometryOperation.ROTATE_COUNTERCLOCKWISE,
+        try:
+            if resize:
+                pixels = self._preview.pixels
+                size = output_size
+            else:
+                pixels, _preview_size = transform_pixels(
+                    self._preview.pixels,
+                    operation,
                 )
-                else (width, height)
+                width, height = self._source_size
+                size = (
+                    (height, width)
+                    if operation in (
+                        GeometryOperation.ROTATE_CLOCKWISE,
+                        GeometryOperation.ROTATE_COUNTERCLOCKWISE,
+                    )
+                    else (width, height)
+                )
+            pixmap = _array_pixmap(pixels)
+            self.preview_label.setPixmap(pixmap.scaled(
+                self.preview_label.size(),
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation,
+            ))
+            self.preview_size_label.setText("%d × %d" % size)
+        except Exception as error:
+            self._preview_failed = True
+            self.preview_label.setText(
+                tr(
+                    "imageTools.preview.failed",
+                    path=os.path.basename(self.current_path),
+                    error=error,
+                )
             )
-        pixmap = _array_pixmap(pixels)
-        self.preview_label.setPixmap(pixmap.scaled(
-            self.preview_label.size(),
-            Qt.KeepAspectRatio,
-            Qt.SmoothTransformation,
-        ))
-        self.preview_size_label.setText("%d × %d" % size)
+            self.preview_size_label.clear()
+            self.apply_button.setEnabled(False)
+            return
+        self._preview_failed = False
+        self.apply_button.setEnabled(True)
 
     def _accept_request(self):
+        if self._preview_failed:
+            return
         self.request = GeometryTransformRequest(
             paths=tuple(self._paths()),
             operation=self.operation_combo.currentData(),

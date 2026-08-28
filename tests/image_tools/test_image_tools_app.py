@@ -172,6 +172,10 @@ class ImageToolsAppTest(unittest.TestCase):
         args, kwargs = dialog_type.call_args
         self.assertEqual(args[0], self.image_path)
         self.assertEqual(args[1], selected)
+        self.assertEqual(
+            kwargs["workspace_paths"],
+            tuple(self.window.m_img_list),
+        )
         plan = object()
         outcome = object()
         replacement = object()
@@ -194,6 +198,48 @@ class ImageToolsAppTest(unittest.TestCase):
         self.assertEqual(change.target_count, 1)
         commit.assert_called_once_with(plan)
         self.assertIs(kwargs["parent"], self.window)
+
+    def test_batch_dialogs_receive_every_workspace_image(self):
+        second = os.path.join(self.temporary.name, "workspace-second.png")
+        image = QImage(40, 40, QImage.Format_RGB32)
+        image.fill(QColor("white"))
+        self.assertTrue(image.save(second))
+        self.window.m_img_list = [self.image_path, second]
+        expected = (self.image_path, second)
+        fake_dialog = SimpleNamespace(
+            exec_=lambda: QDialog.Rejected,
+            request=None,
+            outcome=None,
+        )
+        cases = (
+            (
+                "labelimg.image_tools.ui.geometry_dialog."
+                "GeometryTransformDialog",
+                self.window.open_transform_image,
+            ),
+            (
+                "labelimg.image_tools.ui.adjustment_dialog."
+                "ImageAdjustmentDialog",
+                self.window.open_adjust_image,
+            ),
+            (
+                "labelimg.image_tools.ui.colored_frame_dialog."
+                "ImageToolsDialog",
+                self.window.open_remove_colored_frames,
+            ),
+        )
+
+        for dialog_path, command in cases:
+            with self.subTest(command=command.__name__), patch(
+                dialog_path,
+                return_value=fake_dialog,
+            ) as dialog_type:
+                command()
+
+                self.assertEqual(
+                    dialog_type.call_args.kwargs["workspace_paths"],
+                    expected,
+                )
 
     def test_pending_annotation_gesture_blocks_workspace_entry(self):
         self.window.annotation_editing.set_pending("drag", lambda: None)
@@ -556,6 +602,65 @@ class ImageToolsAppTest(unittest.TestCase):
             {self.image_path, second},
         )
 
+    def test_image_menu_workspace_failures_are_contained_at_the_ui_boundary(self):
+        cases = (
+            (
+                "labelimg.image_tools.ui.geometry_dialog."
+                "GeometryTransformDialog",
+                self.window.open_transform_image,
+            ),
+            (
+                "labelimg.image_tools.ui.adjustment_dialog."
+                "ImageAdjustmentDialog",
+                self.window.open_adjust_image,
+            ),
+            (
+                "labelimg.image_tools.ui.quality_panel.ImageQualityDialog",
+                self.window.open_image_quality_check,
+            ),
+            (
+                "labelimg.image_tools.ui.colored_frame_dialog."
+                "ImageToolsDialog",
+                self.window.open_remove_colored_frames,
+            ),
+        )
+
+        for dialog_path, command in cases:
+            with self.subTest(command=command.__name__):
+                with patch(
+                    dialog_path,
+                    side_effect=MemoryError("large-image allocation failed"),
+                ), patch(
+                    "labelimg.image_tools.ui.controller.localized_warning"
+                ) as warning:
+                    try:
+                        outcome = command()
+                    except MemoryError as error:
+                        self.fail("image-menu exception escaped: %s" % error)
+
+                    self.assertFalse(outcome)
+                    warning.assert_called_once()
+
+    def test_every_image_menu_processing_command_has_an_exception_boundary(self):
+        commands = (
+            self.window.enter_crop_mode,
+            self.window.apply_crop,
+            self.window.quick_transform_current_image,
+            self.window.open_transform_image,
+            self.window.open_adjust_image,
+            self.window.open_image_quality_check,
+            self.window._run_image_quality_request,
+            self.window._complete_image_quality_scan,
+            self.window.open_remove_colored_frames,
+            self.window.undo_last_image_processing,
+        )
+
+        for command in commands:
+            with self.subTest(command=command.__name__):
+                self.assertTrue(
+                    getattr(command, "_image_menu_guarded", False)
+                )
+
     def test_grayscale_jpeg_transform_adjust_and_crop_menu_commands(self):
         path = os.path.join(self.temporary.name, "gray-menu-workflow.jpg")
         Image.new("L", (12, 8), 100).save(path)
@@ -860,8 +965,6 @@ class ImageToolsAppTest(unittest.TestCase):
         self.window.annotation_clipboard = [(
             "cat",
             ((1, 1), (5, 1), (5, 5), (1, 5)),
-            None,
-            None,
             False,
         )]
         self.window.paste_copied_bounding_boxes()

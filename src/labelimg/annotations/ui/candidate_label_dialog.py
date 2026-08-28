@@ -230,8 +230,15 @@ class CandidateLabelDialog(QDialog):
     maximum_screen_width_ratio = 0.8
     maximum_screen_height_ratio = 0.9
 
-    def __init__(self, text="Enter object label", parent=None, list_item=None):
+    def __init__(
+        self,
+        text="Enter object label",
+        parent=None,
+        list_item=None,
+        color_for_label=None,
+    ):
         super(CandidateLabelDialog, self).__init__(parent)
+        self._color_for_label = color_for_label or label_display_color
 
         self.edit = QLineEdit()
         self.edit.setText(text)
@@ -275,7 +282,8 @@ class CandidateLabelDialog(QDialog):
         base_color = self.list_widget.palette().base().color()
         for label in labels:
             item = QListWidgetItem(label)
-            background = label_display_color(label)
+            background = QColor(self._color_for_label(label))
+            background.setAlpha(255)
             item.setData(Qt.BackgroundRole, background)
             item.setData(
                 Qt.ForegroundRole,
@@ -285,6 +293,11 @@ class CandidateLabelDialog(QDialog):
             self.list_widget.addItem(item)
         self.list_widget.setVisible(bool(labels))
         self.update_candidate_geometry()
+
+    def refresh_colors(self):
+        self.set_candidate_labels(
+            self._completion_model.stringList()
+        )
 
     def available_screen_geometry(self):
         screen = None

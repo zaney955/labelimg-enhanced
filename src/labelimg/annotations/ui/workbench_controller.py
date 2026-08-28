@@ -6,12 +6,11 @@ import os.path
 
 
 from PyQt5.QtCore import QFileSystemWatcher, QPointF, QSignalBlocker, QTimer, Qt
-from PyQt5.QtGui import QColor, QCursor
+from PyQt5.QtGui import QCursor
 from PyQt5.QtWidgets import QApplication, QMenu, QMessageBox
 
 import labelimg.ui.generated_resources  # noqa: F401 - registers Qt resources
 from labelimg.ui.actions import set_action_copy
-from labelimg.annotations.ui.style import generate_color_by_text
 from labelimg.canvas import Shape
 from labelimg.localization.runtime import localize_message_box_buttons, question as localized_question, tr, translate_history_description
 from labelimg.annotations.domain.model import (
@@ -22,6 +21,9 @@ from labelimg.annotations.domain.model import (
 from labelimg.annotations.ui.canvas_adapter import (
     document_from_shapes,
     shapes_from_document,
+)
+from labelimg.annotations.ui.label_color_palette_dialog import (
+    LabelColorPaletteDialog,
 )
 from labelimg.annotations.application.workspace import annotation_resources
 from labelimg.annotations.application.editing import ProjectionFailed
@@ -101,8 +103,6 @@ class AnnotationActionsMixin:
                 (
                     box.label,
                     box.points,
-                    box.line_rgba,
-                    box.fill_rgba,
                     box.difficult,
                 )
                 for box in snapshot.boxes
@@ -113,20 +113,11 @@ class AnnotationActionsMixin:
 
     @staticmethod
     def _annotation_document_content_signature(document):
-        def color(value, label):
-            return (
-                tuple(value)
-                if value is not None
-                else generate_color_by_text(label).getRgb()
-            )
-
         return (
             tuple(
                 (
                     box.label,
                     tuple(tuple(point) for point in box.points),
-                    color(box.line_color, box.label),
-                    color(box.fill_color, box.label),
                     box.difficult,
                 )
                 for box in document.boxes
@@ -897,6 +888,15 @@ class AnnotationActionsMixin:
                 tr('labelMenu.renameGroup'),
                 lambda: self.edit_label_group(label),
             )
+            menu.addAction(
+                tr('labelColor.set'),
+                lambda: self.choose_label_color(label),
+            )
+            if self.label_color_palette.override(label) is not None:
+                menu.addAction(
+                    tr('labelColor.restore'),
+                    lambda: self.restore_label_color(label),
+                )
             all_visible = all(self.canvas.isVisible(shape) for shape in shapes)
             menu.addAction(
                 tr('labelMenu.hideGroup') if all_visible else tr('labelMenu.showGroup'),
@@ -919,6 +919,63 @@ class AnnotationActionsMixin:
                 ),
             )
         menu.exec_(global_pos)
+
+
+    def choose_label_color(self, label):
+        automatic = self.label_color_palette.automatic_color(label)
+        current = self.label_color_palette.color(label)
+        color = self.color_dialog.getColor(
+            current,
+            tr('labelColor.chooseTitle', label=label),
+            default=automatic,
+        )
+        if color is None:
+            return False
+        if color == automatic:
+            changed = self.label_color_palette.restore(label)
+        else:
+            changed = self.label_color_palette.set_color(label, color)
+        if changed:
+            self._refresh_label_color_projection(label)
+        return changed
+
+
+    def restore_label_color(self, label):
+        if not self.label_color_palette.restore(label):
+            return False
+        self._refresh_label_color_projection(label)
+        return True
+
+
+    def manage_label_colors(self):
+        labels = set(self.candidate_labels)
+        labels.update(self.label_color_palette.labels)
+        labels.update(
+            str(shape.label)
+            for shape in self.canvas.shapes
+            if str(shape.label)
+        )
+        dialog = LabelColorPaletteDialog(
+            labels,
+            self.label_color_palette,
+            self.color_dialog,
+            self,
+        )
+        if dialog.exec_() != dialog.Accepted:
+            return False
+        if not self.label_color_palette.replace(dialog.overrides):
+            return False
+        self._refresh_label_color_projection()
+        return True
+
+
+    def _refresh_label_color_projection(self, label=None):
+        for shape in self.canvas.shapes:
+            if label is None or shape.label == label:
+                shape.line_color = self.label_color_palette.color(shape.label)
+        self.candidate_label_dialog.refresh_colors()
+        self.label_list.viewport().update()
+        self.canvas.update()
 
 
     def pop_label_list_menu(self, point):
@@ -1158,7 +1215,7 @@ class AnnotationActionsMixin:
 
             def apply_label():
                 shape.label = label
-                shape.line_color = generate_color_by_text(label)
+                shape.line_color = self.label_color_palette.color(label)
 
             self._perform_annotation_edit(
                 'Change label: %s \u2192 %s' % (old_label, label),
@@ -1192,10 +1249,9 @@ class AnnotationActionsMixin:
                 return
 
             def apply_label():
-                color = generate_color_by_text(label)
                 for shape in shapes:
                     shape.label = label
-                    shape.line_color = QColor(color)
+                    shape.line_color = self.label_color_palette.color(label)
 
             self._perform_annotation_edit(
                 'Rename label group: %s \u2192 %s' % (old_label, label),
@@ -1546,12 +1602,6 @@ class AnnotationActionsMixin:
         self.actions.copy.setEnabled(capabilities.can_bulk)
         self.actions.copyAnnotations.setEnabled(capabilities.can_bulk)
         self.actions.edit.setEnabled(capabilities.can_edit_single)
-        self.actions.shapeLineColor.setEnabled(
-            capabilities.can_edit_single
-        )
-        self.actions.shapeFillColor.setEnabled(
-            capabilities.can_edit_single
-        )
         self.diffc_button.setEnabled(capabilities.can_edit_single)
 
         blocker = QSignalBlocker(self.diffc_button)
@@ -1581,7 +1631,7 @@ class AnnotationActionsMixin:
 
 
     def shape_from_annotation(self, annotation_shape):
-        label, points, line_color, fill_color, difficult = annotation_shape
+        label, points, difficult = annotation_shape
         shape = Shape(label=label)
         for x, y in points:
             # Ensure the labels are within the bounds of the image. If not, fix them.
@@ -1590,15 +1640,7 @@ class AnnotationActionsMixin:
         shape.difficult = difficult
         shape.close()
 
-        if line_color:
-            shape.line_color = QColor(*line_color)
-        else:
-            shape.line_color = generate_color_by_text(label)
-
-        if fill_color:
-            shape.fill_color = QColor(*fill_color)
-        else:
-            shape.fill_color = generate_color_by_text(label)
+        shape.line_color = self.label_color_palette.color(label)
         return shape
 
 
@@ -1617,7 +1659,7 @@ class AnnotationActionsMixin:
         shapes, snapped = shapes_from_document(
             document,
             self.canvas.snap_point_to_canvas,
-            generate_color_by_text,
+            self.label_color_palette.color,
         )
         for shape in shapes:
             self.add_label(shape)
@@ -1769,8 +1811,8 @@ class AnnotationActionsMixin:
         self.diffc_button.setChecked(False)
         if text is not None:
             self.prev_label_text = text
-            generate_color = generate_color_by_text(text)
-            shape = self.canvas.set_last_label(text, generate_color, generate_color)
+            color = self.label_color_palette.color(text)
+            shape = self.canvas.set_last_label(text, color)
             self.add_label(shape)
             self.annotation_editing.clear_pending()
             self.annotation_scene.identities.assign(shape)
@@ -1958,9 +2000,7 @@ class AnnotationActionsMixin:
 
     def format_shape_for_clipboard(self, shape):
         points = [(p.x(), p.y()) for p in shape.points]
-        line_color = shape.line_color.getRgb() if shape.line_color else None
-        fill_color = shape.fill_color.getRgb() if shape.fill_color else None
-        return shape.label, points, line_color, fill_color, shape.difficult
+        return shape.label, points, shape.difficult
 
 
     def clear_current_labels(self):
@@ -2031,20 +2071,13 @@ class AnnotationActionsMixin:
             )
             source_boxes = ()
             if loaded is not None:
-                source_shapes, _snapped = shapes_from_document(
-                    loaded.document,
-                    self.canvas.snap_point_to_canvas,
-                    generate_color_by_text,
-                )
                 source_boxes = tuple(
                     (
-                        shape.label,
-                        tuple((p.x(), p.y()) for p in shape.points),
-                        shape.line_color.getRgb(),
-                        shape.fill_color.getRgb(),
-                        shape.difficult,
+                        box.label,
+                        box.points,
+                        box.difficult,
                     )
-                    for shape in source_shapes
+                    for box in loaded.document.boxes
                 )
 
         old_shapes = tuple(self.canvas.shapes)
@@ -2055,8 +2088,6 @@ class AnnotationActionsMixin:
                     annotation_shape = (
                         box.label,
                         box.points,
-                        box.line_rgba,
-                        box.fill_rgba,
                         box.difficult,
                     )
                 else:

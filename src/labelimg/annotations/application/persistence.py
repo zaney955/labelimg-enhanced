@@ -508,8 +508,6 @@ class AnnotationSaveCoordinator:
                 AnnotationBox(
                     label=box.label,
                     points=box.points,
-                    line_color=box.line_rgba,
-                    fill_color=box.fill_rgba,
                     difficult=box.difficult,
                 )
                 for box in snapshot.boxes

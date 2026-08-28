@@ -67,7 +67,6 @@ _ACTION_SECTIONS = (
             "edit",
             "copy",
             "delete",
-            "lineColor",
             "drawSquares",
         ),
     ),

@@ -200,8 +200,6 @@ _HISTORY_MESSAGE_IDS = {
     "Duplicate boxes": "history.duplicate",
     "Toggle verified": "history.verified",
     "Toggle questioned": "history.questioned",
-    "Change box line color": "history.lineColor",
-    "Change box fill color": "history.fillColor",
     "Copy box": "history.copy",
     "Paste boxes": "history.paste",
     "Copy previous boxes": "history.copyPrevious",

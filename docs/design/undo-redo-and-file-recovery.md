@@ -23,7 +23,7 @@ Annotation history includes:
 - paste boxes;
 - copy the previous image's boxes;
 - move, resize, edge drag, vertex drag, and arrow-key nudge;
-- edit a box label, difficult flag, line color, or fill color;
+- edit a box label or difficult flag;
 - change the current image review state.
 
 Annotation history excludes:
@@ -31,7 +31,7 @@ Annotation history excludes:
 - Canvas and label-list selection;
 - box visibility;
 - zoom, pan, filters, hover, and editing mode;
-- default drawing colors and other preferences;
+- the session label color palette and other view preferences;
 - copying without pasting;
 - image navigation and file-list selection;
 - output format and destination path;
@@ -164,8 +164,6 @@ class AnnotationBoxState:
     session_id: int
     label: str
     points: tuple[tuple[float, float], ...]
-    line_rgba: tuple[int, int, int, int] | None
-    fill_rgba: tuple[int, int, int, int] | None
     difficult: bool
 
 
@@ -279,15 +277,13 @@ All current mutation entry points in `MainWindow` delegate to the controller:
 - `label_item_changed` when text changes;
 - `copy_selected_shape`;
 - `delete_selected_shape`;
-- `choose_shape_line_color`;
-- `choose_shape_fill_color`;
 - `copy_shape`;
 - `move_shape`;
 - `paste_copied_bounding_boxes`;
 - `copy_previous_bounding_boxes`;
 - `verify_image` and `question_image`.
 
-Visibility changes, `choose_color1`, display-label options, selection, and view controls bypass the edit controller and do not dirty the document.
+Visibility changes, session label-palette changes, display-label options, selection, and view controls bypass the edit controller and do not dirty the document.
 
 ### Existing dirty-call migration inventory
 
@@ -302,9 +298,8 @@ Visibility changes, `choose_color1`, display-label options, selection, and view 
 | `label_item_changed` text branch | label transaction |
 | `label_item_changed` check-state branch | visibility view state |
 | `new_shape` | committed creation transaction |
-| `choose_color1` | default drawing preference; no dirty state |
 | `delete_selected_shape` | bulk delete transaction |
-| `choose_shape_line_color` / `choose_shape_fill_color` | property transaction |
+| label color palette set / restore | session view state; no dirty state |
 | `paste_copied_bounding_boxes` | paste transaction |
 | `toggle_image_status` | review-state transaction plus immediate revision-bound save |
 

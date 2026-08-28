@@ -23,13 +23,11 @@ from labelimg.platform.settings_keys import (
     SETTING_AUTO_SAVE,
     SETTING_DRAW_SQUARE,
     SETTING_FILENAME,
-    SETTING_FILL_COLOR,
     SETTING_FILE_LIST_SORT_DESCENDING,
     SETTING_FILE_LIST_SORT_KEY,
     SETTING_LABEL_FILE_FORMAT,
     SETTING_LANGUAGE,
     SETTING_LAST_OPEN_DIR,
-    SETTING_LINE_COLOR,
     SETTING_PAINT_LABEL,
     SETTING_RECENT_FILES,
     SETTING_SAVE_DIR,
@@ -45,9 +43,7 @@ from labelimg.ui.actions import (
     new_icon,
     set_action_copy,
 )
-from labelimg.annotations.ui.style import generate_color_by_text
 from labelimg.platform.settings import Settings
-from labelimg.canvas.shape import Shape, DEFAULT_LINE_COLOR, DEFAULT_FILL_COLOR
 from labelimg.localization.runtime import (
     ENGLISH,
     LANGUAGE_NAMES,
@@ -146,6 +142,7 @@ from labelimg.canvas.workbench_controller import CanvasActionsMixin
 from labelimg.files.ui.controller import FileActionsMixin
 from labelimg.files.ui.loading import DirectoryLoadingMixin
 from labelimg.image_tools.ui.controller import ImageToolsActionsMixin
+from labelimg.image_tools.ui.display_adjustment import source_token
 from labelimg.workbench.recovery_ui import RecoveryActionsMixin
 
 __appname__ = APP_NAME
@@ -237,11 +234,36 @@ class MainWindow(
         self.near_duplicate_more_button.setAccessibleName(
             tr('nearDuplicate.moreActions')
         )
+        self.label_color_button.setToolTip(tr('labelColor.manage'))
+        self.label_color_button.setAccessibleName(tr('labelColor.manage'))
+        self.label_color_button.setAccessibleDescription(
+            tr('labelColor.manageDetail')
+        )
         self.file_list_empty_label.setText(tr('files.noMatch'))
         self.file_list_clear_filter_button.setText(tr('files.clearFilter'))
         self.dock.setWindowTitle(tr('boxLabelText'))
         self.file_dock.setWindowTitle(tr('fileList'))
         self.image_quality_dock.setWindowTitle(tr('quality.panelTitle'))
+        self.display_adjustment_dock.setWindowTitle(
+            tr('displayAdjustment.title')
+        )
+        set_action_copy(
+            self.display_adjustment_action,
+            tr('displayAdjustment.title'),
+            tr('displayAdjustment.activeTip'),
+        )
+        self.display_adjustment_status.setText(
+            tr('displayAdjustment.active')
+        )
+        self.display_adjustment_status.setToolTip(
+            tr('displayAdjustment.activeTip')
+        )
+        self.display_adjustment_status.setAccessibleName(
+            tr('displayAdjustment.active')
+        )
+        self.display_adjustment_status.setAccessibleDescription(
+            tr('displayAdjustment.activeTip')
+        )
         set_action_copy(self.actions.labels, tr('showHide'))
         self.menus.file.setTitle(tr('menu_file'))
         self.menus.edit.setTitle(tr('menu_edit'))
@@ -385,6 +407,10 @@ class MainWindow(
         self.image = QImage()
         self.annotation_document = None
         self.canvas.reset_state()
+        if hasattr(self, 'display_adjustment_controller'):
+            self.display_adjustment_controller.deactivate_image()
+            if not preserve_session:
+                self.display_adjustment_controller.replace_workspace(None)
         self.label_coordinates.clear()
         if hasattr(self, 'file_list_widget'):
             self.update_current_file_marker()
@@ -392,6 +418,55 @@ class MainWindow(
     def _begin_workspace_editing_session(self):
         """Apply preferences that intentionally reset for each workspace."""
         self.auto_saving.setChecked(True)
+        self.label_color_palette.clear()
+
+    def _is_image_directory_workspace_member(self, image_path):
+        if not self.dir_name or not image_path:
+            return False
+        target = os.path.normcase(os.path.abspath(os.fspath(image_path)))
+        return any(
+            os.path.normcase(os.path.abspath(os.fspath(candidate))) == target
+            for candidate in self.m_img_list
+        )
+
+    def _display_adjustment_workspace_key(self, image_path):
+        image_path = os.path.abspath(os.fspath(image_path))
+        if (
+            self.dir_name
+            and image_path in self.m_img_list
+        ):
+            return 'directory:' + os.path.normcase(
+                os.path.abspath(self.dir_name)
+            )
+        return 'image:' + os.path.normcase(image_path)
+
+    def _project_display_adjustment_pixmap(self, pixmap):
+        controller = getattr(
+            self, 'display_adjustment_controller', None
+        )
+        if (
+            controller is None
+            or not self.file_path
+            or controller.current_path != os.path.abspath(self.file_path)
+        ):
+            return
+        self.canvas.replace_pixmap(pixmap)
+        self.paint_canvas()
+
+    def _display_adjustment_active_changed(self, active):
+        self.display_adjustment_status.setVisible(bool(active))
+
+    def _show_display_adjustment_panel(self):
+        self.display_adjustment_dock.show()
+        self.display_adjustment_dock.raise_()
+
+    def _activate_display_adjustment_source(self, image, image_path):
+        return self.display_adjustment_controller.activate_source(
+            image,
+            image_path,
+            self._display_adjustment_workspace_key(image_path),
+            source_token(image_path),
+        )
 
     def _load_indexed_image(self, filename):
         """Keep the file counter aligned and roll it back after load failure."""
@@ -573,6 +648,7 @@ class MainWindow(
         prepared_image_data=_UNPREPARED_IMAGE_DATA,
     ):
         """Load the specified file, or the last opened file if None."""
+        previous_file_path = self.file_path
         if prepared_image_data is _UNPREPARED_IMAGE_DATA:
             self.cancel_deferred_image_load()
         if file_path is None:
@@ -686,6 +762,15 @@ class MainWindow(
         transition_ticket = getattr(
             self, '_workbench_transition_ticket', None
         )
+        if (
+            previous_file_path
+            and os.path.normcase(os.path.abspath(previous_file_path))
+            != os.path.normcase(os.path.abspath(unicode_file_path))
+            and not self._is_image_directory_workspace_member(
+                unicode_file_path
+            )
+        ):
+            self._begin_workspace_editing_session()
 
         self.reset_state(preserve_session=True)
         self.canvas.setEnabled(False)
@@ -718,7 +803,11 @@ class MainWindow(
                 self.workbench_session.activate(unicode_file_path)
             self._workbench_transition_ticket = None
             self.update_current_file_marker()
-            self.canvas.load_pixmap(QPixmap.fromImage(image))
+            self.canvas.load_pixmap(
+                self._activate_display_adjustment_source(
+                    image, unicode_file_path
+                )
+            )
             if prepared_annotation is not None:
                 self.set_format(document_format_name(
                     prepared_annotation.annotation_format
@@ -844,6 +933,7 @@ class MainWindow(
                 event.ignore()
                 self.status(tr('quality.busy'))
                 return
+        self.display_adjustment_controller.shutdown()
         settings = self.settings
         # If it loads images from dir, don't load it at the beginning
         if self.dir_name is None:
@@ -854,8 +944,6 @@ class MainWindow(
         settings[SETTING_WIN_SIZE] = self.size()
         settings[SETTING_WIN_POSE] = self.pos()
         settings[SETTING_WIN_STATE] = self.saveState()
-        settings[SETTING_LINE_COLOR] = self.line_color
-        settings[SETTING_FILL_COLOR] = self.fill_color
         settings[SETTING_RECENT_FILES] = self.recent_files
         if self.default_save_dir and os.path.exists(self.default_save_dir):
             settings[SETTING_SAVE_DIR] = ustr(self.default_save_dir)
@@ -1439,6 +1527,9 @@ class MainWindow(
             != os.path.abspath(dir_path)
         )
         if changing_workspace:
+            self.display_adjustment_controller.replace_workspace(
+                'directory:' + os.path.normcase(os.path.abspath(dir_path))
+            )
             self.annotation_persistence.clear_conflicts(
                 tuple(self.annotation_persistence.conflicts)
             )
@@ -1490,6 +1581,9 @@ class MainWindow(
             or os.path.abspath(self.dir_name) != os.path.abspath(dir_path)
         )
         if changing_workspace:
+            self.display_adjustment_controller.replace_workspace(
+                'directory:' + os.path.normcase(os.path.abspath(dir_path))
+            )
             self.annotation_persistence.clear_conflicts(
                 tuple(self.annotation_persistence.conflicts)
             )
@@ -1816,6 +1910,8 @@ class MainWindow(
         self.workbench_session.commit_transition(
             self._workbench_transition_ticket
         )
+        if not self._is_image_directory_workspace_member(self.file_path):
+            self._begin_workspace_editing_session()
         self.reset_state(preserve_session=True)
         self.set_clean()
         self.toggle_actions(False)

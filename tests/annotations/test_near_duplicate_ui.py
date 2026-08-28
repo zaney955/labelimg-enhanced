@@ -482,15 +482,11 @@ class NearDuplicateWorkbenchIntegrationTest(unittest.TestCase):
             (
                 "cat",
                 ((20, 20), (80, 20), (80, 80), (20, 80)),
-                None,
-                None,
                 False,
             ),
             (
                 "cat",
                 ((20, 20), (80, 20), (80, 80), (20, 80)),
-                None,
-                None,
                 False,
             ),
         ]

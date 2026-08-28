@@ -140,8 +140,6 @@ class CreateMLRecord:
                         (x_max, y_max),
                         (x_min, y_max),
                     ),
-                    None,
-                    None,
                     True,
                 )
             )

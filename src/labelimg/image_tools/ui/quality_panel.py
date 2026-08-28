@@ -52,7 +52,11 @@ class ImageQualityDialog(QDialog):
         self.scope_combo = QComboBox()
         self.scope_combo.addItem(tr("imageTools.scopeCurrent"), "current")
         self.scope_combo.addItem(tr("imageTools.scopeSelected"), "selected")
-        self.scope_combo.addItem(tr("imageTools.scopeWorkspace"), "workspace")
+        workspace_count = len(self.workspace_paths or (self.current_path,))
+        self.scope_combo.addItem(
+            tr("imageTools.scope.workspace", count=workspace_count),
+            "workspace",
+        )
         self.scope_combo.setCurrentIndex(2)
         form.addRow(tr("imageTools.scope"), self.scope_combo)
         standard = ImageQualityPolicy.standard()

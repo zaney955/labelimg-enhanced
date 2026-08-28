@@ -10,9 +10,6 @@ from PyQt5.QtGui import QColor, QFont, QFontMetrics, QPainterPath, QPen
 from labelimg.canvas.geometry import distance
 
 DEFAULT_LINE_COLOR = QColor(0, 255, 0, 128)
-DEFAULT_FILL_COLOR = QColor(255, 0, 0, 128)
-DEFAULT_SELECT_LINE_COLOR = QColor(255, 255, 255)
-DEFAULT_SELECT_FILL_COLOR = QColor(0, 128, 255, 155)
 DEFAULT_VERTEX_FILL_COLOR = QColor(0, 255, 0, 255)
 DEFAULT_HVERTEX_FILL_COLOR = QColor(255, 0, 0)
 
@@ -25,9 +22,6 @@ class Shape(object):
     # The following class variables influence the drawing
     # of _all_ shape objects.
     line_color = DEFAULT_LINE_COLOR
-    fill_color = DEFAULT_FILL_COLOR
-    select_line_color = DEFAULT_SELECT_LINE_COLOR
-    select_fill_color = DEFAULT_SELECT_FILL_COLOR
     vertex_fill_color = DEFAULT_VERTEX_FILL_COLOR
     h_vertex_fill_color = DEFAULT_HVERTEX_FILL_COLOR
     point_type = P_ROUND
@@ -132,11 +126,8 @@ class Shape(object):
             painter.fillPath(vertex_path, color)
 
             if self.fill:
-                fill_color = QColor(
-                    self.line_color if self.selected else self.fill_color
-                )
-                if self.selected:
-                    fill_color.setAlpha(self.selected_fill_alpha)
+                fill_color = QColor(self.line_color)
+                fill_color.setAlpha(self.selected_fill_alpha)
                 painter.fillPath(line_path, fill_color)
 
             if self.paint_label if paint_label is None else paint_label:
@@ -282,8 +273,6 @@ class Shape(object):
         shape._closed = self._closed
         if self.line_color != Shape.line_color:
             shape.line_color = QColor(self.line_color)
-        if self.fill_color != Shape.fill_color:
-            shape.fill_color = QColor(self.fill_color)
         shape.difficult = self.difficult
         shape.paint_label = self.paint_label
         return shape

@@ -104,8 +104,6 @@ def annotation_snapshot_from_document(document, image_size):
                 session_id=index,
                 label=box.label,
                 points=tuple(tuple(point) for point in box.points),
-                line_rgba=box.line_color,
-                fill_rgba=box.fill_color,
                 difficult=box.difficult,
             )
             for index, box in enumerate(document.boxes, 1)

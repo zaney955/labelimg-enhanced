@@ -717,6 +717,9 @@ class FileActionsMixin:
             partial(self.file_operations.execute, 'clear'),
         )
         result = outcome.file_result
+        self.display_adjustment_controller.remove_images(
+            result.succeeded_images
+        )
         self._warn_manual_trash_recovery(result)
         self.rescan_annotation_workspace()
         self.refresh_file_list_statuses()
@@ -1073,6 +1076,7 @@ class FileActionsMixin:
             return
 
         renamed = dict(outcome.renamed)
+        self.display_adjustment_controller.rename_paths(renamed)
         current_after = renamed.get(old_current, old_current)
         selected_after = {
             renamed.get(path, path)

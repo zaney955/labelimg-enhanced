@@ -113,8 +113,28 @@ The explicit replacement of the current image's annotation content and active st
 _Avoid_: Open file, merge annotations, import additional boxes
 
 **Image tool target set**:
-The images explicitly chosen for one image-tool operation: either the image currently displayed on the Canvas or the images selected in the file list. A directory is never an implicit target set.
-_Avoid_: Current directory, every image, inferred batch
+The images explicitly chosen for one image-tool operation: the image currently displayed on the Canvas, the images selected in the file list, or every image in the current annotation workspace. The all-images choice includes workspace images hidden by the active file-list filter and is never inferred from opening a directory.
+_Avoid_: Current directory, visible file-list rows, inferred batch
+
+**Canvas display adjustment**:
+A non-destructive brightness-and-contrast presentation applied while annotating on the Canvas. It changes neither source-image pixels nor annotation documents and is distinct from committed image processing.
+_Avoid_: Image adjustment, pixel correction, source-image edit
+
+**Canvas display adjustment scope**:
+The images that share one Canvas display adjustment: either the current image alone or the entire annotation workspace, including workspace images hidden by the active file-list filter.
+_Avoid_: Image tool target set, visible file-list rows, file selection set
+
+**Canvas display adjustment session**:
+The lifetime of Canvas display-adjustment state while one annotation workspace remains open. Workspace-wide and current-image values survive image navigation but return to neutral when the workspace closes or the application exits.
+_Avoid_: Saved image setting, persistent workspace preference, application-wide display preference
+
+**Workspace display adjustment**:
+The master brightness-and-contrast presentation shared by every image in the annotation workspace. Changing either master value removes every current-image display adjustment so the whole workspace becomes visually uniform again.
+_Avoid_: Batch image processing, persisted display preset, inferred image-tool target
+
+**Current-image display adjustment**:
+A session-only brightness-and-contrast override whose absolute values replace the workspace display adjustment for one image and are remembered while navigating within the workspace. It is removed when the workspace display adjustment changes or that image's source pixels are replaced.
+_Avoid_: Source-image correction, permanent per-image setting, annotation edit
 
 **Image tool**:
 A built-in LabelImg operation that transforms an image through an image processing session. A pixel-only image tool leaves annotation documents unchanged, while a geometry-changing image tool transforms the shared annotation coordinate space in the same recoverable operation.
@@ -245,12 +265,8 @@ The ordering of annotation boxes that determines label-list position, drawing la
 _Avoid_: Unordered box set, append-on-restore, selection order
 
 **View state**:
-Transient interaction state such as selections, annotation visibility, zoom, pan, filters, editing modes, default drawing style, and canvas or annotation-list hover targets that does not alter an annotation document. View-state changes are not part of the annotation edit history and do not make the current annotation document dirty. A successful Undo or Redo clears any hovered box, vertex, edge, or annotation-list row because the scene or annotation order may have changed; hover is recomputed on later pointer movement without otherwise changing the result selection.
+Transient interaction state such as selections, annotation visibility, zoom, pan, filters, editing modes, and canvas or annotation-list hover targets that does not alter an annotation document. View-state changes are not part of the annotation edit history and do not make the current annotation document dirty. A successful Undo or Redo clears any hovered box, vertex, edge, or annotation-list row because the scene or annotation order may have changed; hover is recomputed on later pointer movement without otherwise changing the result selection.
 _Avoid_: Annotation content, reversible annotation change
-
-**Default drawing style**:
-The application preference used to initialize colors or appearance for future annotation boxes. Changing it affects neither existing annotation boxes nor their saved document and therefore creates no history entry and no save-required state; changing one existing box's line or fill color remains a reversible annotation change.
-_Avoid_: Box color edit, annotation property, document dirty state
 
 **Pending drawing**:
 An annotation shape currently being drawn that has not yet become a valid annotation box. Undo cancels it before consulting the annotation edit history, and the canceled drawing cannot be redone. Redo is unavailable until the drawing is completed or canceled and does not modify the pending drawing.
@@ -408,9 +424,17 @@ _Avoid_: Replace paste, overwrite labels
 The visual state of a selected annotation box: an opaque outline in its own label color and a light translucent fill in the same color at 30/255 opacity. Hover feedback does not fill an unselected box, so it remains distinct from selection.
 _Avoid_: Default blue fill, white selection outline
 
+**Label color palette**:
+The current annotation-workspace session's case-sensitive mapping from exact labels to user-selected category colors. It retains explicit entries for labels not currently used until the workspace closes, is never persisted, and never stores box-specific colors.
+_Avoid_: Application color theme, global label colors, saved workspace metadata, annotation-document colors, per-box colors
+
+**Label color override**:
+One explicit user-selected entry in the session label color palette. It takes effect across the current annotation workspace immediately and independently of annotation-document saving or Undo and Redo; removing it restores the label's stable automatically assigned color.
+_Avoid_: Annotation edit, saved preference, default drawing color, per-box style
+
 **Label display color**:
-The opaque color derived from a label's text and shared by annotation-box outlines, candidate-label capsule backgrounds, and right annotation-list row backgrounds. Selection fill, text colors, and hover borders are separate appearances.
-_Avoid_: Per-surface label color, translucent label background, selection color
+The single opaque category color resolved for one exact label from the label color palette or its stable automatic fallback and shared by every matching annotation-box outline, candidate-label capsule background, and right annotation-list instance control. Selection fills, text colors, and hover borders are derived appearances; the label-group text retains the ordinary annotation-list style.
+_Avoid_: Per-surface label color, per-box color, translucent label background, selection color
 
 **Selected label text appearance**:
 The visual state of label text belonging to every selected annotation box: white text on a black background at about 60% opacity, with a small rounded rectangle and about two pixels of padding around the text. It remains at the annotation box's existing top-left position. Hovering without selection does not apply this appearance, and hidden label text remains hidden.

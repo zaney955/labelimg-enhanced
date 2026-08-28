@@ -10,7 +10,6 @@ from PyQt5.QtWidgets import QWidget
 
 import labelimg.ui.generated_resources  # noqa: F401 - registers Qt resources
 from labelimg.ui.actions import set_action_copy
-from labelimg.canvas.shape import Shape, DEFAULT_LINE_COLOR, DEFAULT_FILL_COLOR
 from labelimg.localization.runtime import tr
 from labelimg.canvas.widget import Canvas
 
@@ -214,56 +213,11 @@ class CanvasActionsMixin:
         return w / self.canvas.pixmap.width()
 
 
-    def choose_color1(self):
-        color = self.color_dialog.getColor(self.line_color, tr('color.chooseLine'),
-                                           default=DEFAULT_LINE_COLOR)
-        if color:
-            self.line_color = color
-            Shape.line_color = color
-            self.canvas.set_drawing_color(color)
-            self.canvas.update()
-
-
     def delete_selected_shape(self):
         self.delete_annotation_shapes(
             tuple(self.canvas.selected_shapes),
             'Delete boxes',
         )
-
-
-    def choose_shape_line_color(self):
-        selection = self.canvas.selection_snapshot
-        if not selection.capabilities.can_edit_single:
-            return
-        color = self.color_dialog.getColor(self.line_color, tr('color.chooseLine'),
-                                           default=DEFAULT_LINE_COLOR)
-        if color and color != selection.active.line_color:
-            shape = selection.active
-            self._perform_annotation_edit(
-                'Change box line color',
-                lambda: setattr(shape, 'line_color', color),
-                affected=(shape,),
-            )
-            self.label_list.refresh_shape(shape)
-            self.canvas.update()
-
-
-    def choose_shape_fill_color(self):
-        selection = self.canvas.selection_snapshot
-        if not selection.capabilities.can_edit_single:
-            return
-        color = self.color_dialog.getColor(self.fill_color, tr('color.chooseFill'),
-                                           default=DEFAULT_FILL_COLOR)
-        if color and color != selection.active.fill_color:
-            shape = selection.active
-            self._perform_annotation_edit(
-                'Change box fill color',
-                lambda: setattr(shape, 'fill_color', color),
-                affected=(shape,),
-            )
-            self.canvas.update()
-
-
     def toggle_paint_labels_option(self):
         for shape in self.canvas.shapes:
             shape.paint_label = self.display_label_option.isChecked()

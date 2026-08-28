@@ -70,6 +70,28 @@ class GeometryTransformDialogTest(unittest.TestCase):
         self.assertEqual(dialog.request.operation, GeometryOperation.RESIZE)
         self.assertEqual(dialog.request.resize_percent, 50)
 
+    def test_all_images_scope_returns_every_workspace_path(self):
+        dialog = GeometryTransformDialog(
+            self.first,
+            (self.first,),
+            workspace_paths=(self.first, self.second),
+            preselected=GeometryOperation.RESIZE,
+        )
+        workspace_index = dialog.scope_combo.findData("workspace")
+
+        self.assertGreaterEqual(workspace_index, 0)
+        self.assertIn(
+            dialog.scope_combo.itemText(workspace_index),
+            {"All images (2)", "全部图像（2 张）"},
+        )
+        dialog.scope_combo.setCurrentIndex(workspace_index)
+        dialog.percent_spin.setValue(50)
+        self.assertEqual(dialog.target_list.item(1).toolTip(), self.second)
+        QTest.mouseClick(dialog.apply_button, Qt.LeftButton)
+
+        self.assertEqual(dialog.request.paths, (self.first, self.second))
+        self.assertEqual(dialog.request.resize_percent, 50)
+
     def test_preview_pixel_budget_does_not_change_reported_source_size(self):
         with patch.object(
             GeometryTransformDialog,
@@ -84,6 +106,25 @@ class GeometryTransformDialogTest(unittest.TestCase):
         self.assertLessEqual(dialog._preview.pixels.shape[0]
                              * dialog._preview.pixels.shape[1], 1_000)
         self.assertEqual(dialog.preview_size_label.text(), "40 × 80")
+
+    def test_preview_allocation_failure_is_contained_in_the_dialog(self):
+        dialog = GeometryTransformDialog(
+            self.first,
+            preselected=GeometryOperation.ROTATE_CLOCKWISE,
+        )
+
+        with patch.object(
+            dialog.preview_label,
+            "setPixmap",
+            side_effect=MemoryError("large-image preview allocation failed"),
+        ):
+            dialog._refresh()
+
+        self.assertIn(
+            "large-image preview allocation failed",
+            dialog.preview_label.text(),
+        )
+        self.assertFalse(dialog.apply_button.isEnabled())
 
 
 if __name__ == "__main__":

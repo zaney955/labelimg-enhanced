@@ -65,6 +65,26 @@ class ImageAdjustmentDialogTest(unittest.TestCase):
         self.assertEqual(dialog.request.options.gamma, 0.8)
         self.assertTrue(dialog.request.options.grayscale)
 
+    def test_all_images_scope_returns_every_workspace_path(self):
+        dialog = ImageAdjustmentDialog(
+            self.first,
+            (self.first,),
+            workspace_paths=(self.first, self.second),
+        )
+        workspace_index = dialog.scope_combo.findData("workspace")
+
+        self.assertGreaterEqual(workspace_index, 0)
+        self.assertIn(
+            dialog.scope_combo.itemText(workspace_index),
+            {"All images (2)", "全部图像（2 张）"},
+        )
+        dialog.scope_combo.setCurrentIndex(workspace_index)
+        dialog.brightness_spin.setValue(10)
+        self.assertEqual(dialog.target_list.item(1).toolTip(), self.second)
+        QTest.mouseClick(dialog.apply_button, Qt.LeftButton)
+
+        self.assertEqual(dialog.request.paths, (self.first, self.second))
+
     def test_repeated_brightness_steps_do_not_repeat_full_image_prepare(self):
         prepared = SimpleNamespace(
             result_pixels=np.zeros((24, 32, 3), dtype=np.uint8),
@@ -82,6 +102,23 @@ class ImageAdjustmentDialogTest(unittest.TestCase):
                 dialog.brightness_spin.setValue(value)
 
         self.assertEqual(prepare.call_count, initial_calls)
+
+    def test_preview_allocation_failure_is_contained_in_the_dialog(self):
+        dialog = ImageAdjustmentDialog(self.first)
+        dialog.brightness_spin.setValue(10)
+
+        with patch.object(
+            dialog.preview_label,
+            "setPixmap",
+            side_effect=MemoryError("large-image preview allocation failed"),
+        ):
+            dialog._refresh_preview()
+
+        self.assertIn(
+            "large-image preview allocation failed",
+            dialog.preview_label.text(),
+        )
+        self.assertFalse(dialog.apply_button.isEnabled())
 
 
 if __name__ == "__main__":

@@ -13,8 +13,6 @@ class AnnotationBoxState:
     session_id: int
     label: str
     points: tuple
-    line_rgba: tuple | None = None
-    fill_rgba: tuple | None = None
     difficult: bool = False
 
 

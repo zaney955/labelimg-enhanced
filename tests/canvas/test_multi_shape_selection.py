@@ -33,7 +33,6 @@ def rectangle(label, left, top, right, bottom, color=None):
     shape.close()
     if color is not None:
         shape.line_color = QColor(color)
-        shape.fill_color = QColor(color)
     return shape
 
 
