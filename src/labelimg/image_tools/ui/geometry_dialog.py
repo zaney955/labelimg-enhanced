@@ -279,6 +279,10 @@ class GeometryTransformDialog(QDialog):
 
 
 def _array_pixmap(array):
+    return QPixmap.fromImage(_array_qimage(array))
+
+
+def _array_qimage(array):
     array = np.ascontiguousarray(array)
     if array.ndim == 2:
         image = QImage(
@@ -306,4 +310,4 @@ def _array_pixmap(array):
             rgba.strides[0],
             QImage.Format_RGBA8888,
         )
-    return QPixmap.fromImage(image.copy())
+    return image.copy()

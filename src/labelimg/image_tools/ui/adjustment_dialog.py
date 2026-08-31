@@ -3,22 +3,27 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 import os
 
+import cv2
+import numpy as np
 from PyQt5.QtCore import QTimer, Qt
+from PyQt5.QtGui import QImage
 from PyQt5.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
-    QDoubleSpinBox,
     QFormLayout,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QListWidget,
     QPushButton,
-    QSpinBox,
+    QSlider,
     QVBoxLayout,
+    QWidget,
 )
 
 from labelimg.localization.runtime import localize_dialog_buttons, tr
@@ -36,6 +41,66 @@ class ImageAdjustmentRequest:
     options: ImageAdjustmentOptions
 
 
+@dataclass(frozen=True)
+class _AdjustmentPreview:
+    pixels: np.ndarray
+    source_size: tuple[int, int]
+
+
+class _AdjustmentSliderRow(QWidget):
+    """Theme-adaptive labeled slider with a stable numeric value badge."""
+
+    def __init__(
+        self,
+        label,
+        minimum,
+        maximum,
+        value,
+        formatter,
+        *,
+        page_step,
+        parent=None,
+    ):
+        super().__init__(parent)
+        self._formatter = formatter
+        layout = QGridLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setHorizontalSpacing(10)
+        layout.setVerticalSpacing(0)
+        layout.setColumnStretch(1, 1)
+
+        self.title_label = QLabel(label, self)
+        self.title_label.setMinimumWidth(112)
+        self.slider = QSlider(Qt.Horizontal, self)
+        self.slider.setRange(minimum, maximum)
+        self.slider.setSingleStep(1)
+        self.slider.setPageStep(page_step)
+        self.slider.setAccessibleName(label)
+        self.slider.setFocusPolicy(Qt.StrongFocus)
+        self.value_label = QLabel(self)
+        self.value_label.setObjectName("adjustmentSliderValue")
+        self.value_label.setAlignment(Qt.AlignCenter)
+        self.value_label.setMinimumWidth(58)
+        self.value_label.setStyleSheet("""
+            QLabel#adjustmentSliderValue {
+                background: palette(alternate-base);
+                border: 1px solid palette(midlight);
+                border-radius: 6px;
+                padding: 3px 7px;
+            }
+        """)
+
+        layout.addWidget(self.title_label, 0, 0)
+        layout.addWidget(self.slider, 0, 1)
+        layout.addWidget(self.value_label, 0, 2)
+        self.slider.valueChanged.connect(self._update_value)
+        self.slider.setValue(value)
+        self._update_value(self.slider.value())
+
+    def _update_value(self, value):
+        self.value_label.setText(self._formatter(value))
+
+
 class ImageAdjustmentDialog(QDialog):
     PREVIEW_MAX_PIXELS = 1_500_000
     PREVIEW_DEBOUNCE_MS = 40
@@ -47,6 +112,7 @@ class ImageAdjustmentDialog(QDialog):
         parent=None,
         *,
         workspace_paths=(),
+        preview_image=None,
     ):
         super().__init__(parent)
         self.current_path = os.path.abspath(os.fspath(current_path))
@@ -57,15 +123,19 @@ class ImageAdjustmentDialog(QDialog):
             os.path.abspath(os.fspath(path)) for path in workspace_paths
         ))
         self.request = None
-        self._preview = ImageFileCodec().load_preview(
-            self.current_path,
-            max_pixels=self.PREVIEW_MAX_PIXELS,
+        self._preview_image = (
+            QImage(preview_image)
+            if isinstance(preview_image, QImage) and not preview_image.isNull()
+            else QImage()
         )
+        self._preview = None
         self._preview_failed = False
         self._restoring = False
         self._history = []
         self._redo = []
         self._last_options = ImageAdjustmentOptions()
+        self._slider_gesture_before = None
+        self._slider_gesture_recorded = False
         self._preview_timer = QTimer(self)
         self._preview_timer.setSingleShot(True)
         self._preview_timer.setInterval(self.PREVIEW_DEBOUNCE_MS)
@@ -103,25 +173,51 @@ class ImageAdjustmentDialog(QDialog):
         body.addWidget(self.preview_label, 1)
         root.addLayout(body, 1)
 
-        controls = QFormLayout()
-        self.brightness_spin = QSpinBox(self)
-        self.brightness_spin.setRange(-100, 100)
-        self.brightness_spin.setSuffix(" %")
-        self.contrast_spin = QDoubleSpinBox(self)
-        self.contrast_spin.setRange(0.1, 3.0)
-        self.contrast_spin.setSingleStep(0.1)
-        self.contrast_spin.setValue(1.0)
-        self.gamma_spin = QDoubleSpinBox(self)
-        self.gamma_spin.setRange(0.1, 5.0)
-        self.gamma_spin.setSingleStep(0.1)
-        self.gamma_spin.setValue(1.0)
+        controls = QVBoxLayout()
+        controls.setSpacing(8)
+        self.brightness_row = _AdjustmentSliderRow(
+            tr("adjustment.brightness"),
+            -100,
+            100,
+            0,
+            _format_brightness,
+            page_step=10,
+            parent=self,
+        )
+        self.contrast_row = _AdjustmentSliderRow(
+            tr("adjustment.contrast"),
+            1,
+            30,
+            10,
+            lambda value: f"{value / 10.0:.1f}×",
+            page_step=5,
+            parent=self,
+        )
+        self.gamma_row = _AdjustmentSliderRow(
+            tr("adjustment.gamma"),
+            1,
+            50,
+            10,
+            lambda value: f"{value / 10.0:.1f}",
+            page_step=5,
+            parent=self,
+        )
+        self.brightness_slider = self.brightness_row.slider
+        self.contrast_slider = self.contrast_row.slider
+        self.gamma_slider = self.gamma_row.slider
+        self.brightness_value_label = self.brightness_row.value_label
+        self.contrast_value_label = self.contrast_row.value_label
+        self.gamma_value_label = self.gamma_row.value_label
         self.auto_contrast_checkbox = QCheckBox(tr("adjustment.autoContrast"), self)
         self.grayscale_checkbox = QCheckBox(tr("adjustment.grayscale"), self)
-        controls.addRow(tr("adjustment.brightness"), self.brightness_spin)
-        controls.addRow(tr("adjustment.contrast"), self.contrast_spin)
-        controls.addRow(tr("adjustment.gamma"), self.gamma_spin)
-        controls.addRow(self.auto_contrast_checkbox)
-        controls.addRow(self.grayscale_checkbox)
+        controls.addWidget(self.brightness_row)
+        controls.addWidget(self.contrast_row)
+        controls.addWidget(self.gamma_row)
+        option_row = QHBoxLayout()
+        option_row.addWidget(self.auto_contrast_checkbox)
+        option_row.addWidget(self.grayscale_checkbox)
+        option_row.addStretch(1)
+        controls.addLayout(option_row)
         root.addLayout(controls)
 
         history_row = QHBoxLayout()
@@ -142,20 +238,44 @@ class ImageAdjustmentDialog(QDialog):
         root.addWidget(self.buttons)
 
         self.scope_combo.currentIndexChanged.connect(self._scope_changed)
-        for control in (
-            self.brightness_spin,
-            self.contrast_spin,
-            self.gamma_spin,
+        for slider in (
+            self.brightness_slider,
+            self.contrast_slider,
+            self.gamma_slider,
         ):
-            control.valueChanged.connect(self._controls_changed)
+            slider.valueChanged.connect(self._controls_changed)
+            slider.sliderPressed.connect(self._begin_slider_gesture)
+            slider.sliderReleased.connect(self._end_slider_gesture)
         self.auto_contrast_checkbox.toggled.connect(self._controls_changed)
         self.grayscale_checkbox.toggled.connect(self._controls_changed)
         self.undo_button.clicked.connect(self.undo)
         self.redo_button.clicked.connect(self.redo)
         self.buttons.accepted.connect(self._accept_request)
         self.buttons.rejected.connect(self.reject)
+        root.activate()
+        self._preview = self._load_preview()
         self._scope_changed()
         self._update_history_buttons()
+
+    def _load_preview(self):
+        max_pixels = self._preview_pixel_budget()
+        if not self._preview_image.isNull():
+            return _preview_from_qimage(
+                self._preview_image,
+                max_pixels=max_pixels,
+            )
+        return ImageFileCodec().load_preview(
+            self.current_path,
+            max_pixels=max_pixels,
+        )
+
+    def _preview_pixel_budget(self):
+        size = self.preview_label.size()
+        device_ratio = max(1.0, float(self.preview_label.devicePixelRatioF()))
+        visible_pixels = int(
+            size.width() * size.height() * device_ratio * device_ratio
+        )
+        return max(250_000, min(self.PREVIEW_MAX_PIXELS, visible_pixels))
 
     def _paths(self):
         scope = self.scope_combo.currentData()
@@ -175,12 +295,31 @@ class ImageAdjustmentDialog(QDialog):
 
     def _options(self):
         return ImageAdjustmentOptions(
-            brightness=self.brightness_spin.value(),
-            contrast=self.contrast_spin.value(),
-            gamma=self.gamma_spin.value(),
+            brightness=self.brightness_slider.value(),
+            contrast=self.contrast_slider.value() / 10.0,
+            gamma=self.gamma_slider.value() / 10.0,
             auto_contrast=self.auto_contrast_checkbox.isChecked(),
             grayscale=self.grayscale_checkbox.isChecked(),
         )
+
+    def _begin_slider_gesture(self):
+        if self._restoring:
+            return
+        self._slider_gesture_before = self._last_options
+        self._slider_gesture_recorded = False
+
+    def _end_slider_gesture(self):
+        before = self._slider_gesture_before
+        self._slider_gesture_before = None
+        if (
+            self._slider_gesture_recorded
+            and before == self._last_options
+            and self._history
+            and self._history[-1] == before
+        ):
+            self._history.pop()
+        self._slider_gesture_recorded = False
+        self._update_history_buttons()
 
     def _controls_changed(self, _value=None):
         if self._restoring:
@@ -188,8 +327,14 @@ class ImageAdjustmentDialog(QDialog):
         current = self._options()
         if current == self._last_options:
             return
-        self._history.append(self._last_options)
-        self._redo.clear()
+        if self._slider_gesture_before is not None:
+            if not self._slider_gesture_recorded:
+                self._history.append(self._slider_gesture_before)
+                self._redo.clear()
+                self._slider_gesture_recorded = True
+        else:
+            self._history.append(self._last_options)
+            self._redo.clear()
         self._last_options = current
         self._update_apply_button()
         self._schedule_preview()
@@ -198,9 +343,9 @@ class ImageAdjustmentDialog(QDialog):
     def _restore_options(self, options):
         self._restoring = True
         try:
-            self.brightness_spin.setValue(options.brightness)
-            self.contrast_spin.setValue(options.contrast)
-            self.gamma_spin.setValue(options.gamma)
+            self.brightness_slider.setValue(options.brightness)
+            self.contrast_slider.setValue(round(options.contrast * 10))
+            self.gamma_slider.setValue(round(options.gamma * 10))
             self.auto_contrast_checkbox.setChecked(options.auto_contrast)
             self.grayscale_checkbox.setChecked(options.grayscale)
         finally:
@@ -266,3 +411,35 @@ class ImageAdjustmentDialog(QDialog):
             options=self._options(),
         )
         self.accept()
+
+
+def _format_brightness(value):
+    return "0%" if not value else f"{value:+d}%"
+
+
+def _preview_from_qimage(image, *, max_pixels):
+    """Build bounded processing pixels from an already decoded Qt image."""
+    source_size = (image.width(), image.height())
+    working = QImage(image)
+    pixel_count = image.width() * image.height()
+    if pixel_count > max_pixels:
+        ratio = math.sqrt(max_pixels / float(pixel_count))
+        working = image.scaled(
+            max(1, int(image.width() * ratio)),
+            max(1, int(image.height() * ratio)),
+            Qt.KeepAspectRatio,
+            Qt.SmoothTransformation,
+        )
+    rgba = working.convertToFormat(QImage.Format_RGBA8888)
+    pointer = rgba.bits()
+    pointer.setsize(rgba.byteCount())
+    rows = np.frombuffer(pointer, dtype=np.uint8).reshape(
+        rgba.height(), rgba.bytesPerLine()
+    )
+    pixels = rows[:, : rgba.width() * 4].reshape(
+        rgba.height(), rgba.width(), 4
+    ).copy()
+    return _AdjustmentPreview(
+        cv2.cvtColor(pixels, cv2.COLOR_RGBA2BGRA),
+        source_size,
+    )

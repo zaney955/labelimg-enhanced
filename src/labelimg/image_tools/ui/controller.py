@@ -78,7 +78,38 @@ class ImageToolsActionsMixin:
             )
         if request.kind is ImageProcessingProjectionKind.PIXEL_COMMIT:
             self._invalidate_image_quality(request.paths)
-            self._refresh_current_image_pixels(request.paths)
+            prepared = request.current_prepared
+            current_key = (
+                os.path.normcase(os.path.abspath(self.file_path))
+                if self.file_path
+                else None
+            )
+            prepared_key = (
+                os.path.normcase(os.path.abspath(prepared.path))
+                if prepared is not None
+                else None
+            )
+            if (
+                current_key is not None
+                and prepared_key == current_key
+                and prepared.result_pixels is not None
+                and prepared.replacement is not None
+            ):
+                from labelimg.image_tools.ui.geometry_dialog import (
+                    _array_qimage,
+                )
+
+                self.image_data = prepared.replacement.content
+                self.image = _array_qimage(prepared.result_pixels)
+                self.canvas.replace_pixmap(
+                    self._activate_display_adjustment_source(
+                        self.image, self.file_path
+                    ),
+                    logical_size=self.image.size(),
+                )
+                self.paint_canvas()
+            else:
+                self._refresh_current_image_pixels(request.paths)
             self.actions.undoImageProcessing.setEnabled(True)
             return None
 
@@ -364,6 +395,7 @@ class ImageToolsActionsMixin:
             tuple(self.selected_file_paths()),
             parent=self,
             workspace_paths=tuple(self.m_img_list),
+            preview_image=self.image,
         )
         if dialog.exec_() != QDialog.Accepted or dialog.request is None:
             return False
@@ -371,6 +403,7 @@ class ImageToolsActionsMixin:
             plan = self.image_processing.prepare(AdjustmentChange(
                 paths=tuple(dialog.request.paths),
                 options=dialog.request.options,
+                current_path=self.file_path,
             ))
             if plan is None:
                 return False

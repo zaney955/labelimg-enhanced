@@ -37,11 +37,12 @@ class CanvasAnnotationScene:
             prior = prior_boxes.get(session_id)
             boxes.append(prior if prior == state else state)
         pixmap = self.canvas.pixmap
+        image_size = self.canvas.pixmap_size
         snapshot = AnnotationSnapshot(
             image_key=image_key,
             image_size=(
-                pixmap.width() if pixmap is not None else 0,
-                pixmap.height() if pixmap is not None else 0,
+                image_size.width() if pixmap is not None else 0,
+                image_size.height() if pixmap is not None else 0,
             ),
             boxes=tuple(boxes),
             verified=bool(self.canvas.verified),

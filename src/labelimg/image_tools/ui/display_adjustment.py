@@ -885,14 +885,10 @@ class CanvasDisplayAdjustmentController(QObject):
         self._bridge = _RenderBridge(self)
         self._bridge.completed.connect(self._render_completed)
         self._bridge.failed.connect(self._render_failed)
-        self._preview_worker = _LatestRenderWorker(
-            self._bridge, "labelimg-display-preview"
+        self._render_worker = _LatestRenderWorker(
+            self._bridge, "labelimg-display-render"
         )
-        self._full_worker = _LatestRenderWorker(
-            self._bridge, "labelimg-display-full"
-        )
-        self._preview_worker.start()
-        self._full_worker.start()
+        self._render_worker.start()
         self._preview_timer = QTimer(self)
         self._preview_timer.setSingleShot(True)
         self._preview_timer.setInterval(PREVIEW_DEBOUNCE_MS)
@@ -1065,10 +1061,8 @@ class CanvasDisplayAdjustmentController(QObject):
         self._preview_timer.stop()
         self._full_timer.stop()
         self._master_idle_timer.stop()
-        self._preview_worker.stop()
-        self._full_worker.stop()
-        self._preview_worker.join(timeout=0.25)
-        self._full_worker.join(timeout=0.25)
+        self._render_worker.stop()
+        self._render_worker.join(timeout=0.25)
 
     def _values_changed(self, schedule_full=False):
         self._generation += 1
@@ -1103,12 +1097,12 @@ class CanvasDisplayAdjustmentController(QObject):
             kind="preview",
         )
         if request is not None:
-            self._preview_worker.submit(request)
+            self._render_worker.submit(request)
 
     def _submit_full(self):
         request = self._request(max_pixels=None, kind="full")
         if request is not None:
-            self._full_worker.submit(request)
+            self._render_worker.submit(request)
 
     def _render_completed(self, request, image):
         if not self._request_is_current(request):
@@ -1154,16 +1148,15 @@ def render_adjusted_image(image, values, *, max_pixels=None):
     if values.neutral:
         return QImage(image)
 
-    source_size = image.size()
     working = QImage(image)
     pixel_count = image.width() * image.height()
     if max_pixels and pixel_count > max_pixels:
         ratio = math.sqrt(max_pixels / float(pixel_count))
         working = image.scaled(
-            max(1, int(round(image.width() * ratio))),
-            max(1, int(round(image.height() * ratio))),
+            max(1, int(image.width() * ratio)),
+            max(1, int(image.height() * ratio)),
             Qt.KeepAspectRatio,
-            Qt.SmoothTransformation,
+            Qt.FastTransformation,
         )
     rgba = working.convertToFormat(QImage.Format_RGBA8888)
     pointer = rgba.bits()
@@ -1191,12 +1184,6 @@ def render_adjusted_image(image, values, *, max_pixels=None):
         adjusted.strides[0],
         QImage.Format_RGBA8888,
     ).copy()
-    if result.size() != source_size:
-        result = result.scaled(
-            source_size,
-            Qt.IgnoreAspectRatio,
-            Qt.FastTransformation,
-        )
     return result
 
 

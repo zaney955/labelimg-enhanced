@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 import os
 
 import cv2
@@ -49,9 +50,21 @@ class ImageAdjustmentProcessor:
     def __init__(self, codec=None):
         self._codec = codec or ImageFileCodec()
 
-    def prepare(self, path, options=None, *, retain_pixels=True):
+    def prepare(
+        self,
+        path,
+        options=None,
+        *,
+        retain_pixels=True,
+        retain_original_pixels=None,
+    ):
         path = os.path.abspath(os.fspath(path))
         options = options or ImageAdjustmentOptions()
+        retain_original_pixels = (
+            retain_pixels
+            if retain_original_pixels is None
+            else bool(retain_original_pixels)
+        )
         expected = fingerprint_path(path)
         loaded = self._codec.load(path)
         result = apply_adjustments(loaded.pixels, options)
@@ -64,7 +77,9 @@ class ImageAdjustmentProcessor:
         return PreparedImageAdjustment(
             path=path,
             options=options,
-            original_pixels=(loaded.pixels.copy() if retain_pixels else None),
+            original_pixels=(
+                loaded.pixels.copy() if retain_original_pixels else None
+            ),
             result_pixels=(result if retain_pixels else None),
             replacement=replacement,
         )
@@ -73,51 +88,70 @@ class ImageAdjustmentProcessor:
 def apply_adjustments(pixels, options):
     options = options or ImageAdjustmentOptions()
     source = np.asarray(pixels)
-    result = source.copy()
-    has_alpha = result.ndim == 3 and result.shape[2] == 4
+    has_alpha = source.ndim == 3 and source.shape[2] == 4
     if has_alpha:
-        color = result[..., :3]
+        color = source[..., :3]
     else:
-        color = result
+        color = source
 
     if options.auto_contrast:
         color = _auto_contrast(color)
-    if (
+    has_lookup = (
         options.contrast != 1.0
         or options.brightness
         or options.gamma != 1.0
-    ):
-        table = np.arange(256, dtype=np.float32)
-        if options.contrast != 1.0 or options.brightness:
-            table = np.clip(
-                table * float(options.contrast)
-                + float(options.brightness) * 2.55,
-                0,
-                255,
-            ).round()
-        if options.gamma != 1.0:
-            table = np.array(
-                [
-                    round(
-                        ((value / 255.0) ** (1.0 / float(options.gamma)))
-                        * 255
-                    )
-                    for value in table
-                ],
-                dtype=np.uint8,
+    )
+    if has_lookup:
+        table = _adjustment_lut(
+            int(options.brightness),
+            float(options.contrast),
+            float(options.gamma),
+        )
+        if has_alpha and not options.auto_contrast and not options.grayscale:
+            rgba_table = _rgba_adjustment_lut(
+                int(options.brightness),
+                float(options.contrast),
+                float(options.gamma),
             )
-        else:
-            table = table.astype(np.uint8)
+            return np.ascontiguousarray(cv2.LUT(source, rgba_table))
         color = cv2.LUT(color, table)
     if options.grayscale and color.ndim == 3:
         gray = cv2.cvtColor(color, cv2.COLOR_BGR2GRAY)
         color = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
 
     if has_alpha:
+        result = np.empty_like(source)
         result[..., :3] = color
-    else:
-        result = color
-    return np.ascontiguousarray(result, dtype=np.uint8)
+        result[..., 3] = source[..., 3]
+        return np.ascontiguousarray(result, dtype=np.uint8)
+    if color is source:
+        return np.ascontiguousarray(source.copy(), dtype=np.uint8)
+    return np.ascontiguousarray(color, dtype=np.uint8)
+
+
+@lru_cache(maxsize=256)
+def _adjustment_lut(brightness, contrast, gamma):
+    table = np.arange(256, dtype=np.float32)
+    if contrast != 1.0 or brightness:
+        table = np.clip(
+            table * contrast + brightness * 2.55,
+            0,
+            255,
+        ).round()
+    if gamma != 1.0:
+        table = np.rint(
+            np.power(table / 255.0, 1.0 / gamma) * 255.0
+        )
+    return table.astype(np.uint8)
+
+
+@lru_cache(maxsize=256)
+def _rgba_adjustment_lut(brightness, contrast, gamma):
+    color = _adjustment_lut(brightness, contrast, gamma)
+    table = np.empty((256, 1, 4), dtype=np.uint8)
+    table[:, 0, :3] = color[:, None]
+    table[:, 0, 3] = np.arange(256, dtype=np.uint8)
+    return table
 
 
 def _auto_contrast(pixels):
