@@ -155,6 +155,7 @@ from labelimg.image_tools import (
 )
 from labelimg.image_tools.ui.display_adjustment import (
     CanvasDisplayAdjustmentController,
+    DisplayAdjustmentOverlay,
     DisplayAdjustmentPanel,
     display_adjustment_icon,
 )
@@ -530,43 +531,18 @@ class WorkbenchComposer:
         self.canvas.statusRequest.connect(self.status)
 
         self.display_adjustment_session = CanvasDisplayAdjustmentSession()
-        self.display_adjustment_panel = DisplayAdjustmentPanel(self)
-        self.display_adjustment_dock = QDockWidget(
-            tr('displayAdjustment.title'), self
+        self.display_adjustment_panel = DisplayAdjustmentPanel()
+        self.display_adjustment_action = QAction(
+            display_adjustment_icon(),
+            tr('displayAdjustment.title'),
+            self,
         )
-        self.display_adjustment_dock.setObjectName('displayAdjustmentDock')
-        self.display_adjustment_dock.setAllowedAreas(Qt.LeftDockWidgetArea)
-        self.display_adjustment_dock.setFeatures(
-            QDockWidget.DockWidgetClosable
+        self.display_adjustment_overlay = DisplayAdjustmentOverlay(
+            self.scroll_area.viewport(),
+            self.display_adjustment_panel,
+            self.display_adjustment_action,
+            self,
         )
-        self.display_adjustment_dock.setWidget(
-            self.display_adjustment_panel
-        )
-        self.display_adjustment_dock.resize(220, 520)
-        self.display_adjustment_action = (
-            self.display_adjustment_dock.toggleViewAction()
-        )
-        self.display_adjustment_action.setIcon(
-            display_adjustment_icon()
-        )
-        self.display_adjustment_action.setText(
-            tr('displayAdjustment.title')
-        )
-        self.display_adjustment_status = QToolButton(self)
-        self.display_adjustment_status.setObjectName(
-            'displayAdjustmentStatus'
-        )
-        self.display_adjustment_status.setAutoRaise(True)
-        self.display_adjustment_status.setToolButtonStyle(
-            Qt.ToolButtonTextBesideIcon
-        )
-        self.display_adjustment_status.setIcon(
-            display_adjustment_icon()
-        )
-        self.display_adjustment_status.clicked.connect(
-            self._show_display_adjustment_panel
-        )
-        self.display_adjustment_status.hide()
         self.display_adjustment_controller = (
             CanvasDisplayAdjustmentController(
                 self.display_adjustment_session,
@@ -688,9 +664,6 @@ class WorkbenchComposer:
         )
 
         self.setCentralWidget(scroll)
-        self.addDockWidget(
-            Qt.LeftDockWidgetArea, self.display_adjustment_dock
-        )
         self.addDockWidget(Qt.RightDockWidgetArea, self.dock)
         self.addDockWidget(Qt.RightDockWidgetArea, self.file_dock)
         self.addDockWidget(Qt.RightDockWidgetArea, self.image_quality_dock)
@@ -1276,7 +1249,6 @@ class WorkbenchComposer:
             create,
             pan_tool,
             crop_image,
-            self.display_adjustment_action,
             self,
         )
         self.tools.setWindowTitle(tr('toolbar.canvasTools'))
@@ -1335,7 +1307,7 @@ class WorkbenchComposer:
             adjust_image: ('adjustment.action', 'adjustment.actionTip'),
             self.display_adjustment_action: (
                 'displayAdjustment.title',
-                'displayAdjustment.activeTip',
+                'displayAdjustment.openTip',
             ),
             check_image_quality: ('quality.action', 'quality.actionTip'),
             undo_image_processing: (
@@ -1418,12 +1390,6 @@ class WorkbenchComposer:
 
         saved_window_state = settings.get(SETTING_WIN_STATE, QByteArray())
         self.restoreState(saved_window_state)
-        if not saved_window_state:
-            self.resizeDocks(
-                [self.display_adjustment_dock],
-                [220],
-                Qt.Horizontal,
-            )
         self.canvas.set_drawing_color(DEFAULT_LINE_COLOR)
         # Add chris
         Shape.difficult = self.difficult
@@ -1445,9 +1411,6 @@ class WorkbenchComposer:
         # Display cursor coordinates at the right of status bar
         self.label_coordinates = QLabel('')
         self.statusBar().addPermanentWidget(self.label_coordinates)
-        self.statusBar().addPermanentWidget(
-            self.display_adjustment_status
-        )
         self.statusBar().addPermanentWidget(self.zoom_widget)
         self.canvas.coordinatesChanged.connect(
             self.label_coordinates.setText

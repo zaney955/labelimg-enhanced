@@ -65,7 +65,7 @@ Application-authored text visible during operation, including commands, panels, 
 _Avoid_: User data, translated path, rewritten system error
 
 **Operation icon set**:
-The 78 coordinated flat, duotone SVG symbols used by LabelImg actions and buttons, excluding the separate application identity icon. The restrained light-theme set prioritizes clarity at 16 pixels, uses functional-family colors, shares a base motif between related actions, and remains distinguishable without color; annotation formats use structural symbols rather than names, while language choices may use font-independent path glyphs.
+The 79 coordinated flat, duotone SVG symbols used by LabelImg actions and buttons, excluding the separate application identity icon. The restrained light-theme set prioritizes clarity at 16 pixels, uses functional-family colors, shares a base motif between related actions, and remains distinguishable without color; annotation formats use structural symbols rather than names, while language choices may use font-independent path glyphs.
 _Avoid_: Application icon, dark-theme icon set, monochrome action icons, high-saturation icon set, color-only distinction, unrelated family motifs, text-dependent format icon
 
 **Canvas tool rail**:

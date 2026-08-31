@@ -7,14 +7,19 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt5.QtCore import QEvent, Qt
+from PyQt5.QtCore import QEvent, QPoint, Qt
 from PyQt5.QtGui import QColor, QImage
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtTest import QTest
+from PyQt5.QtWidgets import QAction, QApplication, QWidget
 
 from labelimg.image_tools.application.display_adjustment import (
     DisplayAdjustmentValues,
 )
-from labelimg.image_tools.ui.display_adjustment import render_adjusted_image
+from labelimg.image_tools.ui.display_adjustment import (
+    DisplayAdjustmentOverlay,
+    DisplayAdjustmentPanel,
+    render_adjusted_image,
+)
 from labelimg.localization.runtime import ENGLISH, SIMPLIFIED_CHINESE, set_language
 from labelimg.canvas.shape import Shape
 from labelimg.workbench.bootstrap import WorkbenchLaunchOptions, create_workbench
@@ -88,25 +93,32 @@ class DisplayAdjustmentWorkbenchTest(unittest.TestCase):
             QTestWait.qwait(10)
         self.assertTrue(condition())
 
-    def test_panel_is_a_left_dock_and_view_menu_action(self):
-        self.assertEqual(
-            self.window.dockWidgetArea(self.window.display_adjustment_dock),
-            Qt.LeftDockWidgetArea,
-        )
+    def test_panel_is_a_disabled_canvas_overlay_without_an_image(self):
+        overlay = self.window.display_adjustment_overlay
+        button = overlay.button
+
+        self.assertIs(button.parentWidget(), self.window.scroll_area.viewport())
         self.assertIs(
-            self.window.actions.displayAdjustment,
-            self.window.display_adjustment_dock.toggleViewAction(),
+            overlay.panel_shell.parentWidget(),
+            self.window.scroll_area.viewport(),
         )
+        self.assertFalse(overlay.panel_shell.isVisible())
+        self.assertFalse(button.isEnabled())
+        self.assertFalse(self.window.actions.displayAdjustment.isEnabled())
+        self.assertFalse(self.window.actions.displayAdjustment.isCheckable())
         self.assertIn(
             self.window.actions.displayAdjustment,
             self.window.menus.view.actions(),
         )
-        self.assertGreaterEqual(self.window.display_adjustment_dock.width(), 180)
-        self.assertLessEqual(self.window.display_adjustment_dock.width(), 360)
         self.assertFalse(self.window.display_adjustment_panel.master_frame.isEnabled())
         self.assertEqual(
-            self.window.display_adjustment_panel.no_image_label.text(),
+            button.toolTip(),
             "No image open",
+        )
+        self.assertEqual(button.x(), 12)
+        self.assertEqual(
+            button.y(),
+            self.window.scroll_area.viewport().height() - 48,
         )
 
     def test_master_adjustment_changes_only_canvas_projection(self):
@@ -122,7 +134,10 @@ class DisplayAdjustmentWorkbenchTest(unittest.TestCase):
         self.assertEqual(Path(self.first).read_bytes(), before)
         self.assertEqual(self.window.image.pixelColor(0, 0).red(), 100)
         self.assertFalse(self.window.dirty)
-        self.assertTrue(self.window.display_adjustment_status.isVisible())
+        self.assertEqual(
+            self.window.display_adjustment_overlay.button._status,
+            "active",
+        )
 
     def test_current_values_override_master_and_master_can_restore_clear(self):
         self.assertTrue(self.window.load_file(self.first))
@@ -135,16 +150,15 @@ class DisplayAdjustmentWorkbenchTest(unittest.TestCase):
             self.window.display_adjustment_session.effective(self.first),
             DisplayAdjustmentValues(0, 0),
         )
-        self.assertEqual(
-            panel.current_status.text(), "Individually Adjusted"
-        )
+        self.assertTrue(panel.current_disclosure.is_adjusted)
+        self.assertTrue(panel.reset_current_button.isEnabled())
 
         panel.master_brightness.slider.setValue(80)
         self.window.display_adjustment_controller.finish_master_gesture()
         self.assertFalse(
             self.window.display_adjustment_session.has_override(self.first)
         )
-        self.assertTrue(panel.notice_frame.isVisible())
+        self.assertFalse(panel.notice_frame.isHidden())
 
         panel.restore_button.click()
         self.assertEqual(
@@ -155,6 +169,53 @@ class DisplayAdjustmentWorkbenchTest(unittest.TestCase):
             self.window.display_adjustment_session.effective(self.first),
             DisplayAdjustmentValues(0, 0),
         )
+
+    def test_visible_reset_buttons_reset_their_own_scope(self):
+        self.assertTrue(self.window.load_file(self.first))
+        panel = self.window.display_adjustment_panel
+        panel.master_brightness.slider.setValue(25)
+        self.window.display_adjustment_controller.finish_master_gesture()
+        panel.current_brightness.slider.setValue(-10)
+
+        self.assertTrue(panel.reset_all_button.icon().isNull())
+        self.assertTrue(panel.reset_current_button.icon().isNull())
+        self.assertEqual(panel.reset_all_button.text(), "")
+        self.assertEqual(panel.reset_current_button.text(), "")
+        self.assertTrue(panel.reset_current_button.isEnabled())
+        panel.reset_current_button.click()
+        self.assertFalse(
+            self.window.display_adjustment_session.has_override(self.first)
+        )
+        self.assertEqual(
+            self.window.display_adjustment_session.effective(self.first),
+            DisplayAdjustmentValues(25, 0),
+        )
+        self.assertFalse(panel.reset_current_button.isEnabled())
+
+        panel.reset_all_button.click()
+        self.assertEqual(
+            self.window.display_adjustment_session.master,
+            DisplayAdjustmentValues(),
+        )
+
+    def test_scope_headings_align_and_reset_actions_are_icon_only(self):
+        self.assertTrue(self.window.load_file(self.first))
+        panel = self.window.display_adjustment_panel
+        panel.current_disclosure.setChecked(True)
+        panel.adjustSize()
+        QApplication.processEvents()
+
+        master_x = panel.master_title.mapTo(panel, QPoint(0, 0)).x()
+        current_x = panel.current_disclosure.mapTo(panel, QPoint(0, 0)).x()
+        self.assertEqual(master_x, current_x)
+        self.assertEqual(
+            panel.master_title.height(), panel.current_disclosure.height()
+        )
+        for button in (panel.reset_all_button, panel.reset_current_button):
+            self.assertEqual(button.text(), "")
+            self.assertTrue(button.icon().isNull())
+            self.assertEqual((button.width(), button.height()), (28, 28))
+            self.assertTrue(button.accessibleName())
 
     def test_current_override_follows_navigation_and_disclosure_stays_open(self):
         self.window.import_dir_images(self.temporary.name)
@@ -170,20 +231,81 @@ class DisplayAdjustmentWorkbenchTest(unittest.TestCase):
         self.window.open_prev_image()
         self.assertEqual(self.window.file_path, first_path)
         self.assertEqual(panel.current_brightness.value(), 25)
-        self.assertEqual(
-            panel.current_status.text(), "Individually Adjusted"
-        )
+        self.assertTrue(panel.current_disclosure.is_adjusted)
 
-    def test_hidden_panel_keeps_effect_and_status_reopens_it(self):
+    def test_new_workspace_closes_panel_and_collapses_current_section(self):
         self.assertTrue(self.window.load_file(self.first))
         panel = self.window.display_adjustment_panel
+        overlay = self.window.display_adjustment_overlay
+        overlay.button.click()
+        panel.current_disclosure.setChecked(True)
+
+        self.window.display_adjustment_controller.replace_workspace(
+            "another-workspace"
+        )
+
+        self.assertFalse(overlay.panel_shell.isVisible())
+        self.assertFalse(overlay.button.isChecked())
+        self.assertFalse(panel.current_disclosure.isChecked())
+
+    def test_only_floating_button_closes_panel_and_menu_only_opens(self):
+        self.assertTrue(self.window.load_file(self.first))
+        panel = self.window.display_adjustment_panel
+        overlay = self.window.display_adjustment_overlay
+        button = overlay.button
+        button.click()
+        self.assertTrue(overlay.panel_shell.isVisible())
         panel.master_contrast.slider.setValue(20)
-        self.window.display_adjustment_dock.hide()
+        button.click()
 
         self.assertTrue(self.window.display_adjustment_session.has_adjustments)
-        self.assertTrue(self.window.display_adjustment_status.isVisible())
-        self.window.display_adjustment_status.click()
-        self.assertTrue(self.window.display_adjustment_dock.isVisible())
+        self.assertFalse(overlay.panel_shell.isVisible())
+        self.assertEqual(button._status, "active")
+        self.window.actions.displayAdjustment.trigger()
+        self.assertTrue(overlay.panel_shell.isVisible())
+        self.window.actions.displayAdjustment.trigger()
+        self.assertTrue(overlay.panel_shell.isVisible())
+        button.click()
+        self.assertFalse(overlay.panel_shell.isVisible())
+
+    def test_overlay_stays_bounded_and_ignores_outside_click_and_escape(self):
+        viewport = QWidget()
+        viewport.resize(320, 240)
+        viewport.show()
+        panel = DisplayAdjustmentPanel()
+        action = QAction(viewport)
+        overlay = DisplayAdjustmentOverlay(
+            viewport, panel, action, viewport
+        )
+        panel.project(
+            DisplayAdjustmentValues(),
+            DisplayAdjustmentValues(),
+            has_override=False,
+            has_image=True,
+        )
+        overlay.button.click()
+        panel.current_disclosure.setChecked(True)
+        self.app.processEvents()
+
+        self.assertEqual(overlay.button.pos(), QPoint(12, 192))
+        self.assertEqual(overlay.panel_shell.x(), 12)
+        self.assertEqual(overlay.panel_shell.width(), 248)
+        self.assertGreaterEqual(overlay.panel_shell.y(), 8)
+        self.assertLessEqual(
+            overlay.panel_shell.y() + overlay.panel_shell.height(),
+            overlay.button.y() - 8,
+        )
+        self.assertGreater(
+            overlay.scroller.verticalScrollBar().maximum(), 0
+        )
+
+        QTest.mouseClick(viewport, Qt.LeftButton, pos=QPoint(300, 20))
+        QTest.keyClick(viewport, Qt.Key_Escape)
+
+        self.assertTrue(overlay.panel_shell.isVisible())
+        self.assertTrue(overlay.button.isChecked())
+        viewport.close()
+        viewport.deleteLater()
 
     def test_source_replacement_clears_current_override_and_keeps_shapes(self):
         self.assertTrue(self.window.load_file(self.first))
@@ -216,6 +338,7 @@ class DisplayAdjustmentWorkbenchTest(unittest.TestCase):
 
         self.window.display_adjustment_controller.set_canvas_gesture_active(True)
         self.assertFalse(panel.master_frame.isEnabled())
+        self.assertFalse(panel.reset_current_button.isEnabled())
         self.window.display_adjustment_controller.set_canvas_gesture_active(False)
         self.assertTrue(panel.master_frame.isEnabled())
 
@@ -228,13 +351,22 @@ class DisplayAdjustmentWorkbenchTest(unittest.TestCase):
         set_language(SIMPLIFIED_CHINESE)
         self.window.retranslate_ui()
 
-        self.assertEqual(self.window.display_adjustment_dock.windowTitle(), "显示调节")
         self.assertEqual(self.window.actions.displayAdjustment.text(), "显示调节")
+        self.assertEqual(
+            self.window.display_adjustment_overlay.button.accessibleName(),
+            "显示调节",
+        )
         self.assertEqual(
             self.window.display_adjustment_panel.master_brightness.slider.accessibleName(),
             "亮度",
         )
-        self.assertEqual(panel.current_status.text(), "单独调整")
+        self.assertEqual(panel.master_title.text(), "所有图像")
+        self.assertEqual(panel.current_disclosure.text(), "当前图像")
+        self.assertEqual(panel.reset_all_button.text(), "")
+        self.assertEqual(panel.reset_current_button.text(), "")
+        self.assertEqual(panel.reset_all_button.toolTip(), "重置所有图像")
+        self.assertEqual(panel.reset_current_button.toolTip(), "重置当前图像")
+        self.assertTrue(panel.current_disclosure.is_adjusted)
         self.assertIn("2 张图像", panel.notice_label.text())
         self.assertIn("无法调节", panel.error_label.text())
 
