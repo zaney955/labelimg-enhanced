@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.3.0
+
+- Added a compact lower-left Canvas display-adjustment button with floating workspace-wide and current-image brightness and contrast controls.
+- Added session-scoped label color customization and synchronized annotation styling across the Canvas and annotation workflow.
+- Replaced the brightness, contrast, and Gamma number fields in Adjust Image with compact sliders, live value badges, and gesture-coalesced Undo.
+- Accelerated Canvas and Image-menu adjustments with bounded logical-size previews, a latest-only render queue, decoded-image reuse, adjacent-image prefetch, and cached single-pass lookup tables.
+- Refined image-tool previews, geometry controls, colored-frame removal, crop overlays, localization, and command-surface consistency.
+
 ## 2.1.0
 
 - Added a complete bilingual keyboard-shortcut catalog and application information dialog with a link to the canonical GitHub repository.
