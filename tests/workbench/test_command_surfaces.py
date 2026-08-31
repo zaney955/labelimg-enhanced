@@ -79,7 +79,7 @@ class CommandSurfacesTest(unittest.TestCase):
             for action in menu.actions()
         ]
 
-    def test_left_rail_is_fixed_and_contains_canvas_display_controls(self):
+    def test_left_rail_is_fixed_and_contains_only_canvas_modes(self):
         rail = self.window.tools
 
         self.assertEqual(rail.width(), 52)
@@ -96,7 +96,6 @@ class CommandSurfacesTest(unittest.TestCase):
                 self.window.actions.create,
                 self.window.actions.panTool,
                 self.window.actions.cropImage,
-                self.window.actions.displayAdjustment,
             ],
         )
         self.assertTrue(self.window.actions.selectTool.isChecked())
@@ -120,34 +119,36 @@ class CommandSurfacesTest(unittest.TestCase):
             button.defaultAction() for button in rail.buttons.values()
         ))
 
-        display_button = rail.buttons["displayAdjustment"]
-        self.assertEqual(
-            display_button.objectName(),
-            "canvasTool_displayAdjustment",
-        )
         self.assertNotIn(
             self.window.actions.displayAdjustment,
-            rail.tool_group.actions(),
+            [
+                button.defaultAction()
+                for button in rail.buttons.values()
+            ],
         )
 
-    def test_left_rail_display_adjustment_button_toggles_panel(self):
+    def test_canvas_display_button_toggles_panel_without_changing_mode(self):
         action = self.window.actions.displayAdjustment
-        button = self.window.tools.buttons["displayAdjustment"]
         self.window.show()
         self.app.processEvents()
+        self.load_image()
+        button = self.window.display_adjustment_overlay.button
+        overlay = self.window.display_adjustment_overlay
         self.window.actions.panTool.setEnabled(True)
         self.window.actions.panTool.trigger()
 
-        self.assertTrue(self.window.display_adjustment_dock.isVisible())
-        self.assertTrue(action.isChecked())
+        self.assertFalse(overlay.panel_shell.isVisible())
+        self.assertFalse(action.isCheckable())
         button.click()
-        self.assertFalse(self.window.display_adjustment_dock.isVisible())
-        self.assertFalse(action.isChecked())
+        self.assertTrue(overlay.panel_shell.isVisible())
+        self.assertTrue(button.isChecked())
         self.assertTrue(self.window.actions.panTool.isChecked())
         self.assertEqual(self.window.canvas.mode, Canvas.PAN)
+        action.trigger()
+        self.assertTrue(overlay.panel_shell.isVisible())
         button.click()
-        self.assertTrue(self.window.display_adjustment_dock.isVisible())
-        self.assertTrue(action.isChecked())
+        self.assertFalse(overlay.panel_shell.isVisible())
+        self.assertFalse(button.isChecked())
         self.assertTrue(self.window.actions.panTool.isChecked())
         self.assertEqual(self.window.canvas.mode, Canvas.PAN)
 

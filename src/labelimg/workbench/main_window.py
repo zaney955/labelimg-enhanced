@@ -244,26 +244,12 @@ class MainWindow(
         self.dock.setWindowTitle(tr('boxLabelText'))
         self.file_dock.setWindowTitle(tr('fileList'))
         self.image_quality_dock.setWindowTitle(tr('quality.panelTitle'))
-        self.display_adjustment_dock.setWindowTitle(
-            tr('displayAdjustment.title')
-        )
         set_action_copy(
             self.display_adjustment_action,
             tr('displayAdjustment.title'),
-            tr('displayAdjustment.activeTip'),
+            tr('displayAdjustment.openTip'),
         )
-        self.display_adjustment_status.setText(
-            tr('displayAdjustment.active')
-        )
-        self.display_adjustment_status.setToolTip(
-            tr('displayAdjustment.activeTip')
-        )
-        self.display_adjustment_status.setAccessibleName(
-            tr('displayAdjustment.active')
-        )
-        self.display_adjustment_status.setAccessibleDescription(
-            tr('displayAdjustment.activeTip')
-        )
+        self.display_adjustment_overlay.retranslate_ui()
         set_action_copy(self.actions.labels, tr('showHide'))
         self.menus.file.setTitle(tr('menu_file'))
         self.menus.edit.setTitle(tr('menu_edit'))
@@ -454,11 +440,7 @@ class MainWindow(
         self.paint_canvas()
 
     def _display_adjustment_active_changed(self, active):
-        self.display_adjustment_status.setVisible(bool(active))
-
-    def _show_display_adjustment_panel(self):
-        self.display_adjustment_dock.show()
-        self.display_adjustment_dock.raise_()
+        self.display_adjustment_overlay.set_adjustment_active(active)
 
     def _activate_display_adjustment_source(self, image, image_path):
         return self.display_adjustment_controller.activate_source(

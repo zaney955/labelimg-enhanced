@@ -10,20 +10,25 @@ import threading
 from PyQt5.QtCore import (
     QEvent,
     QObject,
+    QPointF,
+    QRectF,
     QSignalBlocker,
     QSize,
     Qt,
     QTimer,
     pyqtSignal,
 )
-from PyQt5.QtGui import QColor, QIcon, QImage, QPainter, QPixmap
+from PyQt5.QtGui import QColor, QImage, QPainter, QPainterPath, QPen, QPixmap
 from PyQt5.QtWidgets import (
     QFrame,
+    QGraphicsDropShadowEffect,
     QHBoxLayout,
     QLabel,
-    QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSlider,
+    QStyle,
+    QStyleOptionToolButton,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -49,16 +54,203 @@ MASTER_GESTURE_IDLE_MS = 240
 
 
 def display_adjustment_icon():
-    """Build a distinct menu icon from the shipped adjustment symbol."""
-    pixmap = new_icon("adjust-image").pixmap(24, 24)
-    painter = QPainter(pixmap)
-    painter.setPen(Qt.NoPen)
-    painter.setBrush(QColor("#F3C26B"))
-    painter.drawEllipse(15, 3, 6, 6)
-    painter.setBrush(QColor("#455468"))
-    painter.drawEllipse(17, 5, 2, 2)
-    painter.end()
-    return QIcon(pixmap)
+    """Return the dedicated non-destructive Canvas display icon."""
+    return new_icon("display-adjustment")
+
+
+class ResetIconButton(QToolButton):
+    """Compact accessible reset button with a project-drawn arc arrow."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("displayAdjustmentResetButton")
+        self.setAutoRaise(False)
+        self.setToolButtonStyle(Qt.ToolButtonIconOnly)
+        self.setFixedSize(28, 28)
+        self.setFocusPolicy(Qt.TabFocus)
+        self.setStyleSheet("""
+            QToolButton#displayAdjustmentResetButton {
+                background: transparent;
+                border: 1px solid palette(midlight);
+                border-radius: 6px;
+                padding: 0;
+            }
+            QToolButton#displayAdjustmentResetButton:hover {
+                background: palette(alternate-base);
+                border-color: palette(highlight);
+            }
+            QToolButton#displayAdjustmentResetButton:focus {
+                border: 2px solid palette(highlight);
+            }
+            QToolButton#displayAdjustmentResetButton:disabled {
+                border-color: palette(midlight);
+            }
+        """)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        color = (
+            self.palette().mid().color()
+            if not self.isEnabled()
+            else self.palette().buttonText().color()
+        )
+        pen = QPen(color)
+        pen.setWidthF(1.6)
+        pen.setCapStyle(Qt.RoundCap)
+        pen.setJoinStyle(Qt.RoundJoin)
+        painter.setPen(pen)
+
+        arc = QPainterPath(QPointF(8.5, 11.0))
+        arc.cubicTo(10.0, 7.5, 14.3, 6.4, 17.7, 8.3)
+        arc.cubicTo(21.5, 10.5, 22.0, 15.5, 19.0, 18.5)
+        arc.cubicTo(16.0, 21.5, 11.0, 21.0, 8.8, 17.3)
+        painter.drawPath(arc)
+        painter.drawLine(QPointF(8.5, 11.0), QPointF(8.5, 7.5))
+        painter.drawLine(QPointF(8.5, 11.0), QPointF(12.0, 11.0))
+        painter.end()
+
+
+class DisplayAdjustmentButton(QToolButton):
+    """Compact Canvas trigger with independent open and activity states."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("displayAdjustmentButton")
+        self.setCheckable(True)
+        self.setAutoRaise(False)
+        self.setFixedSize(36, 36)
+        self.setIconSize(QSize(22, 22))
+        self.setIcon(display_adjustment_icon())
+        self.setFocusPolicy(Qt.TabFocus)
+        self.setStyleSheet("""
+            QToolButton#displayAdjustmentButton {
+                background: palette(window);
+                border: 1px solid palette(mid);
+                border-radius: 10px;
+                padding: 6px;
+            }
+            QToolButton#displayAdjustmentButton:hover,
+            QToolButton#displayAdjustmentButton:checked {
+                background: palette(alternate-base);
+                border-color: palette(highlight);
+            }
+            QToolButton#displayAdjustmentButton:focus {
+                border: 2px solid palette(highlight);
+                padding: 5px;
+            }
+            QToolButton#displayAdjustmentButton:disabled {
+                background: palette(window);
+                border-color: palette(midlight);
+            }
+        """)
+        self._status = "none"
+
+    def set_status(self, status):
+        status = status if status in {"none", "active", "restore", "error"} else "none"
+        if status == self._status:
+            return
+        self._status = status
+        self.update()
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if self._status == "none":
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(self.palette().window().color())
+        painter.drawEllipse(self.width() - 11, 3, 8, 8)
+        painter.setBrush(QColor(
+            "#C45D5D" if self._status == "error" else "#D49A3A"
+        ))
+        painter.drawEllipse(self.width() - 10, 4, 6, 6)
+        painter.end()
+
+
+class CurrentImageDisclosure(QToolButton):
+    """Current-image disclosure with a restrained project-owned chevron."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("currentImageAdjustmentDisclosure")
+        self.setCheckable(True)
+        self.setAutoRaise(True)
+        self.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setFixedHeight(28)
+        self.setStyleSheet("""
+            QToolButton#currentImageAdjustmentDisclosure {
+                border: 0;
+                border-radius: 6px;
+                padding: 0;
+            }
+            QToolButton#currentImageAdjustmentDisclosure:hover {
+                background: palette(alternate-base);
+            }
+            QToolButton#currentImageAdjustmentDisclosure:checked {
+                background: palette(alternate-base);
+            }
+            QToolButton#currentImageAdjustmentDisclosure[adjusted="true"] {
+                background: palette(alternate-base);
+                color: palette(highlight);
+            }
+            QToolButton#currentImageAdjustmentDisclosure:focus {
+                border: 1px solid palette(highlight);
+            }
+        """)
+        self._adjusted = False
+
+    @property
+    def is_adjusted(self):
+        return self._adjusted
+
+    def set_adjusted(self, adjusted):
+        adjusted = bool(adjusted)
+        if adjusted == self._adjusted:
+            return
+        self._adjusted = adjusted
+        self.setProperty("adjusted", adjusted)
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.update()
+
+    def paintEvent(self, event):
+        option = QStyleOptionToolButton()
+        self.initStyleOption(option)
+        option.text = ""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        self.style().drawComplexControl(
+            QStyle.CC_ToolButton, option, painter, self
+        )
+        color = (
+            self.palette().highlight().color()
+            if self._adjusted
+            else self.palette().buttonText().color()
+        )
+        painter.setPen(color)
+        painter.drawText(
+            QRectF(0, 0, self.width() - 22, self.height()),
+            Qt.AlignLeft | Qt.AlignVCenter,
+            self.text(),
+        )
+        pen = QPen(color)
+        pen.setWidthF(1.8)
+        pen.setCapStyle(Qt.RoundCap)
+        pen.setJoinStyle(Qt.RoundJoin)
+        painter.setPen(pen)
+        x = self.width() - 12
+        y = self.height() / 2.0
+        if self.isChecked():
+            painter.drawLine(QPointF(x - 4, y - 2), QPointF(x, y + 2))
+            painter.drawLine(QPointF(x, y + 2), QPointF(x + 4, y - 2))
+        else:
+            painter.drawLine(QPointF(x - 2, y - 4), QPointF(x + 2, y))
+            painter.drawLine(QPointF(x + 2, y), QPointF(x - 2, y + 4))
+        painter.end()
 
 
 class AdjustmentSliderRow(QWidget):
@@ -76,8 +268,16 @@ class AdjustmentSliderRow(QWidget):
         heading.setContentsMargins(0, 0, 0, 0)
         self.title_label = QLabel(self)
         self.value_label = QLabel("0", self)
+        self.value_label.setObjectName("displayAdjustmentValue")
         self.value_label.setMinimumWidth(34)
         self.value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.value_label.setStyleSheet("""
+            QLabel#displayAdjustmentValue {
+                background: palette(alternate-base);
+                border-radius: 5px;
+                padding: 1px 5px;
+            }
+        """)
         heading.addWidget(self.title_label)
         heading.addStretch(1)
         heading.addWidget(self.value_label)
@@ -116,6 +316,8 @@ class AdjustmentSliderRow(QWidget):
 
 
 class DisplayAdjustmentPanel(QWidget):
+    """Compact content projected inside the Canvas floating shell."""
+
     masterValuesChanged = pyqtSignal(object)
     currentValuesChanged = pyqtSignal(object)
     masterGestureStarted = pyqtSignal()
@@ -124,12 +326,14 @@ class DisplayAdjustmentPanel(QWidget):
     resetCurrentRequested = pyqtSignal()
     restoreRequested = pyqtSignal()
     retryRequested = pyqtSignal()
+    availabilityChanged = pyqtSignal(bool)
+    feedbackStateChanged = pyqtSignal()
+    layoutChanged = pyqtSignal()
+    workspaceReplaced = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("displayAdjustmentPanel")
-        self.setMinimumWidth(180)
-        self.setMaximumWidth(360)
         self._projecting = False
         self._has_image = False
         self._has_override = False
@@ -138,25 +342,31 @@ class DisplayAdjustmentPanel(QWidget):
         self._render_error = None
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(10, 10, 10, 10)
-        root.setSpacing(10)
+        root.setContentsMargins(12, 12, 12, 12)
+        root.setSpacing(8)
 
-        self.no_image_label = QLabel(self)
-        self.no_image_label.setAlignment(Qt.AlignCenter)
-        self.no_image_label.setWordWrap(True)
-        self.no_image_label.setStyleSheet("color: palette(mid);")
-        root.addWidget(self.no_image_label)
-
-        self.master_frame = QFrame(self)
-        self.master_frame.setFrameShape(QFrame.StyledPanel)
+        self.master_frame = QWidget(self)
         master_layout = QVBoxLayout(self.master_frame)
-        master_layout.setContentsMargins(8, 8, 8, 8)
-        master_layout.setSpacing(8)
+        master_layout.setContentsMargins(0, 0, 0, 0)
+        master_layout.setSpacing(7)
+        master_header = QHBoxLayout()
+        master_header.setContentsMargins(0, 0, 0, 0)
+        master_header.setSpacing(6)
         self.master_title = QLabel(self.master_frame)
         font = self.master_title.font()
         font.setBold(True)
         self.master_title.setFont(font)
-        master_layout.addWidget(self.master_title)
+        self.master_title.setSizePolicy(
+            QSizePolicy.Expanding, QSizePolicy.Preferred
+        )
+        self.master_title.setFixedHeight(28)
+        self.master_title.setMaximumWidth(112)
+        self.master_title.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        master_header.addWidget(self.master_title)
+        master_header.addStretch(1)
+        self.reset_all_button = ResetIconButton(self.master_frame)
+        master_header.addWidget(self.reset_all_button)
+        master_layout.addLayout(master_header)
         self.master_brightness = AdjustmentSliderRow(
             "adjustment.brightness", self.master_frame
         )
@@ -165,29 +375,27 @@ class DisplayAdjustmentPanel(QWidget):
         )
         master_layout.addWidget(self.master_brightness)
         master_layout.addWidget(self.master_contrast)
-        self.reset_all_button = QPushButton(self.master_frame)
-        master_layout.addWidget(self.reset_all_button)
         root.addWidget(self.master_frame)
 
-        self.current_disclosure = QToolButton(self)
-        self.current_disclosure.setObjectName("currentImageAdjustmentDisclosure")
-        self.current_disclosure.setCheckable(True)
-        self.current_disclosure.setChecked(False)
-        self.current_disclosure.setArrowType(Qt.RightArrow)
-        self.current_disclosure.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.current_disclosure.setSizePolicy(
-            QSizePolicy.Expanding, QSizePolicy.Fixed
-        )
-        root.addWidget(self.current_disclosure)
+        divider = QFrame(self)
+        divider.setFrameShape(QFrame.HLine)
+        divider.setStyleSheet("color: palette(midlight);")
+        root.addWidget(divider)
 
-        self.current_frame = QFrame(self)
-        self.current_frame.setFrameShape(QFrame.StyledPanel)
+        current_header = QHBoxLayout()
+        current_header.setContentsMargins(0, 0, 0, 0)
+        current_header.setSpacing(6)
+        self.current_disclosure = CurrentImageDisclosure(self)
+        self.current_disclosure.setChecked(False)
+        current_header.addWidget(self.current_disclosure, 1)
+        self.reset_current_button = ResetIconButton(self)
+        current_header.addWidget(self.reset_current_button)
+        root.addLayout(current_header)
+
+        self.current_frame = QWidget(self)
         current_layout = QVBoxLayout(self.current_frame)
-        current_layout.setContentsMargins(8, 8, 8, 8)
-        current_layout.setSpacing(8)
-        self.current_status = QLabel(self.current_frame)
-        self.current_status.setStyleSheet("color: palette(mid);")
-        current_layout.addWidget(self.current_status)
+        current_layout.setContentsMargins(0, 0, 0, 0)
+        current_layout.setSpacing(7)
         self.current_brightness = AdjustmentSliderRow(
             "adjustment.brightness", self.current_frame
         )
@@ -196,35 +404,55 @@ class DisplayAdjustmentPanel(QWidget):
         )
         current_layout.addWidget(self.current_brightness)
         current_layout.addWidget(self.current_contrast)
-        self.reset_current_button = QPushButton(self.current_frame)
-        current_layout.addWidget(self.reset_current_button)
         self.current_frame.hide()
         root.addWidget(self.current_frame)
 
         self.notice_frame = QFrame(self)
-        self.notice_frame.setFrameShape(QFrame.StyledPanel)
-        notice_layout = QVBoxLayout(self.notice_frame)
-        notice_layout.setContentsMargins(8, 8, 8, 8)
+        self.notice_frame.setObjectName("displayAdjustmentNotice")
+        self.notice_frame.setStyleSheet("""
+            QFrame#displayAdjustmentNotice {
+                background: palette(alternate-base);
+                border: 1px solid palette(midlight);
+                border-radius: 6px;
+            }
+        """)
+        notice_layout = QHBoxLayout(self.notice_frame)
+        notice_layout.setContentsMargins(8, 6, 6, 6)
+        notice_layout.setSpacing(6)
         self.notice_label = QLabel(self.notice_frame)
         self.notice_label.setWordWrap(True)
-        self.restore_button = QPushButton(self.notice_frame)
+        self.restore_button = QToolButton(self.notice_frame)
+        self.restore_button.setAutoRaise(True)
+        self.restore_button.setToolButtonStyle(Qt.ToolButtonTextOnly)
         notice_layout.addWidget(self.notice_label)
         notice_layout.addWidget(self.restore_button)
         self.notice_frame.hide()
         root.addWidget(self.notice_frame)
 
         self.error_frame = QFrame(self)
-        self.error_frame.setFrameShape(QFrame.StyledPanel)
+        self.error_frame.setObjectName("displayAdjustmentError")
+        self.error_frame.setStyleSheet("""
+            QFrame#displayAdjustmentError {
+                background: palette(alternate-base);
+                border: 1px solid #C45D5D;
+                border-radius: 6px;
+            }
+        """)
         error_layout = QVBoxLayout(self.error_frame)
-        error_layout.setContentsMargins(8, 8, 8, 8)
+        error_layout.setContentsMargins(8, 7, 8, 7)
+        error_layout.setSpacing(5)
         self.error_label = QLabel(self.error_frame)
         self.error_label.setWordWrap(True)
-        self.retry_button = QPushButton(self.error_frame)
+        retry_row = QHBoxLayout()
+        retry_row.addStretch(1)
+        self.retry_button = QToolButton(self.error_frame)
+        self.retry_button.setAutoRaise(True)
+        self.retry_button.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        retry_row.addWidget(self.retry_button)
         error_layout.addWidget(self.error_label)
-        error_layout.addWidget(self.retry_button)
+        error_layout.addLayout(retry_row)
         self.error_frame.hide()
         root.addWidget(self.error_frame)
-        root.addStretch(1)
 
         self.current_disclosure.toggled.connect(self._toggle_current)
         self.reset_all_button.clicked.connect(self.resetAllRequested.emit)
@@ -250,13 +478,16 @@ class DisplayAdjustmentPanel(QWidget):
 
     def sizeHint(self):
         hint = super().sizeHint()
-        return QSize(220, hint.height())
+        return QSize(246, hint.height())
 
     def _toggle_current(self, expanded):
-        self.current_disclosure.setArrowType(
-            Qt.DownArrow if expanded else Qt.RightArrow
-        )
         self.current_frame.setVisible(bool(expanded))
+        self.updateGeometry()
+        self.layoutChanged.emit()
+
+    def reset_workspace_layout(self):
+        self.current_disclosure.setChecked(False)
+        self.workspaceReplaced.emit()
 
     def _master_changed(self, _value):
         if not self._projecting:
@@ -281,20 +512,20 @@ class DisplayAdjustmentPanel(QWidget):
             self.current_contrast.set_value(current.contrast)
         finally:
             self._projecting = False
+        had_image = self._has_image
         self._has_image = bool(has_image)
         self._has_override = bool(has_override)
-        self.no_image_label.setVisible(not self._has_image)
-        self._retranslate_current_status()
-        self.reset_current_button.setEnabled(
-            self._has_image and has_override and not self._gesture_active
-        )
+        self._sync_current_presentation()
         self._sync_enabled()
+        if had_image != self._has_image:
+            self.availabilityChanged.emit(self._has_image)
 
     def _sync_enabled(self):
         enabled = self._has_image and not self._gesture_active
         self.master_frame.setEnabled(enabled)
         self.current_disclosure.setEnabled(enabled)
         self.current_frame.setEnabled(enabled)
+        self.reset_current_button.setEnabled(enabled and self._has_override)
 
     def set_canvas_gesture_active(self, active):
         self._gesture_active = bool(active)
@@ -306,10 +537,14 @@ class DisplayAdjustmentPanel(QWidget):
             tr("displayAdjustment.cleared", count=count)
         )
         self.notice_frame.show()
+        self._feedback_changed()
 
     def hide_restore_notice(self):
+        if self._notice_count is None and not self.notice_frame.isVisible():
+            return
         self._notice_count = None
         self.notice_frame.hide()
+        self._feedback_changed()
 
     def show_render_error(self, path, error):
         self._render_error = (path, error)
@@ -319,31 +554,51 @@ class DisplayAdjustmentPanel(QWidget):
             error=error,
         ))
         self.error_frame.show()
+        self._feedback_changed()
 
     def clear_render_error(self):
+        if self._render_error is None and not self.error_frame.isVisible():
+            return
         self._render_error = None
         self.error_frame.hide()
+        self._feedback_changed()
 
-    def _retranslate_current_status(self):
-        self.current_status.setText(tr(
-            "displayAdjustment.individuallyAdjusted"
-            if self._has_override
-            else "displayAdjustment.followingAll"
-        ))
+    @property
+    def feedback_state(self):
+        if self._render_error is not None:
+            return "error"
+        if self._notice_count is not None:
+            return "restore"
+        return "none"
+
+    def _feedback_changed(self):
+        self.updateGeometry()
+        self.feedbackStateChanged.emit()
+        self.layoutChanged.emit()
+
+    def _sync_current_presentation(self):
+        self.current_disclosure.set_adjusted(self._has_override)
 
     def retranslate_ui(self, _language=None):
         self.master_title.setText(tr("displayAdjustment.allImages"))
         self.current_disclosure.setText(
             tr("displayAdjustment.currentImage")
         )
-        self.reset_all_button.setText(tr("displayAdjustment.resetAll"))
-        self.reset_current_button.setText(
+        self.reset_all_button.setText("")
+        self.reset_all_button.setToolTip(tr("displayAdjustment.resetAll"))
+        self.reset_all_button.setAccessibleName(
+            tr("displayAdjustment.resetAll")
+        )
+        self.reset_current_button.setText("")
+        self.reset_current_button.setToolTip(
+            tr("displayAdjustment.resetCurrent")
+        )
+        self.reset_current_button.setAccessibleName(
             tr("displayAdjustment.resetCurrent")
         )
         self.restore_button.setText(tr("displayAdjustment.restore"))
         self.retry_button.setText(tr("displayAdjustment.retry"))
-        self.no_image_label.setText(tr("displayAdjustment.noImage"))
-        self._retranslate_current_status()
+        self._sync_current_presentation()
         if self._notice_count is not None:
             self.notice_label.setText(tr(
                 "displayAdjustment.cleared", count=self._notice_count
@@ -368,6 +623,180 @@ class DisplayAdjustmentPanel(QWidget):
             self.current_contrast,
         ):
             row.retranslate_ui()
+        self.layoutChanged.emit()
+
+
+class DisplayAdjustmentOverlay(QObject):
+    """Place a persistent floating trigger and scrollable panel in a viewport."""
+
+    PANEL_WIDTH = 248
+    VIEWPORT_MARGIN = 12
+    PANEL_TOP_MARGIN = 8
+    PANEL_GAP = 8
+
+    def __init__(self, viewport, panel, action, parent=None):
+        super().__init__(parent or viewport)
+        self.viewport = viewport
+        self.panel = panel
+        self.action = action
+        self._has_image = False
+        self._active = False
+
+        self.panel_shell = QFrame(viewport)
+        self.panel_shell.setObjectName("displayAdjustmentFloatingPanel")
+        self.panel_shell.setStyleSheet("""
+            QFrame#displayAdjustmentFloatingPanel {
+                background: palette(window);
+                border: 1px solid palette(mid);
+                border-radius: 8px;
+            }
+        """)
+        shadow = QGraphicsDropShadowEffect(self.panel_shell)
+        shadow.setBlurRadius(18)
+        shadow.setOffset(0, 4)
+        shadow.setColor(QColor(0, 0, 0, 42))
+        self.panel_shell.setGraphicsEffect(shadow)
+        shell_layout = QVBoxLayout(self.panel_shell)
+        shell_layout.setContentsMargins(1, 1, 1, 1)
+        shell_layout.setSpacing(0)
+        self.scroller = QScrollArea(self.panel_shell)
+        self.scroller.setObjectName("displayAdjustmentScroller")
+        self.scroller.setFrameShape(QFrame.NoFrame)
+        self.scroller.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroller.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.scroller.setWidgetResizable(True)
+        self.scroller.setStyleSheet(
+            "QScrollArea#displayAdjustmentScroller { background: transparent; border: 0; }"
+        )
+        self.scroller.setWidget(panel)
+        shell_layout.addWidget(self.scroller)
+        self.panel_shell.hide()
+
+        self.button = DisplayAdjustmentButton(viewport)
+        self.button.clicked.connect(self._button_toggled)
+        self.action.triggered.connect(self.open)
+
+        panel.availabilityChanged.connect(self.set_has_image)
+        panel.feedbackStateChanged.connect(self._sync_presentation)
+        panel.layoutChanged.connect(self._schedule_reposition)
+        panel.workspaceReplaced.connect(self._close_for_workspace)
+        viewport.installEventFilter(self)
+        language_changed.connect(self.retranslate_ui)
+        self.set_has_image(False)
+        self.retranslate_ui()
+        QTimer.singleShot(0, self.reposition)
+
+    @property
+    def is_panel_visible(self):
+        return self.panel_shell.isVisible()
+
+    def eventFilter(self, watched, event):
+        if watched is self.viewport and event.type() in (
+            QEvent.Resize,
+            QEvent.Show,
+        ):
+            self.reposition()
+        return super().eventFilter(watched, event)
+
+    def open(self, *_args):
+        if not self._has_image:
+            return
+        self.panel_shell.show()
+        self.button.setChecked(True)
+        self.reposition()
+        self.panel_shell.raise_()
+        self.button.raise_()
+        self._sync_presentation()
+
+    def close_from_button(self):
+        self.panel_shell.hide()
+        self.button.setChecked(False)
+        self._sync_presentation()
+
+    def _close_for_workspace(self):
+        self.panel_shell.hide()
+        self.button.setChecked(False)
+        self._sync_presentation()
+
+    def _button_toggled(self, checked):
+        if checked:
+            self.open()
+        else:
+            self.close_from_button()
+
+    def set_has_image(self, has_image):
+        self._has_image = bool(has_image)
+        self.button.setEnabled(self._has_image)
+        self.action.setEnabled(self._has_image)
+        if not self._has_image:
+            self.panel_shell.hide()
+            self.button.setChecked(False)
+        self._sync_presentation()
+
+    def set_adjustment_active(self, active):
+        self._active = bool(active)
+        self._sync_presentation()
+
+    def _schedule_reposition(self):
+        QTimer.singleShot(0, self.reposition)
+
+    def reposition(self):
+        width = max(0, self.viewport.width())
+        height = max(0, self.viewport.height())
+        button_x = min(self.VIEWPORT_MARGIN, max(0, width - self.button.width()))
+        button_y = max(0, height - self.VIEWPORT_MARGIN - self.button.height())
+        self.button.move(button_x, button_y)
+
+        available_width = max(0, width - 2 * self.VIEWPORT_MARGIN)
+        panel_width = min(self.PANEL_WIDTH, available_width)
+        available_height = max(
+            0,
+            button_y - self.PANEL_GAP - self.PANEL_TOP_MARGIN,
+        )
+        desired_height = self.panel.sizeHint().height() + 6
+        panel_height = min(desired_height, available_height)
+        panel_y = max(
+            self.PANEL_TOP_MARGIN,
+            button_y - self.PANEL_GAP - panel_height,
+        )
+        self.panel_shell.setGeometry(
+            button_x,
+            panel_y,
+            panel_width,
+            panel_height,
+        )
+        if self.panel_shell.isVisible():
+            self.panel_shell.raise_()
+        self.button.raise_()
+
+    def _sync_presentation(self):
+        feedback = self.panel.feedback_state
+        status = (
+            "none" if not self._has_image
+            else "error" if feedback == "error"
+            else "restore" if feedback == "restore"
+            else "active" if self._active
+            else "none"
+        )
+        self.button.set_status(status)
+        self.retranslate_ui()
+
+    def retranslate_ui(self, _language=None):
+        if not self._has_image:
+            tip = tr("displayAdjustment.noImage")
+        elif self.panel_shell.isVisible():
+            tip = tr("displayAdjustment.closeTip")
+        elif self.panel.feedback_state == "error":
+            tip = tr("displayAdjustment.errorTip")
+        elif self.panel.feedback_state == "restore":
+            tip = tr("displayAdjustment.restoreTip")
+        elif self._active:
+            tip = tr("displayAdjustment.activeTip")
+        else:
+            tip = tr("displayAdjustment.openTip")
+        self.button.setToolTip(tip)
+        self.button.setAccessibleName(tr("displayAdjustment.title"))
+        self.button.setAccessibleDescription(tip)
 
 
 @dataclass(frozen=True)
@@ -504,6 +933,7 @@ class CanvasDisplayAdjustmentController(QObject):
 
     def replace_workspace(self, workspace_key):
         if self.session.replace_workspace(workspace_key):
+            self.panel.reset_workspace_layout()
             self.panel.hide_restore_notice()
             self.panel.clear_render_error()
             self._generation += 1
@@ -780,6 +1210,7 @@ def source_token(path):
 
 __all__ = (
     "CanvasDisplayAdjustmentController",
+    "DisplayAdjustmentOverlay",
     "DisplayAdjustmentPanel",
     "display_adjustment_icon",
     "render_adjusted_image",

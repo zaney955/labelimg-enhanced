@@ -41,6 +41,7 @@
 <file alias="flip-vertical">resources/icons/flip-vertical.svg</file>
 <file alias="geometry-transform">resources/icons/geometry-transform.svg</file>
 <file alias="adjust-image">resources/icons/adjust-image.svg</file>
+<file alias="display-adjustment">resources/icons/display-adjustment.svg</file>
 <file alias="image-quality">resources/icons/image-quality.svg</file>
 <file alias="specialized-repair">resources/icons/specialized-repair.svg</file>
 <file alias="remove-frames">resources/icons/remove-frames.svg</file>

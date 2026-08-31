@@ -6,6 +6,7 @@
 - Added an explicit annotation-format selector with the same pending-edit and storage-transition safeguards as other format changes.
 - Added concise near-duplicate and category-conflict indicators with label summaries, focused member inspection, and annotation-list discovery for hidden boxes.
 - Added YOLO comment support and corrected Unicode handling for class files.
+- Replaced the docked display-adjustment controls with a compact lower-left Canvas button and persistent floating panel for workspace-wide and current-image presentation settings.
 - Made queued automatic saves finish safely before image navigation.
 - Kept batch deletion responsive for very high-resolution images by releasing old pixel buffers, decoding the replacement image in the background, and safely joining image-loading threads during shutdown.
 - Removed obsolete upstream-era project files and standardized review shortcuts.
