@@ -45,6 +45,20 @@ class DisplayAdjustmentRenderingTest(unittest.TestCase):
         self.assertGreater(pixel.blue(), 140)
         self.assertEqual(image.pixelColor(0, 0), QColor(100, 120, 140, 77))
 
+    def test_preview_render_stays_bounded_instead_of_expanding_to_source(self):
+        image = QImage(400, 200, QImage.Format_RGBA8888)
+        image.fill(QColor(100, 120, 140, 255))
+
+        adjusted = render_adjusted_image(
+            image,
+            DisplayAdjustmentValues(20, 0),
+            max_pixels=10_000,
+        )
+
+        self.assertLessEqual(adjusted.width() * adjusted.height(), 10_000)
+        self.assertLess(adjusted.width(), image.width())
+        self.assertLess(adjusted.height(), image.height())
+
 
 class DisplayAdjustmentWorkbenchTest(unittest.TestCase):
     @classmethod
@@ -138,6 +152,43 @@ class DisplayAdjustmentWorkbenchTest(unittest.TestCase):
             self.window.display_adjustment_overlay.button._status,
             "active",
         )
+
+    def test_adjusted_navigation_uses_bounded_pixels_with_full_canvas_geometry(self):
+        self.window.import_dir_images(self.temporary.name)
+        self.window.display_adjustment_panel.master_brightness.slider.setValue(20)
+        self.window.display_adjustment_controller.finish_master_gesture()
+        with patch(
+            "labelimg.image_tools.ui.display_adjustment.PREVIEW_MAX_PIXELS",
+            100,
+        ):
+            self.window.open_next_image()
+
+        self.assertLessEqual(
+            self.window.canvas.pixmap.width()
+            * self.window.canvas.pixmap.height(),
+            100,
+        )
+        self.assertEqual(
+            self.window.canvas.pixmap_size,
+            self.window.image.size(),
+        )
+        snapshot = self.window.annotation_scene.capture(self.window.file_path)
+        self.assertEqual(snapshot.image_size, (32, 24))
+
+    def test_adjacent_navigation_uses_prefetched_decode(self):
+        self.window.import_dir_images(self.temporary.name)
+        target = self.window._adjacent_visible_file(1)
+        self.assertIsNotNone(target)
+        cache = self.window._ensure_image_decode_cache()
+        self._wait_until(lambda: cache.get(target) is not None)
+
+        with patch(
+            "labelimg.workbench.main_window.read",
+            side_effect=AssertionError("prefetched image should avoid decoding"),
+        ):
+            self.window.open_next_image()
+
+        self.assertEqual(self.window.file_path, target)
 
     def test_current_values_override_master_and_master_can_restore_clear(self):
         self.assertTrue(self.window.load_file(self.first))

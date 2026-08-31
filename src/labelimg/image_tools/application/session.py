@@ -58,6 +58,7 @@ class CropChange:
 class AdjustmentChange:
     paths: tuple
     options: object
+    current_path: str | None = None
 
 
 @dataclass(frozen=True)
@@ -88,6 +89,7 @@ class ImageProcessingPlan:
     _preserve_current: bool = False
     _direction: str = "geometry-transform"
     _target_count: int | None = None
+    _current_prepared: object | None = None
 
 
 @dataclass(frozen=True)
@@ -167,6 +169,7 @@ class ImageProcessingProjection:
     snapshot: object | None = None
     direction: str | None = None
     error: Exception | None = None
+    current_prepared: object | None = None
 
 
 class ImageProcessingSession:
@@ -267,10 +270,21 @@ class ImageProcessingSession:
             paths = tuple(
                 os.path.abspath(os.fspath(path)) for path in change.paths
             )
+            current_key = (
+                _path_key(change.current_path)
+                if change.current_path is not None
+                else None
+            )
             image_infos = tuple(self._codec.inspect(path) for path in paths)
             prepared = _parallel_map(
                 lambda path: processor.prepare(
-                    path, change.options, retain_pixels=False
+                    path,
+                    change.options,
+                    retain_pixels=(
+                        current_key is not None
+                        and _path_key(path) == current_key
+                    ),
+                    retain_original_pixels=False,
                 ),
                 paths,
                 _image_worker_count(image_infos, live_copies=3.0),
@@ -282,11 +296,22 @@ class ImageProcessingSession:
             )
             if not replacements:
                 return None
+            current_prepared = next(
+                (
+                    result
+                    for result in prepared
+                    if current_key is not None
+                    and _path_key(result.path) == current_key
+                    and result.replacement is not None
+                ),
+                None,
+            )
             return self._plan(
                 tuple(item.path for item in replacements),
                 changes_geometry=False,
                 replacements=replacements,
                 target_count=len(replacements),
+                current_prepared=current_prepared,
             )
 
         if isinstance(change, PreparedPixelChange):
@@ -323,6 +348,7 @@ class ImageProcessingSession:
         return self._commit_pixel(
             plan._replacements,
             target_count=plan._target_count,
+            current_prepared=plan._current_prepared,
         )
 
     def _prepare_geometry(self, paths, prepare, *, current_path=None):
@@ -393,7 +419,13 @@ class ImageProcessingSession:
             ))
         return GeometryProcessingPlan(tuple(targets))
 
-    def _commit_pixel(self, replacements, *, target_count=None):
+    def _commit_pixel(
+        self,
+        replacements,
+        *,
+        target_count=None,
+        current_prepared=None,
+    ):
         """Commit pixel-only replacements and project every changed path."""
         replacements = tuple(replacements)
         outcome = self._transaction.execute(
@@ -408,6 +440,7 @@ class ImageProcessingSession:
             ImageProcessingProjectionKind.PIXEL_COMMIT,
             paths,
             outcome,
+            current_prepared=current_prepared,
         ))
         return outcome
 
@@ -546,6 +579,7 @@ class ImageProcessingSession:
         preserve_current=False,
         direction="geometry-transform",
         target_count=None,
+        current_prepared=None,
     ):
         return ImageProcessingPlan(
             plan_id=uuid.uuid4().hex,
@@ -560,6 +594,7 @@ class ImageProcessingSession:
             _preserve_current=bool(preserve_current),
             _direction=direction,
             _target_count=target_count,
+            _current_prepared=current_prepared,
         )
 
 

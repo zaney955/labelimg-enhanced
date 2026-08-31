@@ -12,6 +12,7 @@ from labelimg.image_tools.infrastructure.recoverable_replacement import (
     PreparedImageReplacement,
 )
 from labelimg.image_tools.application.session import (
+    AdjustmentChange,
     GeometryTransformChange,
     ImageProcessingProjectionKind,
     ImageProcessingProjectionError,
@@ -19,6 +20,7 @@ from labelimg.image_tools.application.session import (
     PreparedPixelChange,
     _image_worker_count,
 )
+from labelimg.image_tools.application.adjustment import ImageAdjustmentOptions
 
 
 class _Editing:
@@ -189,6 +191,26 @@ class ImageProcessingSessionTest(unittest.TestCase):
             ImageProcessingProjectionKind.PIXEL_COMMIT,
         )
         self.assertEqual(projection.paths, (os.path.abspath(path),))
+
+    def test_adjustment_projects_retained_current_result_without_source_copy(self):
+        path = self._image()
+
+        plan = self.session.prepare(AdjustmentChange(
+            paths=(path,),
+            options=ImageAdjustmentOptions(brightness=-10),
+            current_path=path,
+        ))
+        self.assertIsNotNone(plan._current_prepared)
+        self.assertIsNone(plan._current_prepared.original_pixels)
+        self.assertIsNotNone(plan._current_prepared.result_pixels)
+
+        self.session.commit(plan)
+
+        projection = self.projections[-1]
+        self.assertIs(
+            projection.current_prepared,
+            plan._current_prepared,
+        )
 
     def test_current_geometry_projects_then_rebases_one_clean_baseline(self):
         path = self._image()

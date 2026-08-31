@@ -1,5 +1,5 @@
 
-from PyQt5.QtCore import QEvent, QPoint, QPointF, QRectF, Qt, pyqtSignal
+from PyQt5.QtCore import QEvent, QPoint, QPointF, QRectF, QSize, Qt, pyqtSignal
 from PyQt5.QtGui import (
     QBrush,
     QColor,
@@ -73,6 +73,7 @@ class Canvas(QWidget):
         self.mode = self.EDIT
         self.shapes = []
         self.current = None
+        self._pixmap_logical_size = QSize()
         self._selection = SelectionSet()
         self._interaction = CanvasInteraction()
         self._external_hover_shapes = tuple()
@@ -614,7 +615,7 @@ class Canvas(QWidget):
                     # Don't allow the user to draw outside the pixmap.
                     # Clip the coordinates to 0 or max,
                     # if they are outside the range [0, max]
-                    size = self.pixmap.size()
+                    size = self.pixmap_size
                     clipped_x = min(max(0, pos.x()), size.width())
                     clipped_y = min(max(0, pos.y()), size.height())
                     pos = QPointF(clipped_x, clipped_y)
@@ -943,11 +944,12 @@ class Canvas(QWidget):
         Moves a point x,y to within the boundaries of the canvas.
         :return: (x,y,snapped) where snapped is True if x or y were changed, False if not.
         """
-        if x < 0 or x > self.pixmap.width() or y < 0 or y > self.pixmap.height():
+        size = self.pixmap_size
+        if x < 0 or x > size.width() or y < 0 or y > size.height():
             x = max(x, 0)
             y = max(y, 0)
-            x = min(x, self.pixmap.width())
-            y = min(y, self.pixmap.height())
+            x = min(x, size.width())
+            y = min(y, size.height())
             return x, y, True
 
         return x, y, False
@@ -1027,7 +1029,7 @@ class Canvas(QWidget):
         index, shape = hover.vertex, hover.shape
         point = shape[index]
         if self.out_of_pixmap(pos):
-            size = self.pixmap.size()
+            size = self.pixmap_size
             clipped_x = min(max(0, pos.x()), size.width())
             clipped_y = min(max(0, pos.y()), size.height())
             pos = QPointF(clipped_x, clipped_y)
@@ -1068,9 +1070,10 @@ class Canvas(QWidget):
         opposite_first = (edge + 2) % 4
         opposite_second = (edge + 3) % 4
         vertical_coordinate = edge % 2 == 0
+        image_size = self.pixmap_size
 
         if vertical_coordinate:
-            coordinate = min(max(0.0, pos.y()), float(self.pixmap.height()))
+            coordinate = min(max(0.0, pos.y()), float(image_size.height()))
             current = (
                 shape[first_index].y() + shape[second_index].y()
             ) / 2.0
@@ -1078,7 +1081,7 @@ class Canvas(QWidget):
                 shape[opposite_first].y() + shape[opposite_second].y()
             ) / 2.0
         else:
-            coordinate = min(max(0.0, pos.x()), float(self.pixmap.width()))
+            coordinate = min(max(0.0, pos.x()), float(image_size.width()))
             current = (
                 shape[first_index].x() + shape[second_index].x()
             ) / 2.0
@@ -1107,8 +1110,9 @@ class Canvas(QWidget):
             pos -= QPointF(min(0, o1.x()), min(0, o1.y()))
         o2 = pos + self.offsets[1]
         if self.out_of_pixmap(o2):
-            pos += QPointF(min(0, self.pixmap.width() - o2.x()),
-                           min(0, self.pixmap.height() - o2.y()))
+            size = self.pixmap_size
+            pos += QPointF(min(0, size.width() - o2.x()),
+                           min(0, size.height() - o2.y()))
         # The next line tracks the new position of the cursor
         # relative to the shape, but also results in making it
         # a bit "shaky" when nearing the border and allows it to
@@ -1212,7 +1216,15 @@ class Canvas(QWidget):
         p.scale(self.scale, self.scale)
         p.translate(self.offset_to_center())
 
-        p.drawPixmap(0, 0, self.pixmap)
+        image_size = self.pixmap_size
+        if self.pixmap.size() == image_size:
+            p.drawPixmap(0, 0, self.pixmap)
+        else:
+            p.drawPixmap(
+                QRectF(0, 0, image_size.width(), image_size.height()),
+                self.pixmap,
+                QRectF(self.pixmap.rect()),
+            )
         Shape.scale = self.scale
         Shape.label_font_size = self.label_font_size
         hover_shapes = set(
@@ -1291,10 +1303,11 @@ class Canvas(QWidget):
 
         if self.drawing() and not self.prev_point.isNull() and not self.out_of_pixmap(self.prev_point):
             p.setPen(QColor(0, 0, 0))
+            image_size = self.pixmap_size
             p.drawLine(int(round(self.prev_point.x())), 0,
-                       int(round(self.prev_point.x())), self.pixmap.height())
+                       int(round(self.prev_point.x())), image_size.height())
             p.drawLine(0, int(round(self.prev_point.y())),
-                       self.pixmap.width(), int(round(self.prev_point.y())))
+                       image_size.width(), int(round(self.prev_point.y())))
 
         p.save()
         p.resetTransform()
@@ -1531,7 +1544,8 @@ class Canvas(QWidget):
     def offset_to_center(self):
         s = self.scale
         area = super(Canvas, self).size()
-        w, h = self.pixmap.width() * s, self.pixmap.height() * s
+        image_size = self.pixmap_size
+        w, h = image_size.width() * s, image_size.height() * s
         aw, ah = area.width(), area.height()
         x = (aw - w) / (2 * s) if aw > w else 0
         y = (ah - h) / (2 * s) if ah > h else 0
@@ -1562,7 +1576,8 @@ class Canvas(QWidget):
         self.coordinatesChanged.emit(text)
 
     def out_of_pixmap(self, p):
-        w, h = self.pixmap.width(), self.pixmap.height()
+        size = self.pixmap_size
+        w, h = size.width(), size.height()
         return not (0 <= p.x() <= w and 0 <= p.y() <= h)
 
     def finalise(self):
@@ -1593,7 +1608,7 @@ class Canvas(QWidget):
 
     def minimumSizeHint(self):
         if self.pixmap:
-            return self.scale * self.pixmap.size()
+            return self.scale * self.pixmap_size
         return super(Canvas, self).minimumSizeHint()
 
     def contextMenuEvent(self, event):
@@ -1832,8 +1847,20 @@ class Canvas(QWidget):
         if was_drawing or force:
             self.drawingPolygon.emit(False)
 
-    def load_pixmap(self, pixmap):
+    @property
+    def pixmap_size(self):
+        """Logical image dimensions, independent from preview resolution."""
+        if not self._pixmap_logical_size.isEmpty():
+            return QSize(self._pixmap_logical_size)
+        if self.pixmap:
+            return self.pixmap.size()
+        return QSize()
+
+    def load_pixmap(self, pixmap, logical_size=None):
         self.pixmap = pixmap
+        self._pixmap_logical_size = self._coerce_pixmap_size(
+            pixmap, logical_size
+        )
         self.shapes = []
         self.current = None
         self._reset_transient_interaction()
@@ -1846,10 +1873,26 @@ class Canvas(QWidget):
         self.set_near_duplicate_clusters(())
         self.repaint()
 
-    def replace_pixmap(self, pixmap):
+    def replace_pixmap(self, pixmap, logical_size=None):
         """Refresh only image pixels while preserving annotation view state."""
         self.pixmap = pixmap
+        self._pixmap_logical_size = self._coerce_pixmap_size(
+            pixmap, logical_size
+        )
         self.repaint()
+
+    @staticmethod
+    def _coerce_pixmap_size(pixmap, logical_size):
+        if logical_size is None:
+            return pixmap.size() if pixmap else QSize()
+        size = (
+            QSize(logical_size)
+            if isinstance(logical_size, QSize)
+            else QSize(*logical_size)
+        )
+        if size.isEmpty():
+            raise ValueError("logical pixmap dimensions must be positive")
+        return size
 
     def load_shapes(self, shapes):
         self.shapes = list(shapes)
@@ -1899,6 +1942,7 @@ class Canvas(QWidget):
     def reset_state(self):
         self.restore_cursor()
         self.pixmap = None
+        self._pixmap_logical_size = QSize()
         self.shapes = []
         self.current = None
         self.set_near_duplicate_clusters(())

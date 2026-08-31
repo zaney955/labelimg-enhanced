@@ -60,6 +60,33 @@ class _ImageDecodeWorker(QObject):
 
 
 class FileActionsMixin:
+    def _ensure_image_decode_cache(self):
+        cache = getattr(self, "_image_decode_cache", None)
+        if cache is None:
+            from labelimg.files.ui.image_decode_cache import DecodedImageCache
+
+            cache = DecodedImageCache()
+            self._image_decode_cache = cache
+        return cache
+
+    def _prefetch_adjacent_images(self):
+        if not self.file_path:
+            return
+        candidates = tuple(
+            path
+            for path in (
+                self._adjacent_visible_file(1),
+                self._adjacent_visible_file(-1),
+            )
+            if path
+        )
+        self._ensure_image_decode_cache().prefetch(candidates)
+
+    def shutdown_image_decode_cache(self):
+        cache = getattr(self, "_image_decode_cache", None)
+        if cache is not None:
+            cache.shutdown()
+
     def update_file_menu(self):
         curr_file_path = self.file_path
 

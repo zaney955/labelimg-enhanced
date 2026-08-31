@@ -58,7 +58,7 @@ Resize performs proportional resampling only. Aspect ratio is locked, and the us
 
 ## Pixel correction
 
-Image → Adjust Image… opens one shared modal workspace for brightness, contrast, advanced Gamma, automatic contrast, and grayscale conversion. The current image is the safe default; explicitly selected images and an explicitly chosen all-images workspace target are optional batch scopes. Corrections can be composed, previewed, temporarily undone or redone, and committed once through the existing recoverable pixel-only replacement path. No correction receives an independent toolbar button, and every invocation starts from safe control defaults.
+Image → Adjust Image… opens one shared modal workspace for brightness, contrast, advanced Gamma, automatic contrast, and grayscale conversion. Brightness, contrast, and Gamma use compact horizontal sliders with persistent numeric value badges; their full ranges remain keyboard accessible, and one continuous pointer drag creates one transient history step. The current image is the safe default; explicitly selected images and an explicitly chosen all-images workspace target are optional batch scopes. Corrections can be composed, previewed, temporarily undone or redone, and committed once through the existing recoverable pixel-only replacement path. No correction receives an independent toolbar button, and every invocation starts from safe control defaults.
 
 ## Canvas display adjustment
 
@@ -74,7 +74,7 @@ Both contrast layers use the same black-anchored contrast algorithm as Image →
 
 When committed image processing or external replacement changes an image's source pixels, the workspace master values remain active and are reapplied to the replacement pixels, while that image's override is cleared. Other images retain their overrides.
 
-Slider dragging coalesces rapid changes and renders a fast preview at the current Canvas display size. Releasing the slider schedules the latest full-resolution display result away from the GUI thread; stale work is discarded, and zoomed inspection uses the completed full-resolution result. Controls are disabled only while a Canvas pointer gesture is actively in progress and re-enable on release. Drawing and crop modes otherwise retain full access to display adjustment without changing or clearing their geometry state.
+Slider dragging coalesces rapid changes and renders a bounded low-resolution preview away from the GUI thread. The Canvas keeps the source image dimensions as its logical coordinate space and stretches only this temporary raster while painting, so preview resolution never changes annotation geometry, zoom, pan, or pointer mapping. Preview and full-resolution work share one latest-only render worker: a newer slider value supersedes queued stale work instead of letting preview and full renders compete for memory bandwidth. Releasing the slider schedules the latest full-resolution result for zoomed inspection. Controls are disabled only while a Canvas pointer gesture is actively in progress and re-enable on release. Drawing and crop modes otherwise retain full access to display adjustment without changing or clearing their geometry state.
 
 The interface uses no Following All or Individually Adjusted terminology. When the current image has an override, its disclosure receives a restrained selected treatment and its Reset button becomes enabled; otherwise the Reset button is disabled. A display-render failure falls back to the unadjusted source pixels for that image, reports a localized inline failure in the panel, and retains the stored values and every other image's state so the user can retry or reset. It never leaves an older successful rendering visible as though it represented the latest slider values.
 
@@ -171,15 +171,28 @@ One-click recovery is scoped to the current image workspace and clears when the 
 
 Specialized-repair preview work runs away from the GUI thread and reports per-image queued, processing, ready, no-frame, unsupported, failed, or excluded status. Closing or canceling the workspace cancels pending preparation and removes temporary results. Commit begins only when every included image is ready.
 
-Interactive adjustment and geometry previews use one cached,
-display-oriented image bounded to 1.5 million pixels. Rapid control changes are
-coalesced before rendering and never run metadata-preserving full-resolution
-encoding. The explicit Apply step still reloads and processes every source at
-full resolution, then follows the normal atomic replacement contract. Quality
-metrics use at most 2 million decoded pixels while retaining the full source
-dimensions for resolution and aspect checks. Specialized-repair preparation
-remains full-resolution for candidate accuracy, but runs on a single owned
-background queue so large images cannot multiply memory pressure.
+Interactive Image-menu adjustment reuses the workbench's already decoded
+current `QImage` when available and derives an adaptive preview budget from the
+actual preview widget and device-pixel ratio, bounded between 250,000 and 1.5
+million pixels. Disk preview decoding remains the fallback for non-current
+targets. Rapid control changes are coalesced before rendering and never run
+metadata-preserving full-resolution encoding. The explicit Apply step still
+reloads and processes every source at full resolution, then follows the normal
+atomic replacement contract; the current target's prepared output is retained
+through commit and projected directly back to the Canvas without decoding the
+new file again. Quality metrics use at most 2 million decoded pixels while
+retaining the full source dimensions for resolution and aspect checks.
+Specialized-repair preparation remains full-resolution for candidate accuracy,
+but runs on a single owned background queue so large images cannot multiply
+memory pressure.
+
+Normal image navigation uses a source-token-validated decoded-image LRU capped
+at 256 MiB. Two background workers prefetch the adjacent visible images after a
+successful load; a cache entry is ignored automatically when file size or
+nanosecond modification time changes. Shutdown cancels queued prefetches and
+releases the cache. Brightness, contrast, and Gamma share cached 8-bit lookup
+tables, and the common RGBA path adjusts all color channels while preserving
+alpha in one OpenCV pass.
 
 Committed 90/180-degree rotations, flips, and crops use the codec's native
 Pillow geometry operations so pixels do not make an intermediate full-image

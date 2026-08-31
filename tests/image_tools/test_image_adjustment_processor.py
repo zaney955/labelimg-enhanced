@@ -137,6 +137,23 @@ class ImageAdjustmentProcessorTest(unittest.TestCase):
         self.assertIsNone(result.original_pixels)
         self.assertIsNone(result.result_pixels)
 
+    def test_projection_preparation_retains_only_result_pixels(self):
+        path = self._save(
+            "projection.png",
+            np.full((12, 16, 3), 80, dtype=np.uint8),
+            "RGB",
+        )
+
+        result = ImageAdjustmentProcessor().prepare(
+            path,
+            ImageAdjustmentOptions(brightness=10),
+            retain_pixels=True,
+            retain_original_pixels=False,
+        )
+
+        self.assertIsNone(result.original_pixels)
+        self.assertIsNotNone(result.result_pixels)
+
 
 if __name__ == "__main__":
     unittest.main()

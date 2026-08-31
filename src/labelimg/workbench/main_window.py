@@ -436,7 +436,10 @@ class MainWindow(
             or controller.current_path != os.path.abspath(self.file_path)
         ):
             return
-        self.canvas.replace_pixmap(pixmap)
+        self.canvas.replace_pixmap(
+            pixmap,
+            logical_size=self.image.size(),
+        )
         self.paint_canvas()
 
     def _display_adjustment_active_changed(self, active):
@@ -707,7 +710,11 @@ class MainWindow(
         if not unicode_file_path or not os.path.exists(unicode_file_path):
             return False
         if prepared_image_data is _UNPREPARED_IMAGE_DATA:
-            prepared_image_data = read(unicode_file_path, None)
+            prepared_image_data = self._ensure_image_decode_cache().get(
+                unicode_file_path
+            )
+            if prepared_image_data is None:
+                prepared_image_data = read(unicode_file_path, None)
         prepared_image = (
             prepared_image_data
             if isinstance(prepared_image_data, QImage)
@@ -722,6 +729,9 @@ class MainWindow(
             )
             self.status(tr('status.errorReading', detail=unicode_file_path))
             return False
+        self._ensure_image_decode_cache().put(
+            unicode_file_path, prepared_image
+        )
         try:
             prepared_annotation = (
                 self.annotation_workspace.load(
@@ -788,7 +798,8 @@ class MainWindow(
             self.canvas.load_pixmap(
                 self._activate_display_adjustment_source(
                     image, unicode_file_path
-                )
+                ),
+                logical_size=image.size(),
             )
             if prepared_annotation is not None:
                 self.set_format(document_format_name(
@@ -818,6 +829,7 @@ class MainWindow(
             self.set_edit_mode()
 
             self.canvas.setFocus(True)
+            self._prefetch_adjacent_images()
             return True
         return False
 
@@ -916,6 +928,7 @@ class MainWindow(
                 self.status(tr('quality.busy'))
                 return
         self.display_adjustment_controller.shutdown()
+        self.shutdown_image_decode_cache()
         settings = self.settings
         # If it loads images from dir, don't load it at the beginning
         if self.dir_name is None:
