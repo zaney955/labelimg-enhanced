@@ -140,6 +140,10 @@ _Avoid_: Source-image correction, permanent per-image setting, annotation edit
 A built-in LabelImg operation that transforms an image through an image processing session. A pixel-only image tool leaves annotation documents unchanged, while a geometry-changing image tool transforms the shared annotation coordinate space in the same recoverable operation.
 _Avoid_: Annotation tool, external script, optional plugin
 
+**Automatic image adjustment**:
+A repeatable one-shot suggestion for brightness, contrast, and Gamma derived from the current image's source pixels and represented directly by those three adjustment values, which remain available for manual refinement.
+_Avoid_: Automatic contrast, hidden correction layer, persistent automatic mode
+
 **Image tool entry point**:
 One place from which an image tool is started: the Image menu is the complete capability catalog, the Canvas tool rail exposes dedicated direct Canvas modes, and the top image quick-action group exposes only frequent immediate current-image commands.
 _Avoid_: Image tool implementation, toolbar-only capability, duplicate workflow
@@ -197,7 +201,7 @@ The temporary Canvas state in which annotation interaction is suspended while on
 _Avoid_: Annotation creation mode, committed crop, modal image-tools workspace
 
 **Image processing session**:
-The temporary editing context in which an image-tool operation is prepared before commit, either in the modal image-tools workspace or a tool-specific Canvas mode. It owns image-processing Undo and Redo; pixel-only tools may coexist with unsaved annotations, while geometry-changing tools first resolve them because their commit includes annotation resources.
+The temporary editing context in which an image-tool operation is prepared before commit, either in the modal image-tools workspace or a tool-specific Canvas mode. Pixel-only tools may coexist with unsaved annotations, while geometry-changing tools first resolve them because their commit includes annotation resources.
 _Avoid_: Annotation session, saved image, mixed history
 
 **Image processing Undo**:
@@ -329,8 +333,8 @@ A mismatch between an annotation storage resource on disk and an unsaved in-memo
 _Avoid_: Whole-workspace file watching, automatic merge, silent overwrite
 
 **Current annotation live synchronization**:
-Synchronization limited to the annotation storage resources of the image currently displayed on the Canvas. External creation, modification, replacement, or deletion is detected without navigating away; after a short stability delay, a valid external version replaces a clean current document, becomes its saved baseline, clears that image's Undo and Redo history, refreshes candidate labels, and produces a non-blocking visible notification naming the changed resource. A transient or invalid external representation never replaces the last valid Canvas state, retains its last valid candidate-label contribution, reports its path and parsing failure persistently, and remains eligible for a later successful retry. A clean current image may be left while its external document is invalid, but reopening that image while the resource remains invalid cancels navigation and preserves the then-current image. Inactive images are not continuously monitored and read their latest valid stored annotation document when next opened. A watched shared CreateML collection immediately refreshes its complete candidate-label contribution but replaces only the current image's Canvas record; other records are loaded when their images are opened. Application-authored saves and content-identical external rewrites are recognized by resource fingerprint and do not reload the Canvas, clear history, or produce an external-change notification.
-_Avoid_: Whole-workspace file watching, stale session-history projection, background reload of every image
+Synchronization that may replace Canvas content and editing history only for the image currently displayed. External creation, modification, replacement, or deletion is detected after a short stability delay: a valid external version replaces a clean current document, becomes its saved baseline, clears that image's Undo and Redo history, refreshes candidate labels, and produces a non-blocking visible notification naming the changed resource. The watched annotation directory also uses resource metadata changes to refresh only the affected inactive images' derived file-list status and candidate-label contributions without opening their documents or changing their histories. A transient or invalid external representation never replaces the last valid Canvas state, retains its last valid candidate-label contribution, reports its path and parsing failure persistently, and remains eligible for a later successful retry. A clean current image may be left while its external document is invalid, but reopening that image while the resource remains invalid cancels navigation and preserves the then-current image. Inactive documents are loaded only when their images are opened. A watched shared CreateML collection immediately refreshes its complete candidate-label contribution but replaces only the current image's Canvas record; other records are loaded when their images are opened. Application-authored saves and content-identical external rewrites are recognized by resource fingerprint and do not reload the Canvas, clear history, or produce an external-change notification.
+_Avoid_: Whole-workspace document reload, stale file-list status, background history replacement
 
 **History retention limit**:
 The bounded portion of a workspace editing session retained for Undo and Redo: at most 100 atomic edits per image and a soft target of approximately 256 MiB across the workspace. Least-recently-used inactive image histories are trimmed first while retaining a contiguous window around each current cursor: the farthest Undo-side edge is removed before a farthest Redo-side edge, and an atomic edit is never partially retained. If one newest atomic entry alone exceeds the soft target, it may remain as the sole retained entry after other history is evicted; failure to allocate that complete entry instead fails and rolls back the edit atomically. Eviction shortens only the reachable Undo or Redo window; it neither invents a new saved baseline nor makes dirty-state detection approximate. Cleanup is silent when it occurs, but attempting to continue Undo past an evicted boundary produces a non-modal status-bar explanation; an image that never had earlier history simply presents Undo as unavailable.
@@ -677,7 +681,7 @@ All existing physical Pascal VOC, YOLO, and CreateML annotation resources associ
 _Avoid_: Active format only, generated selection export, annotation boxes in memory
 
 **Image review state**:
-The mutually exclusive review classification of an image's annotation document: unreviewed, verified, or questioned. A file-selection-context command sets every targeted image to one explicit state instead of toggling each image's prior state.
+The mutually exclusive review classification of an image's annotation document: unreviewed, verified, or questioned. A current-image shortcut toggles its corresponding verified or questioned state back to unreviewed when repeated, while a file-selection-context command sets every targeted image to one explicit state instead of toggling each image's prior state.
 _Avoid_: Independent verified and questioned flags, mixed-state toggle
 
 **Current-image review control**:

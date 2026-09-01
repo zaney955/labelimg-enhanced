@@ -20,7 +20,7 @@ This section records the approved product scope, not the current implementation 
 
 Geometry preparation includes the existing crop plus clockwise and counter-clockwise 90-degree rotation, 180-degree rotation, horizontal and vertical flip, and resize. Every operation transforms annotations with the image and follows the geometry synchronization invariant. Arbitrary-angle rotation is excluded while annotations remain axis-aligned rectangles because its box semantics would be ambiguous.
 
-Pixel correction includes brightness and contrast, Gamma as an advanced control, automatic contrast, and grayscale conversion. These operations use preview and recoverable commit. Saturation, hue, white balance, sharpening, stylistic filters, and beautification are outside the approved scope so the Image menu remains focused on annotation preparation rather than general photo editing.
+Pixel correction includes brightness and contrast, Gamma as an advanced control, one-shot automatic adjustment, and grayscale conversion. These operations use preview and recoverable commit. Saturation, hue, white balance, sharpening, stylistic filters, and beautification are outside the approved scope so the Image menu remains focused on annotation preparation rather than general photo editing.
 
 Image quality checking is one analysis-only capability covering unreadable or corrupt files, low resolution, aspect-ratio anomalies, blur, excessive darkness, and overexposure. Findings appear as file-list state and support filtering; checking never modifies image files automatically. Duplicate and near-duplicate discovery is a dataset-level concern and does not belong in the Image menu.
 
@@ -40,7 +40,7 @@ Rotation, flip, and resize operations use the same explicit current-image, selec
 
 The pixel-tool workspace is modal and suspends annotation interaction while open. An unresolved drawing, vertex drag, edge drag, or other pending annotation gesture blocks entry; already committed but unsaved annotations are allowed and remain untouched. Crop instead uses a temporary Canvas mode that keeps annotations visible but non-interactive and resolves unsaved annotation changes before entry.
 
-Multiple pixel-tool steps may be composed before one workspace commit. The workspace owns a transient Undo/Redo sequence: Ctrl+Z and Ctrl+Y operate on image-tool steps only while the workspace is active. Geometry-changing Canvas modes keep their own transient adjustment history and commit separately. The main annotation workbench keeps its existing annotation-only Undo/Redo contract.
+Multiple pixel-tool steps may be composed before one workspace commit. A tool-specific workspace may own transient history when its interaction requires it, but Adjust Image exposes its current values directly and has no temporary Undo/Redo controls. Geometry-changing Canvas modes keep their own transient adjustment history and commit separately. The main annotation workbench keeps its existing annotation-only Undo/Redo contract.
 
 Settings return to safe defaults whenever the workspace opens. They are not persisted across invocations, workspaces, or launches.
 
@@ -58,7 +58,7 @@ Resize performs proportional resampling only. Aspect ratio is locked, and the us
 
 ## Pixel correction
 
-Image → Adjust Image… opens one shared modal workspace for brightness, contrast, advanced Gamma, automatic contrast, and grayscale conversion. Brightness, contrast, and Gamma use compact horizontal sliders with persistent numeric value badges; their full ranges remain keyboard accessible, and one continuous pointer drag creates one transient history step. The current image is the safe default; explicitly selected images and an explicitly chosen all-images workspace target are optional batch scopes. Corrections can be composed, previewed, temporarily undone or redone, and committed once through the existing recoverable pixel-only replacement path. No correction receives an independent toolbar button, and every invocation starts from safe control defaults.
+Image → Adjust Image… opens one shared modal workspace for brightness, contrast, advanced Gamma, one-shot automatic adjustment, and grayscale conversion. Brightness, contrast, and Gamma use compact horizontal sliders with persistent numeric value badges and remain keyboard accessible. Auto Adjust analyzes a bounded, source-derived preview of the current image, ignores fully transparent pixels, and writes a robust luminance-based suggestion into all three sliders without changing the grayscale choice. It uses the 1st and 99th luminance percentiles plus the median, preserves color by applying one shared curve, avoids contrast and Gamma amplification for nearly flat content, and always recomputes from the source preview rather than the adjusted result. Reset restores all three sliders to their neutral values and turns grayscale conversion off without changing the target scope. For a selected-images or all-images scope, the visible current-image suggestion is the one parameter set applied to the entire target set. The dialog has no temporary Undo/Redo; its visible controls can be refined directly before one recoverable pixel-only commit. No correction receives an independent toolbar button, and every invocation starts from safe control defaults.
 
 ## Canvas display adjustment
 

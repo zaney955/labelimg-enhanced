@@ -12,6 +12,7 @@ from labelimg.image_tools.application.adjustment import (
     ImageAdjustmentOptions,
     ImageAdjustmentProcessor,
     apply_adjustments,
+    suggest_auto_adjustment,
 )
 
 
@@ -119,6 +120,55 @@ class ImageAdjustmentProcessorTest(unittest.TestCase):
         result = apply_adjustments(pixels, options)
 
         np.testing.assert_array_equal(result, gamma[linear])
+
+    def test_auto_adjustment_returns_visible_slider_steps(self):
+        gradient = np.linspace(30, 170, 101, dtype=np.uint8)
+        pixels = np.dstack((gradient, gradient, gradient)).reshape(1, 101, 3)
+
+        suggestion = suggest_auto_adjustment(pixels)
+
+        self.assertIsInstance(suggestion.brightness, int)
+        self.assertGreater(suggestion.contrast, 1.0)
+        self.assertEqual(suggestion.contrast * 10, round(suggestion.contrast * 10))
+        self.assertEqual(suggestion.gamma * 10, round(suggestion.gamma * 10))
+        self.assertGreaterEqual(suggestion.gamma, 0.1)
+        self.assertLessEqual(suggestion.gamma, 5.0)
+
+    def test_auto_adjustment_ignores_fully_transparent_rgb(self):
+        visible = np.array(
+            [[[40, 40, 40, 255], [160, 160, 160, 255]]],
+            dtype=np.uint8,
+        )
+        with_hidden_extremes = np.concatenate((
+            visible,
+            np.array(
+                [[[0, 0, 0, 0], [255, 255, 255, 0]]],
+                dtype=np.uint8,
+            ),
+        ), axis=1)
+
+        self.assertEqual(
+            suggest_auto_adjustment(with_hidden_extremes),
+            suggest_auto_adjustment(visible),
+        )
+
+    def test_auto_adjustment_uses_brightness_only_for_flat_content(self):
+        pixels = np.full((12, 16, 3), 51, dtype=np.uint8)
+
+        suggestion = suggest_auto_adjustment(pixels)
+
+        self.assertEqual(suggestion.brightness, 30)
+        self.assertEqual(suggestion.contrast, 1.0)
+        self.assertEqual(suggestion.gamma, 1.0)
+
+    def test_auto_adjustment_returns_neutral_for_fully_transparent_image(self):
+        pixels = np.full((4, 6, 4), 255, dtype=np.uint8)
+        pixels[..., 3] = 0
+
+        self.assertEqual(
+            suggest_auto_adjustment(pixels),
+            ImageAdjustmentOptions(),
+        )
 
     def test_commit_preparation_can_release_full_resolution_arrays(self):
         path = self._save(

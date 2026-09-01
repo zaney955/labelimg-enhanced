@@ -77,7 +77,7 @@ Each load carries a monotonically increasing generation identity. Only results m
 
 A corrupt or disappearing non-current file becomes one aggregated warning and does not abort the load. If the proposed current image cannot load, the coordinator tries the next usable image. Repeated errors are summarized rather than shown as one modal dialog per file.
 
-The index observes a directory snapshot. Application-owned file operations update it immediately. External filesystem changes are incorporated by manual refresh, reopening the directory, or detecting the change when the affected file is accessed; filesystem watching is outside this design.
+The index observes a directory snapshot. Application-owned file operations update it immediately. A watched active annotation directory uses debounced resource-metadata differences to refresh only affected image statuses and candidate-label contributions; other external filesystem changes are incorporated by manual refresh, reopening the directory, or detecting the change when the affected file is accessed. Directory events never trigger a complete synchronous workspace rescan.
 
 Refreshing preserves the current image, file selection, filters, Canvas view, annotation history, and unsaved edits. It does not replace a dirty current document. An external change to that document enters the existing conflict workflow.
 
@@ -163,7 +163,7 @@ The first feedback-loop command should remain a single isolated test entry in th
 ## Excluded work
 
 - no persistent or cross-session index;
-- no whole-workspace filesystem watcher; only the current image's active annotation resource is watched;
+- no whole-workspace document synchronization; the active annotation directory supplies metadata changes for affected derived statuses, while only the current image's active annotation resource may replace Canvas content or history;
 - no incomplete state-dependent filter results;
 - no row reordering while incremental annotation states arrive;
 - no full-image quality validation during directory opening;

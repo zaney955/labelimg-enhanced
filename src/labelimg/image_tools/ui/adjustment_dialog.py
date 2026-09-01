@@ -30,6 +30,7 @@ from labelimg.localization.runtime import localize_dialog_buttons, tr
 from labelimg.image_tools.application.adjustment import (
     ImageAdjustmentOptions,
     apply_adjustments,
+    suggest_auto_adjustment,
 )
 from labelimg.image_tools.infrastructure.image_codec import ImageFileCodec
 from labelimg.image_tools.ui.geometry_dialog import _array_pixmap
@@ -130,12 +131,7 @@ class ImageAdjustmentDialog(QDialog):
         )
         self._preview = None
         self._preview_failed = False
-        self._restoring = False
-        self._history = []
-        self._redo = []
-        self._last_options = ImageAdjustmentOptions()
-        self._slider_gesture_before = None
-        self._slider_gesture_recorded = False
+        self._updating_controls = False
         self._preview_timer = QTimer(self)
         self._preview_timer.setSingleShot(True)
         self._preview_timer.setInterval(self.PREVIEW_DEBOUNCE_MS)
@@ -208,25 +204,19 @@ class ImageAdjustmentDialog(QDialog):
         self.brightness_value_label = self.brightness_row.value_label
         self.contrast_value_label = self.contrast_row.value_label
         self.gamma_value_label = self.gamma_row.value_label
-        self.auto_contrast_checkbox = QCheckBox(tr("adjustment.autoContrast"), self)
+        self.auto_adjust_button = QPushButton(tr("adjustment.autoAdjust"), self)
+        self.reset_button = QPushButton(tr("standard.reset"), self)
         self.grayscale_checkbox = QCheckBox(tr("adjustment.grayscale"), self)
         controls.addWidget(self.brightness_row)
         controls.addWidget(self.contrast_row)
         controls.addWidget(self.gamma_row)
         option_row = QHBoxLayout()
-        option_row.addWidget(self.auto_contrast_checkbox)
+        option_row.addWidget(self.auto_adjust_button)
+        option_row.addWidget(self.reset_button)
         option_row.addWidget(self.grayscale_checkbox)
         option_row.addStretch(1)
         controls.addLayout(option_row)
         root.addLayout(controls)
-
-        history_row = QHBoxLayout()
-        self.undo_button = QPushButton(tr("action.undo"), self)
-        self.redo_button = QPushButton(tr("action.redo"), self)
-        history_row.addWidget(self.undo_button)
-        history_row.addWidget(self.redo_button)
-        history_row.addStretch(1)
-        root.addLayout(history_row)
 
         self.buttons = QDialogButtonBox(
             QDialogButtonBox.Ok | QDialogButtonBox.Cancel,
@@ -244,18 +234,14 @@ class ImageAdjustmentDialog(QDialog):
             self.gamma_slider,
         ):
             slider.valueChanged.connect(self._controls_changed)
-            slider.sliderPressed.connect(self._begin_slider_gesture)
-            slider.sliderReleased.connect(self._end_slider_gesture)
-        self.auto_contrast_checkbox.toggled.connect(self._controls_changed)
+        self.auto_adjust_button.clicked.connect(self._auto_adjust)
+        self.reset_button.clicked.connect(self._reset_adjustments)
         self.grayscale_checkbox.toggled.connect(self._controls_changed)
-        self.undo_button.clicked.connect(self.undo)
-        self.redo_button.clicked.connect(self.redo)
         self.buttons.accepted.connect(self._accept_request)
         self.buttons.rejected.connect(self.reject)
         root.activate()
         self._preview = self._load_preview()
         self._scope_changed()
-        self._update_history_buttons()
 
     def _load_preview(self):
         max_pixels = self._preview_pixel_budget()
@@ -298,76 +284,37 @@ class ImageAdjustmentDialog(QDialog):
             brightness=self.brightness_slider.value(),
             contrast=self.contrast_slider.value() / 10.0,
             gamma=self.gamma_slider.value() / 10.0,
-            auto_contrast=self.auto_contrast_checkbox.isChecked(),
             grayscale=self.grayscale_checkbox.isChecked(),
         )
 
-    def _begin_slider_gesture(self):
-        if self._restoring:
-            return
-        self._slider_gesture_before = self._last_options
-        self._slider_gesture_recorded = False
-
-    def _end_slider_gesture(self):
-        before = self._slider_gesture_before
-        self._slider_gesture_before = None
-        if (
-            self._slider_gesture_recorded
-            and before == self._last_options
-            and self._history
-            and self._history[-1] == before
-        ):
-            self._history.pop()
-        self._slider_gesture_recorded = False
-        self._update_history_buttons()
-
     def _controls_changed(self, _value=None):
-        if self._restoring:
+        if self._updating_controls:
             return
-        current = self._options()
-        if current == self._last_options:
-            return
-        if self._slider_gesture_before is not None:
-            if not self._slider_gesture_recorded:
-                self._history.append(self._slider_gesture_before)
-                self._redo.clear()
-                self._slider_gesture_recorded = True
-        else:
-            self._history.append(self._last_options)
-            self._redo.clear()
-        self._last_options = current
         self._update_apply_button()
         self._schedule_preview()
-        self._update_history_buttons()
 
-    def _restore_options(self, options):
-        self._restoring = True
+    def _auto_adjust(self):
+        suggestion = suggest_auto_adjustment(self._preview.pixels)
+        self._updating_controls = True
         try:
-            self.brightness_slider.setValue(options.brightness)
-            self.contrast_slider.setValue(round(options.contrast * 10))
-            self.gamma_slider.setValue(round(options.gamma * 10))
-            self.auto_contrast_checkbox.setChecked(options.auto_contrast)
-            self.grayscale_checkbox.setChecked(options.grayscale)
+            self.brightness_slider.setValue(suggestion.brightness)
+            self.contrast_slider.setValue(round(suggestion.contrast * 10))
+            self.gamma_slider.setValue(round(suggestion.gamma * 10))
         finally:
-            self._restoring = False
-        self._last_options = options
-        self._update_apply_button()
-        self._schedule_preview()
-        self._update_history_buttons()
+            self._updating_controls = False
+        self._controls_changed()
 
-    def undo(self):
-        if not self._history:
-            return
-        previous = self._history.pop()
-        self._redo.append(self._last_options)
-        self._restore_options(previous)
-
-    def redo(self):
-        if not self._redo:
-            return
-        following = self._redo.pop()
-        self._history.append(self._last_options)
-        self._restore_options(following)
+    def _reset_adjustments(self):
+        defaults = ImageAdjustmentOptions()
+        self._updating_controls = True
+        try:
+            self.brightness_slider.setValue(defaults.brightness)
+            self.contrast_slider.setValue(round(defaults.contrast * 10))
+            self.gamma_slider.setValue(round(defaults.gamma * 10))
+            self.grayscale_checkbox.setChecked(defaults.grayscale)
+        finally:
+            self._updating_controls = False
+        self._controls_changed()
 
     def _refresh_preview(self):
         try:
@@ -396,14 +343,12 @@ class ImageAdjustmentDialog(QDialog):
         self._preview_timer.start()
 
     def _update_apply_button(self):
+        self.auto_adjust_button.setEnabled(not self._preview_failed)
+        self.reset_button.setEnabled(self._options() != ImageAdjustmentOptions())
         self.apply_button.setEnabled(
             not self._preview_failed
             and self._options() != ImageAdjustmentOptions()
         )
-
-    def _update_history_buttons(self):
-        self.undo_button.setEnabled(bool(self._history))
-        self.redo_button.setEnabled(bool(self._redo))
 
     def _accept_request(self):
         self.request = ImageAdjustmentRequest(

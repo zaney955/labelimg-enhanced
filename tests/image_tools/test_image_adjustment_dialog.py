@@ -38,18 +38,29 @@ class ImageAdjustmentDialogTest(unittest.TestCase):
         self.assertTrue(image.save(path))
         return path
 
-    def test_controls_preview_and_transient_undo_restore_safe_defaults(self):
+    def test_auto_adjust_updates_three_sliders_and_preserves_grayscale(self):
         dialog = ImageAdjustmentDialog(self.first, (self.first, self.second))
         self.assertFalse(dialog.apply_button.isEnabled())
+        self.assertIn(dialog.auto_adjust_button.text(), {"Auto Adjust", "自动调整"})
+        dialog.grayscale_checkbox.setChecked(True)
 
-        dialog.brightness_slider.setValue(25)
+        suggestion = SimpleNamespace(brightness=18, contrast=1.4, gamma=0.8)
+        with patch(
+            "labelimg.image_tools.ui.adjustment_dialog."
+            "suggest_auto_adjustment",
+            return_value=suggestion,
+        ) as suggest:
+            QTest.mouseClick(dialog.auto_adjust_button, Qt.LeftButton)
 
+        suggest.assert_called_once()
+        self.assertIs(suggest.call_args.args[0], dialog._preview.pixels)
+        self.assertEqual(dialog.brightness_slider.value(), 18)
+        self.assertEqual(dialog.contrast_slider.value(), 14)
+        self.assertEqual(dialog.gamma_slider.value(), 8)
+        self.assertTrue(dialog.grayscale_checkbox.isChecked())
         self.assertTrue(dialog.apply_button.isEnabled())
-        self.assertTrue(dialog.undo_button.isEnabled())
-        QTest.mouseClick(dialog.undo_button, Qt.LeftButton)
-        self.assertEqual(dialog.brightness_slider.value(), 0)
-        self.assertFalse(dialog.apply_button.isEnabled())
-        self.assertTrue(dialog.redo_button.isEnabled())
+        self.assertFalse(hasattr(dialog, "undo_button"))
+        self.assertFalse(hasattr(dialog, "redo_button"))
 
     def test_selected_scope_returns_composed_adjustment_request(self):
         dialog = ImageAdjustmentDialog(self.first, (self.first, self.second))
@@ -65,6 +76,26 @@ class ImageAdjustmentDialogTest(unittest.TestCase):
         self.assertEqual(dialog.request.options.contrast, 1.4)
         self.assertEqual(dialog.request.options.gamma, 0.8)
         self.assertTrue(dialog.request.options.grayscale)
+
+    def test_reset_restores_all_adjustment_controls_to_safe_defaults(self):
+        dialog = ImageAdjustmentDialog(self.first)
+        self.assertIn(dialog.reset_button.text(), {"Reset", "重置"})
+        self.assertFalse(dialog.reset_button.isEnabled())
+
+        dialog.brightness_slider.setValue(25)
+        dialog.contrast_slider.setValue(14)
+        dialog.gamma_slider.setValue(8)
+        dialog.grayscale_checkbox.setChecked(True)
+        self.assertTrue(dialog.reset_button.isEnabled())
+
+        QTest.mouseClick(dialog.reset_button, Qt.LeftButton)
+
+        self.assertEqual(dialog.brightness_slider.value(), 0)
+        self.assertEqual(dialog.contrast_slider.value(), 10)
+        self.assertEqual(dialog.gamma_slider.value(), 10)
+        self.assertFalse(dialog.grayscale_checkbox.isChecked())
+        self.assertFalse(dialog.apply_button.isEnabled())
+        self.assertFalse(dialog.reset_button.isEnabled())
 
     def test_all_images_scope_returns_every_workspace_path(self):
         dialog = ImageAdjustmentDialog(
@@ -136,6 +167,7 @@ class ImageAdjustmentDialogTest(unittest.TestCase):
             dialog.preview_label.text(),
         )
         self.assertFalse(dialog.apply_button.isEnabled())
+        self.assertFalse(dialog.auto_adjust_button.isEnabled())
 
     def test_three_adjustments_are_sliders_with_compact_value_badges(self):
         dialog = ImageAdjustmentDialog(self.first)
@@ -158,19 +190,6 @@ class ImageAdjustmentDialogTest(unittest.TestCase):
         self.assertEqual(dialog.brightness_value_label.text(), "+25%")
         self.assertEqual(dialog.contrast_value_label.text(), "1.4×")
         self.assertEqual(dialog.gamma_value_label.text(), "0.8")
-
-    def test_one_slider_drag_creates_one_undo_step(self):
-        dialog = ImageAdjustmentDialog(self.first)
-
-        dialog.brightness_slider.sliderPressed.emit()
-        for value in (5, 15, 25):
-            dialog.brightness_slider.setValue(value)
-        dialog.brightness_slider.sliderReleased.emit()
-
-        self.assertEqual(len(dialog._history), 1)
-        dialog.undo()
-        self.assertEqual(dialog.brightness_slider.value(), 0)
-
 
 if __name__ == "__main__":
     unittest.main()

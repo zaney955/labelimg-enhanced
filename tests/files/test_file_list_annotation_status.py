@@ -191,6 +191,35 @@ class FileListAnnotationStatusTest(unittest.TestCase):
             )
             self.assertEqual(self.item(index).toolTip(), image_path)
 
+    def test_external_copy_refreshes_inactive_image_annotation_status(self):
+        self.assertTrue(self.window.load_file(self.image_paths[1]))
+        write_pascal_voc(
+            os.path.join(self.annotation_dir, "01_blank.xml"),
+            "01_blank.png",
+        )
+
+        QTest.qWait(900)
+
+        self.assertEqual(
+            self.item(0).data(FILE_ANNOTATION_STATE_ROLE),
+            "annotated",
+        )
+
+    def test_opening_external_annotation_refreshes_its_file_list_row(self):
+        self.assertTrue(self.window.load_file(self.image_paths[1]))
+        write_pascal_voc(
+            os.path.join(self.annotation_dir, "01_blank.xml"),
+            "01_blank.png",
+        )
+
+        self.assertTrue(self.window.load_file(self.image_paths[0]))
+
+        self.assertEqual(len(self.window.canvas.shapes), 1)
+        self.assertEqual(
+            self.item(0).data(FILE_ANNOTATION_STATE_ROLE),
+            "annotated",
+        )
+
     def test_state_selection_uses_independent_dimensions(self):
         self.window.select_files_by_annotation_state("annotated")
         self.assertEqual(
