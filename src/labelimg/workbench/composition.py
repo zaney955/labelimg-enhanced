@@ -732,14 +732,14 @@ class WorkbenchComposer:
 
         verify = action(
             get_str('verifyImg'),
-            partial(self.set_current_review_state, 'verified'),
+            self.verify_image,
             'space',
             'verify',
             get_str('verifyImgDetail'),
         )
         question = action(
             tr('action.questionImage'),
-            partial(self.set_current_review_state, 'questioned'),
+            self.question_image,
             'Ctrl+Space',
             'review-questioned',
             tr('action.questionImageTip'),

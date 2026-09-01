@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import lru_cache
+import math
 import os
 
 import cv2
@@ -21,7 +22,6 @@ class ImageAdjustmentOptions:
     brightness: int = 0
     contrast: float = 1.0
     gamma: float = 1.0
-    auto_contrast: bool = False
     grayscale: bool = False
 
     def __post_init__(self):
@@ -94,8 +94,6 @@ def apply_adjustments(pixels, options):
     else:
         color = source
 
-    if options.auto_contrast:
-        color = _auto_contrast(color)
     has_lookup = (
         options.contrast != 1.0
         or options.brightness
@@ -107,7 +105,7 @@ def apply_adjustments(pixels, options):
             float(options.contrast),
             float(options.gamma),
         )
-        if has_alpha and not options.auto_contrast and not options.grayscale:
+        if has_alpha and not options.grayscale:
             rgba_table = _rgba_adjustment_lut(
                 int(options.brightness),
                 float(options.contrast),
@@ -127,6 +125,75 @@ def apply_adjustments(pixels, options):
     if color is source:
         return np.ascontiguousarray(source.copy(), dtype=np.uint8)
     return np.ascontiguousarray(color, dtype=np.uint8)
+
+
+def suggest_auto_adjustment(pixels):
+    """Suggest visible brightness, contrast, and Gamma control values.
+
+    Statistics come from luminance so every color channel receives the same
+    correction curve. Fully transparent pixels are excluded because their RGB
+    bytes are not visible. The suggestion is intentionally quantized to the
+    ranges and steps exposed by the adjustment dialog.
+    """
+    source = np.asarray(pixels)
+    samples = _visible_luminance_samples(source)
+    if not samples.size:
+        return ImageAdjustmentOptions()
+
+    low, median, high = np.percentile(samples, (1.0, 50.0, 99.0))
+    if high - low < 8.0:
+        brightness = _clamp(round((127.5 - median) / 2.55), -100, 100)
+        return ImageAdjustmentOptions(brightness=brightness)
+
+    contrast = _quantize(
+        _clamp(245.0 / (high - low), 0.1, 3.0),
+        step=0.1,
+    )
+    brightness = _clamp(
+        round((5.0 - contrast * low) / 2.55),
+        -100,
+        100,
+    )
+    mapped_median = np.clip(
+        median * contrast + brightness * 2.55,
+        0.0,
+        255.0,
+    ) / 255.0
+    if 0.0 < mapped_median < 1.0:
+        gamma = math.log(mapped_median) / math.log(0.5)
+        gamma = _quantize(_clamp(gamma, 0.1, 5.0), step=0.1)
+    else:
+        gamma = 1.0
+    return ImageAdjustmentOptions(
+        brightness=brightness,
+        contrast=contrast,
+        gamma=gamma,
+    )
+
+
+def _visible_luminance_samples(source):
+    if source.ndim == 2:
+        luminance = source
+        visible = None
+    elif source.ndim == 3 and source.shape[2] == 1:
+        luminance = source[..., 0]
+        visible = None
+    elif source.ndim == 3 and source.shape[2] in (3, 4):
+        luminance = cv2.cvtColor(source[..., :3], cv2.COLOR_BGR2GRAY)
+        visible = source[..., 3] > 0 if source.shape[2] == 4 else None
+    else:
+        raise ValueError("pixels must be grayscale, BGR, or BGRA")
+    if visible is not None:
+        luminance = luminance[visible]
+    return np.asarray(luminance, dtype=np.float32).reshape(-1)
+
+
+def _clamp(value, minimum, maximum):
+    return max(minimum, min(maximum, value))
+
+
+def _quantize(value, *, step):
+    return round(value / step) * step
 
 
 @lru_cache(maxsize=256)
@@ -152,26 +219,3 @@ def _rgba_adjustment_lut(brightness, contrast, gamma):
     table[:, 0, :3] = color[:, None]
     table[:, 0, 3] = np.arange(256, dtype=np.uint8)
     return table
-
-
-def _auto_contrast(pixels):
-    pixels = np.asarray(pixels)
-    if pixels.ndim == 2:
-        return _stretch_channel(pixels)
-    return np.dstack(
-        tuple(_stretch_channel(pixels[..., index]) for index in range(3))
-    )
-
-
-def _stretch_channel(channel):
-    low = int(channel.min())
-    high = int(channel.max())
-    if high <= low:
-        return channel.copy()
-    table = np.clip(
-        (np.arange(256, dtype=np.float32) - low)
-        * (255.0 / (high - low)),
-        0,
-        255,
-    ).round().astype(np.uint8)
-    return cv2.LUT(channel, table)

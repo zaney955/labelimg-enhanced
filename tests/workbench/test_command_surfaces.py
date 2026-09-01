@@ -744,7 +744,7 @@ class CommandSurfacesTest(unittest.TestCase):
             "questioned",
         )
 
-    def test_review_shortcuts_set_state_like_review_buttons(self):
+    def test_review_shortcuts_toggle_their_corresponding_state(self):
         self.load_image()
         self.window.show()
         self.window.activateWindow()
@@ -756,7 +756,7 @@ class CommandSurfacesTest(unittest.TestCase):
         self.assertFalse(self.window.canvas.questioned)
 
         QTest.keyClick(self.window.canvas, Qt.Key_Space)
-        self.assertTrue(self.window.canvas.verified)
+        self.assertFalse(self.window.canvas.verified)
         self.assertFalse(self.window.canvas.questioned)
 
         QTest.keyClick(
@@ -766,6 +766,18 @@ class CommandSurfacesTest(unittest.TestCase):
         )
         self.assertFalse(self.window.canvas.verified)
         self.assertTrue(self.window.canvas.questioned)
+
+        QTest.keyClick(
+            self.window.canvas,
+            Qt.Key_Space,
+            Qt.ControlModifier,
+        )
+        self.assertFalse(self.window.canvas.verified)
+        self.assertFalse(self.window.canvas.questioned)
+
+        QTest.keyClick(self.window.canvas, Qt.Key_Space)
+        self.assertTrue(self.window.canvas.verified)
+        self.assertFalse(self.window.canvas.questioned)
 
         QTest.keyClick(
             self.window.canvas,

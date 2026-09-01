@@ -4,8 +4,10 @@
 
 - Added a compact lower-left Canvas display-adjustment button with floating workspace-wide and current-image brightness and contrast controls.
 - Added session-scoped label color customization and synchronized annotation styling across the Canvas and annotation workflow.
-- Replaced the brightness, contrast, and Gamma number fields in Adjust Image with compact sliders, live value badges, and gesture-coalesced Undo.
+- Replaced the brightness, contrast, and Gamma number fields in Adjust Image with compact sliders and live value badges, and added one-shot automatic adjustment plus a control reset.
 - Accelerated Canvas and Image-menu adjustments with bounded logical-size previews, a latest-only render queue, decoded-image reuse, adjacent-image prefetch, and cached single-pass lookup tables.
+- Fixed file-list annotation indicators remaining stale after valid label files were copied into the active annotation directory.
+- Made the current-image review shortcuts clear their corresponding state back to Unreviewed when pressed again.
 - Refined image-tool previews, geometry controls, colored-frame removal, crop overlays, localization, and command-surface consistency.
 
 ## 2.1.0
@@ -16,7 +18,7 @@
 - Added YOLO comment support and corrected Unicode handling for class files.
 - Replaced the docked display-adjustment controls with a compact lower-left Canvas button and persistent floating panel for workspace-wide and current-image presentation settings.
 - Accelerated Canvas and Image-menu adjustments with bounded logical-size previews, a latest-only render queue, decoded-image reuse, adjacent-image prefetch, and cached single-pass lookup tables.
-- Replaced the brightness, contrast, and Gamma number fields in Adjust Image with compact sliders, live value badges, and gesture-coalesced Undo.
+- Replaced the brightness, contrast, and Gamma number fields in Adjust Image with compact sliders and live value badges, and added one-shot automatic adjustment plus a control reset.
 - Made queued automatic saves finish safely before image navigation.
 - Kept batch deletion responsive for very high-resolution images by releasing old pixel buffers, decoding the replacement image in the background, and safely joining image-loading threads during shutdown.
 - Removed obsolete upstream-era project files and standardized review shortcuts.

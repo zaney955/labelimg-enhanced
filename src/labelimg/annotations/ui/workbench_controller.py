@@ -52,6 +52,8 @@ class AnnotationActionsMixin:
         self._annotation_watch_image = None
         self._annotation_watch_target = None
         self._annotation_known_choices = ()
+        self._annotation_watch_directory = None
+        self._annotation_directory_snapshot = {}
 
     def _watch_current_annotation_document(self):
         watcher = getattr(self, '_annotation_file_watcher', None)
@@ -66,6 +68,8 @@ class AnnotationActionsMixin:
         self._annotation_watch_target = None
         self._annotation_known_choices = ()
         if not self.file_path:
+            self._annotation_watch_directory = None
+            self._annotation_directory_snapshot = {}
             return
         target = os.path.abspath(self._current_annotation_target())
         self._annotation_watch_target = target
@@ -81,6 +85,12 @@ class AnnotationActionsMixin:
             sorted(os.path.abspath(choice.annotation_path) for choice in choices)
         )
         directory = os.path.dirname(target)
+        directory = os.path.abspath(directory)
+        if directory != self._annotation_watch_directory:
+            self._annotation_watch_directory = directory
+            self._annotation_directory_snapshot = (
+                self._snapshot_annotation_directory(directory)
+            )
         paths = []
         if os.path.isdir(directory):
             paths.append(directory)
@@ -88,6 +98,97 @@ class AnnotationActionsMixin:
             paths.append(target)
         if paths:
             watcher.addPaths(paths)
+
+    @staticmethod
+    def _snapshot_annotation_directory(directory):
+        extensions = {
+            annotation_format.extension.casefold()
+            for annotation_format in AnnotationFormat
+        }
+        snapshot = {}
+        try:
+            entries = os.scandir(directory)
+        except OSError:
+            return snapshot
+        with entries:
+            for entry in entries:
+                name = entry.name.casefold()
+                if (
+                    name != "classes.txt"
+                    and os.path.splitext(name)[1] not in extensions
+                ):
+                    continue
+                try:
+                    stat = entry.stat()
+                except OSError:
+                    continue
+                snapshot[os.path.abspath(entry.path)] = (
+                    stat.st_size,
+                    stat.st_mtime_ns,
+                )
+        return snapshot
+
+    def _changed_annotation_directory_paths(self):
+        directory = self._annotation_watch_directory
+        if not directory:
+            return ()
+        previous = self._annotation_directory_snapshot
+        current = self._snapshot_annotation_directory(directory)
+        self._annotation_directory_snapshot = current
+        return tuple(sorted(
+            path
+            for path in set(previous) | set(current)
+            if previous.get(path) != current.get(path)
+        ))
+
+    def _refresh_inactive_annotation_statuses(self, changed_paths):
+        if not changed_paths:
+            return
+        shared_change = any(
+            os.path.basename(path).casefold() == "classes.txt"
+            or os.path.splitext(path)[1].casefold()
+            == AnnotationFormat.CREATE_ML.extension.casefold()
+            for path in changed_paths
+        )
+        changed_stems = {
+            os.path.splitext(os.path.basename(path))[0].casefold()
+            for path in changed_paths
+        }
+        watched_directory = os.path.normcase(
+            self._annotation_watch_directory
+        )
+        current_image = (
+            os.path.normcase(os.path.abspath(self.file_path))
+            if self.file_path
+            else None
+        )
+        refreshed = False
+        for image_path in self.m_img_list:
+            image_path = os.path.abspath(image_path)
+            if os.path.normcase(image_path) == current_image:
+                continue
+            annotation_directory = os.path.abspath(
+                self.default_save_dir or os.path.dirname(image_path)
+            )
+            if os.path.normcase(annotation_directory) != watched_directory:
+                continue
+            image_stem = os.path.splitext(
+                os.path.basename(image_path)
+            )[0].casefold()
+            if not shared_change and image_stem not in changed_stems:
+                continue
+            try:
+                self.annotation_workspace.refresh_document_choices(image_path)
+            except AnnotationDocumentError:
+                continue
+            self.update_file_list_item_status(
+                image_path,
+                refresh_view=False,
+            )
+            refreshed = True
+        if refreshed:
+            self.refresh_candidate_labels()
+            self.apply_file_list_view()
 
     def _annotation_resource_changed(self, _path):
         if (
@@ -135,6 +236,9 @@ class AnnotationActionsMixin:
         if self.annotation_editing.pending or self.annotation_editing.edit_open:
             self._annotation_live_sync_timer.start()
             return
+        self._refresh_inactive_annotation_statuses(
+            self._changed_annotation_directory_paths()
+        )
         image_key = os.path.abspath(self.file_path)
         view = self.annotation_editing.view
         if view is None:

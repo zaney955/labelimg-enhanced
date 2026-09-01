@@ -821,6 +821,7 @@ class MainWindow(
             self.add_recent_file(self.file_path)
             self.toggle_actions(True)
             self._activate_annotation_history()
+            self.update_file_list_item_status(self.file_path)
             self.refresh_candidate_labels()
 
             counter = self.counter_str()
