@@ -65,7 +65,7 @@ Application-authored text visible during operation, including commands, panels, 
 _Avoid_: User data, translated path, rewritten system error
 
 **Operation icon set**:
-The 79 coordinated flat, duotone SVG symbols used by LabelImg actions and buttons, excluding the separate application identity icon. The restrained light-theme set prioritizes clarity at 16 pixels, uses functional-family colors, shares a base motif between related actions, and remains distinguishable without color; annotation formats use structural symbols rather than names, while language choices may use font-independent path glyphs.
+The 82 coordinated flat, duotone SVG symbols used by LabelImg actions, buttons, and query-field decorations, excluding the separate application identity icon. The restrained light-theme set prioritizes clarity at 16 pixels, uses functional-family colors, shares a base motif between related actions, and remains distinguishable without color; annotation formats use structural symbols rather than names, while language choices may use font-independent path glyphs.
 _Avoid_: Application icon, dark-theme icon set, monochrome action icons, high-saturation icon set, color-only distinction, unrelated family motifs, text-dependent format icon
 
 **Canvas tool rail**:
@@ -85,8 +85,24 @@ The explicit top-level control beside Save that shows the current annotation sto
 _Avoid_: Format cycle button, view-status control, implicit conversion
 
 **Canvas zoom control**:
-The bottom status-bar control for Canvas view scale, combining decrement and increment actions, a continuous slider, and the current percentage as a menu for actual size, fit-to-window, and fit-to-width choices. It changes view state rather than image dimensions or annotation content.
+The bottom status-bar control for Canvas view scale, combining symmetric incremental actions, a logarithmic `1%`–`3200%` slider, and the current native-pixel-relative percentage as a menu for actual size, fit-to-window, and available fit-to-width choices. Wheel input anywhere over the closed control adjusts the same scale; the control changes view state rather than image dimensions or annotation content.
 _Avoid_: Toolbar zoom stack, image resize, annotation-format control
+
+**Canvas zoom percentage**:
+The Canvas view scale whose `100%` baseline displays one image pixel as one logical screen pixel, independent of the viewport's fitted-image size. Fit commands report their resulting native-pixel-relative percentage rather than redefining the baseline.
+_Avoid_: Fit-relative percentage, image resize percentage, viewport-dependent zoom baseline
+
+**Cursor-anchored zoom**:
+A Canvas scale change that keeps the same image-coordinate point beneath the pointer at the same viewport position before and after scaling; outside the rendered image, the nearest image-boundary point becomes the anchor. The invariant takes priority over automatic centering when the scaled image fits inside the viewport and is exact rather than an approximate movement toward the pointer.
+_Avoid_: Scroll-range-proportional zoom, viewport-centered zoom, approximate cursor compensation
+
+**Canvas wheel navigation**:
+The pointer-driven Canvas view interaction in which an ordinary wheel moves vertically, Shift plus wheel moves horizontally, and any wheel gesture containing Ctrl performs cursor-anchored zoom with a smooth symmetric multiplicative curve. Ctrl takes priority when combined with other modifiers.
+_Avoid_: Shift vertical scroll, additive percentage zoom, modifier-equality dispatch
+
+**Fit-to-window scale**:
+The native-pixel-relative Canvas scale that reveals the complete image within the viewport without enlarging an image beyond `100%`. It shrinks oversized images and preserves the original pixel scale of images already small enough to fit.
+_Avoid_: Fill-window scale, fit-relative 100%, automatic small-image enlargement
 
 **Image directory**:
 The directory whose supported images form the current image-by-image annotation workspace. Opening another image directory replaces that workspace after unresolved changes are handled.
@@ -645,8 +661,16 @@ The complete workspace-image sequence produced by the chosen file-name, image-mo
 _Avoid_: Base-name-first order, visual-only sort, unstable status order
 
 **File-list filter**:
-A conjunctive view of workspace images by display-path text, annotation state, review state, and persistence-alert presence. It changes row visibility without changing the current image or retained file selection, explicitly reports hidden current and selected images, and scopes later selection-building commands to visible results.
-_Avoid_: File selection, image navigation, destructive scope
+A conjunctive view of workspace images by annotation state, review state, persistence-alert presence, and image-quality state, combined with the independent image search query when one is active. It changes row visibility without changing the current image or retained file selection, explicitly reports hidden current and selected images, and scopes later selection-building commands to visible results.
+_Avoid_: Image search query, file selection, image navigation, destructive scope
+
+**Image search command**:
+The application-wide `Ctrl+F` command that focuses the persistent image-search field above the file list and selects its existing query regardless of the current workbench focus. Typing filters live, Enter opens the first result and returns focus to the Canvas, clearing or pressing Esc removes only the search query, and fitting the Canvas view to the window is the distinct `Ctrl+0` command.
+_Avoid_: Context-only file-list shortcut, hidden search popover, fit-to-window shortcut
+
+**Image search query**:
+The session-only, case-insensitive literal-substring condition that matches the full file name, including its extension, or the separator-normalized relative display path within the current image directory and combines conjunctively with the file-list filters. It is available as soon as the directory is ready, survives a refresh of that directory, clears when the image directory changes or the application exits, and neither replaces a non-matching current image nor removes retained file selections.
+_Avoid_: External-directory search, image-content search, persisted search history, independent result set, regular expression, wildcard, fuzzy or Pinyin match
 
 **Filtered file navigation**:
 The non-wrapping previous/next sequence of visible images in file-list view order. A current image excluded by the filter remains open until navigation moves to the nearest visible image in the requested direction.

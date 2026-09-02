@@ -12,7 +12,7 @@ LabelImg Enhanced is an independently maintained bounding-box annotation tool de
 - Provides complete Simplified Chinese and English interfaces with instant, persisted switching.
 - Supports multi-selection, deterministic overlap targeting, and direct single-box label editing by double-clicking a box or its label text.
 - Flags likely duplicate boxes and overlapping category conflicts for focused inspection, editing, visibility changes, deletion, or session-only dismissal.
-- Tracks `Unreviewed / Needs Review / Verified` states and filters or sorts files by annotation, review, and save state.
+- Searches the current image directory live by file name or relative path, and tracks `Unreviewed / Needs Review / Verified` states with annotation, review, and save-state filtering or sorting.
 - Provides per-image Undo/Redo, real-time autosave, external-conflict handling, and recoverable file operations.
 - Includes rotation, flipping, cropping, resizing, image adjustments, and non-destructive quality checks for corruption, blur, darkness, overexposure, and more.
 

@@ -132,6 +132,22 @@ class FileActionsMixin:
         self.file_list_controls.show_filter_panel()
 
 
+    def focus_image_search(self):
+        self.file_list_controls.focus_search()
+
+
+    def open_first_image_search_result(self):
+        if not self.file_list_controls.state.search_active:
+            return
+        visible = self.visible_file_paths()
+        if not visible:
+            return
+        target = visible[0]
+        self.open_file_list_path(target)
+        if self.file_path == target:
+            self.canvas.setFocus(Qt.ShortcutFocusReason)
+
+
     def apply_file_list_view(self, scroll_current=True):
         if not hasattr(self, 'file_list_controls'):
             return
@@ -161,12 +177,16 @@ class FileActionsMixin:
             for path, item in items.items()
         }
         previous_projection = getattr(self, '_file_list_projection', None)
+        include_advanced_filters = self.file_list_controls.index_complete
+        projection_query = state.projection_query(
+            include_advanced_filters
+        )
         presorted = bool(
             state.sort_key == 'name'
             and not state.descending
             and (
                 previous_projection is None
-                or previous_projection.query == state.query
+                or previous_projection.query == projection_query
             )
         )
         projection = state.project(
@@ -177,6 +197,7 @@ class FileActionsMixin:
             persistence_flags_for=persistence_flags.get,
             quality_findings_for=quality_findings.get,
             presorted=presorted,
+            include_advanced_filters=include_advanced_filters,
         )
         ordered = projection.ordered_paths
         self._file_list_projection = projection

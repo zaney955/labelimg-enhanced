@@ -2,6 +2,8 @@
 
 ## 2.3.0
 
+- Added persistent image-directory search by file name or relative path, with global `Ctrl+F`, first-result opening, and search-aware filtering and navigation.
+- Distinguished label filtering from image search with aligned query fields, concise bilingual descriptions, and dedicated leading filter and search icons.
 - Added a compact lower-left Canvas display-adjustment button with floating workspace-wide and current-image brightness and contrast controls.
 - Added session-scoped label color customization and synchronized annotation styling across the Canvas and annotation workflow.
 - Replaced the brightness, contrast, and Gamma number fields in Adjust Image with compact sliders and live value badges, and added one-shot automatic adjustment plus a control reset.

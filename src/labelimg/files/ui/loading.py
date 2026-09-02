@@ -250,6 +250,7 @@ class DirectoryLoadingMixin:
             return
         self._directory_projection_pending = False
         self.file_list_controls.set_index_complete(True)
+        self.apply_file_list_view(scroll_current=False)
         self.file_list_widget.viewport().update()
         self.update_file_selection_count()
         self.directory_load_button.hide()

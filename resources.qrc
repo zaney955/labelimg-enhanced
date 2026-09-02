@@ -43,6 +43,9 @@
 <file alias="adjust-image">resources/icons/adjust-image.svg</file>
 <file alias="display-adjustment">resources/icons/display-adjustment.svg</file>
 <file alias="image-quality">resources/icons/image-quality.svg</file>
+<file alias="image-search">resources/icons/image-search.svg</file>
+<file alias="search">resources/icons/search.svg</file>
+<file alias="filter">resources/icons/filter.svg</file>
 <file alias="specialized-repair">resources/icons/specialized-repair.svg</file>
 <file alias="remove-frames">resources/icons/remove-frames.svg</file>
 <file alias="undo-image-processing">resources/icons/undo-image-processing.svg</file>

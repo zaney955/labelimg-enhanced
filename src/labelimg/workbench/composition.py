@@ -20,6 +20,7 @@ from PyQt5.QtWidgets import QAbstractItemView, QAction, QActionGroup, QApplicati
 
 import labelimg.ui.generated_resources  # noqa: F401 - registers Qt resources
 from labelimg import __version__
+from labelimg.ui.query_field import decorate_list_query_field
 from labelimg.platform.settings_keys import (
     SETTING_AUTO_CHECK_UPDATES,
     SETTING_AUTO_SAVE,
@@ -332,7 +333,12 @@ class WorkbenchComposer:
 
         self.label_filter = QLineEdit()
         self.label_filter.setPlaceholderText(tr('labels.filter'))
-        self.label_filter.setClearButtonEnabled(True)
+        self.label_filter_icon_action = decorate_list_query_field(
+            self.label_filter,
+            'filter',
+        )
+        self.label_filter.setToolTip(tr('labels.filterName'))
+        self.label_filter.setAccessibleName(tr('labels.filterName'))
         list_layout.addWidget(self.label_filter)
 
         self.label_summary_label = QLabel()
@@ -394,8 +400,8 @@ class WorkbenchComposer:
         self.file_list_widget.deleteRequested.connect(
             self.delete_selected_files
         )
-        self.file_list_widget.filterRequested.connect(
-            self.show_file_list_filter
+        self.file_list_widget.searchRequested.connect(
+            self.focus_image_search
         )
         self.file_list_widget.setContextMenuPolicy(Qt.CustomContextMenu)
         self.file_list_widget.customContextMenuRequested.connect(
@@ -438,6 +444,9 @@ class WorkbenchComposer:
         self.file_list_controls.viewChanged.connect(
             self.apply_file_list_view
         )
+        self.file_list_controls.openFirstSearchResultRequested.connect(
+            self.open_first_image_search_result
+        )
         file_list_layout.addWidget(self.file_list_controls)
         self.file_list_stack = QStackedWidget()
         self.file_list_stack.addWidget(self.file_list_widget)
@@ -454,7 +463,7 @@ class WorkbenchComposer:
             QSizePolicy.Fixed,
         )
         self.file_list_clear_filter_button.clicked.connect(
-            self.file_list_controls.clear_filters
+            self.file_list_controls.clear_all_conditions
         )
         empty_layout.addWidget(
             self.file_list_clear_filter_button,
@@ -703,6 +712,14 @@ class WorkbenchComposer:
                           'Ctrl+Shift+O', 'open-image-directory',
                           get_str('openDirDetail'))
 
+        search_images = action(
+            tr('imageSearch.action'),
+            self.focus_image_search,
+            'Ctrl+F',
+            'image-search',
+            tr('imageSearch.actionTip'),
+        )
+
         change_save_dir = action(get_str('changeSaveDir'), self.change_save_dir_dialog,
                                  None, 'choose-annotation-directory',
                                  get_str('changeSavedAnnotationDir'))
@@ -936,7 +953,7 @@ class WorkbenchComposer:
         zoom_org = action(get_str('originalsize'), partial(self.set_zoom, 100),
                           'Ctrl+=', 'zoom', get_str('originalsizeDetail'), enabled=False)
         fit_window = action(get_str('fitWin'), self.set_fit_window,
-                            'Ctrl+F', 'fit-window', get_str('fitWinDetail'),
+                            'Ctrl+0', 'fit-window', get_str('fitWinDetail'),
                             checkable=True, enabled=False)
         fit_width = action(get_str('fitWidth'), self.set_fit_width,
                            'Ctrl+Shift+F', 'fit-width', get_str('fitWidthDetail'),
@@ -1019,6 +1036,7 @@ class WorkbenchComposer:
                                labels=labels,
                                displayAdjustment=self.display_adjustment_action,
                                helpDefault=help_default,
+                               searchImages=search_images,
                                checkUpdates=check_updates,
                                showInfo=show_info,
                                showShortcut=show_shortcut,
@@ -1255,7 +1273,7 @@ class WorkbenchComposer:
         self.addToolBar(Qt.LeftToolBarArea, self.tools)
         add_actions(
             self.menus.edit,
-            (create,) + self.actions.editMenu,
+            (search_images, None, create) + self.actions.editMenu,
         )
         self.zoom_widget.set_zoom_actions(
             zoom_org, fit_window, fit_width
@@ -1265,6 +1283,7 @@ class WorkbenchComposer:
             quit: ('quit', 'quitApp'),
             open: ('openFile', 'openFileDetail'),
             open_dir: ('openDir', 'openDirDetail'),
+            search_images: ('imageSearch.action', 'imageSearch.actionTip'),
             change_save_dir: ('changeSaveDir', 'changeSavedAnnotationDir'),
             open_annotation: ('openAnnotation', 'openAnnotationDetail'),
             use_image_directory: ('annotationDirectory.useImage', None),

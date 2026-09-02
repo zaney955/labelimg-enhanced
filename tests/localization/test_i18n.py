@@ -238,7 +238,7 @@ class RuntimeLanguageSwitchTest(unittest.TestCase):
         )
         self.assertEqual(
             self.window.file_list_empty_label.text(),
-            "没有符合筛选条件的文件",
+            "没有符合搜索或筛选条件的图像",
         )
         self.assertEqual(
             self.window.language_actions[SIMPLIFIED_CHINESE].isChecked(),
@@ -253,7 +253,7 @@ class RuntimeLanguageSwitchTest(unittest.TestCase):
         self.assertEqual(self.window.menus.settings.title(), "&Settings")
         self.assertEqual(
             self.window.file_list_empty_label.text(),
-            "No files match the filters",
+            "No images match the search or filters",
         )
         self.assertTrue(self.window.language_actions[ENGLISH].isChecked())
 

@@ -46,6 +46,7 @@ _ACTION_SECTIONS = (
         (
             "openDir",
             "open",
+            "searchImages",
             "save",
             "saveAs",
             "close",
@@ -106,10 +107,16 @@ _CONTEXT_SECTIONS = (
         ),
     ),
     (
+        "shortcuts.section.imageSearchContext",
+        (
+            ("Enter", "shortcuts.imageSearch.openFirst", "shortcuts.imageSearch.openFirstDetail"),
+            ("Esc", "shortcuts.imageSearch.clear", "shortcuts.imageSearch.clearDetail"),
+        ),
+    ),
+    (
         "shortcuts.section.fileListContext",
         (
             ("Ctrl+A", "shortcuts.fileList.selectAll", "shortcuts.fileList.selectAllDetail"),
-            ("Ctrl+F", "shortcuts.fileList.filter", "shortcuts.fileList.filterDetail"),
             ("Ctrl+Space", "shortcuts.fileList.toggle", "shortcuts.fileList.toggleDetail"),
             ("Enter", "shortcuts.fileList.open", "shortcuts.fileList.openDetail"),
             ("F2", "shortcuts.fileList.rename", "shortcuts.fileList.renameDetail"),

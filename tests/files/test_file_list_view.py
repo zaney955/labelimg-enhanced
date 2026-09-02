@@ -6,7 +6,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt5.QtCore import QEvent
-from PyQt5.QtWidgets import QApplication, QListWidgetItem
+from PyQt5.QtWidgets import QApplication, QLineEdit, QListWidgetItem
 
 from labelimg.files.ui.list_widget import (
     FILE_ANNOTATION_STATE_ROLE,
@@ -135,8 +135,8 @@ class FileListViewStateTest(unittest.TestCase):
 
     def test_filters_are_conjunctive_and_match_relative_path_separators(self):
         state = FileListViewState()
+        state.set_search(" DAY1/ ")
         state.set_filter(
-            text=" DAY1/ ",
             annotation="unannotated",
             review="questioned",
             alert="any",
@@ -250,6 +250,10 @@ class FileListControlsTest(unittest.TestCase):
         self.widget.show()
         self.app.processEvents()
 
+        self.assertFalse(self.widget.search_icon_action.isEnabled())
+        self.assertFalse(self.widget.search_icon_action.icon().isNull())
+        self.assertEqual(self.widget.search_edit.accessibleName(), "图像搜索")
+        self.assertEqual(self.widget.search_edit.toolTip(), "搜索图像（Ctrl+F）")
         self.assertEqual(self.widget.sort_button.size().width(), 28)
         self.assertEqual(self.widget.filter_button.size().height(), 28)
         self.assertIn("文件名", self.widget.sort_button.toolTip())
@@ -268,7 +272,7 @@ class FileListControlsTest(unittest.TestCase):
         changes = []
         self.widget.viewChanged.connect(lambda: changes.append(True))
         self.widget.set_workspace_available(True)
-        self.widget.filter_panel.text_edit.setText("day1")
+        self.widget.search_edit.setText("day1")
         self.widget.filter_panel.annotation_combo.setCurrentIndex(2)
         self.app.processEvents()
 
@@ -277,10 +281,20 @@ class FileListControlsTest(unittest.TestCase):
         self.assertEqual(self.widget.state.text_filter, "day1")
         self.assertEqual(self.widget.state.annotation_filter, "annotated")
         self.assertTrue(changes)
+        self.assertEqual(
+            self.widget.filter_panel.findChildren(QLineEdit),
+            [],
+        )
 
-        self.widget.clear_filters()
-        self.assertFalse(self.widget.state.filter_active)
+        self.widget.clear_advanced_filters()
+        self.assertTrue(self.widget.state.search_active)
         self.assertFalse(self.widget.filter_button.active)
+        self.widget.clear_search()
+        self.assertFalse(self.widget.state.filter_active)
+
+        self.widget.set_index_complete(False)
+        self.assertTrue(self.widget.search_edit.isEnabled())
+        self.assertFalse(self.widget.filter_button.isEnabled())
 
     def test_visible_selection_commands_replace_hidden_selection(self):
         self.widget = FileListWidget()
@@ -334,7 +348,7 @@ class FileListControlsTest(unittest.TestCase):
                 self.assertTrue(
                     window.file_list_controls.state.descending
                 )
-                window.file_list_controls.state.set_filter(text="hidden")
+                window.file_list_controls.state.set_search("hidden")
                 window.file_list_controls.reset_sort()
                 window.close()
                 self.app.processEvents()

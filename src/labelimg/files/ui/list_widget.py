@@ -58,6 +58,7 @@ from labelimg.files.model import (
     quality_finding_value,
 )
 from labelimg.localization.runtime import language_changed, localize_dialog_buttons, tr
+from labelimg.ui.query_field import decorate_list_query_field
 
 
 CURRENT_IMAGE_ROLE = Qt.UserRole + 1
@@ -95,6 +96,19 @@ class FileListViewState(object):
         return self.query.filter_active
 
     @property
+    def search_active(self):
+        return bool(self.text_filter)
+
+    @property
+    def advanced_filter_active(self):
+        return bool(
+            self.annotation_filter != "all"
+            or self.review_filter != "all"
+            or self.alert_filter != "all"
+            or self.quality_filter != "all"
+        )
+
+    @property
     def query(self):
         return FileListQuery(
             sort_key=self.sort_key,
@@ -106,26 +120,53 @@ class FileListViewState(object):
             quality=self.quality_filter,
         )
 
+    def projection_query(self, include_advanced_filters=True):
+        return FileListQuery(
+            sort_key=self.sort_key,
+            descending=self.descending,
+            text=self.text_filter,
+            annotation=(
+                self.annotation_filter
+                if include_advanced_filters else "all"
+            ),
+            review=(
+                self.review_filter if include_advanced_filters else "all"
+            ),
+            alert=(
+                self.alert_filter if include_advanced_filters else "all"
+            ),
+            quality=(
+                self.quality_filter if include_advanced_filters else "all"
+            ),
+        )
+
+    def set_search(self, text=""):
+        self.text_filter = str(text).strip()
+
     def set_filter(
         self,
-        text="",
         annotation="all",
         review="all",
         alert="all",
         quality="all",
     ):
-        self.text_filter = str(text).strip()
         self.annotation_filter = annotation
         self.review_filter = review
         self.alert_filter = alert
         self.quality_filter = quality
 
-    def reset_filter(self):
+    def reset_search(self):
         self.text_filter = ""
+
+    def reset_advanced_filters(self):
         self.annotation_filter = "all"
         self.review_filter = "all"
         self.alert_filter = "all"
         self.quality_filter = "all"
+
+    def reset_filter(self):
+        self.reset_search()
+        self.reset_advanced_filters()
 
     def project(
         self,
@@ -137,6 +178,7 @@ class FileListViewState(object):
         quality_findings_for=lambda _path: (),
         modified_time_for=os.path.getmtime,
         presorted=False,
+        include_advanced_filters=True,
     ):
         items = []
         for path in paths:
@@ -155,7 +197,10 @@ class FileListViewState(object):
                 quality_findings=quality_findings_for(path),
             ))
         return FileListProjection.create(
-            root, items, self.query, presorted=presorted
+            root,
+            items,
+            self.projection_query(include_advanced_filters),
+            presorted=presorted,
         )
 
 
@@ -254,8 +299,23 @@ class FileListControlButton(QToolButton):
         painter.end()
 
 
+class ImageSearchLineEdit(QLineEdit):
+    openFirstResultRequested = pyqtSignal()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Escape:
+            self.clear()
+            event.accept()
+            return
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            self.openFirstResultRequested.emit()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+
 class FileListFilterPanel(QFrame):
-    filterChanged = pyqtSignal(str, str, str, str, str)
+    filterChanged = pyqtSignal(str, str, str, str)
     clearRequested = pyqtSignal()
 
     def __init__(self, parent=None):
@@ -271,9 +331,6 @@ class FileListFilterPanel(QFrame):
         title_font.setBold(True)
         self.title_label.setFont(title_font)
         layout.addWidget(self.title_label)
-        self.text_edit = QLineEdit()
-        self.text_edit.setClearButtonEnabled(True)
-        layout.addWidget(self.text_edit)
         form = QFormLayout()
         form.setContentsMargins(0, 0, 0, 0)
         self.annotation_combo = QComboBox()
@@ -321,7 +378,6 @@ class FileListFilterPanel(QFrame):
         layout.addLayout(form)
         self.clear_button = QPushButton()
         layout.addWidget(self.clear_button)
-        self.text_edit.textChanged.connect(self._emit_filter)
         self.annotation_combo.currentIndexChanged.connect(self._emit_filter)
         self.review_combo.currentIndexChanged.connect(self._emit_filter)
         self.alert_combo.currentIndexChanged.connect(self._emit_filter)
@@ -338,7 +394,6 @@ class FileListFilterPanel(QFrame):
 
     def retranslate_ui(self, _language=None):
         self.title_label.setText(tr("fileFilter.title"))
-        self.text_edit.setPlaceholderText(tr("fileFilter.placeholder"))
         self.annotation_label.setText(tr("fileFilter.annotation"))
         self.review_label.setText(tr("fileFilter.review"))
         self.alert_label.setText(tr("fileFilter.persistence"))
@@ -355,22 +410,19 @@ class FileListFilterPanel(QFrame):
 
     def _emit_filter(self, _value=None):
         self.filterChanged.emit(
-            self.text_edit.text(),
             self.annotation_combo.currentData(),
             self.review_combo.currentData(),
             self.alert_combo.currentData(),
             self.quality_combo.currentData(),
         )
 
-    def set_filter(self, text, annotation, review, alert, quality="all"):
+    def set_filter(self, annotation, review, alert, quality="all"):
         blockers = [
-            QSignalBlocker(self.text_edit),
             QSignalBlocker(self.annotation_combo),
             QSignalBlocker(self.review_combo),
             QSignalBlocker(self.alert_combo),
             QSignalBlocker(self.quality_combo),
         ]
-        self.text_edit.setText(text)
         for combo, value in (
             (self.annotation_combo, annotation),
             (self.review_combo, review),
@@ -400,8 +452,7 @@ class FileListFilterPanel(QFrame):
         self.move(x, y)
         self.show()
         self.raise_()
-        self.text_edit.setFocus(Qt.PopupFocusReason)
-        self.text_edit.selectAll()
+        self.annotation_combo.setFocus(Qt.PopupFocusReason)
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_Escape:
@@ -413,6 +464,7 @@ class FileListFilterPanel(QFrame):
 
 class FileListControlBar(QWidget):
     viewChanged = pyqtSignal()
+    openFirstSearchResultRequested = pyqtSignal()
 
     SORT_LABEL_IDS = {
         "name": "fileSort.name",
@@ -424,14 +476,23 @@ class FileListControlBar(QWidget):
     def __init__(self, sort_key="name", descending=False, parent=None):
         super().__init__(parent)
         self.state = FileListViewState(sort_key, descending)
+        self._workspace_available = False
+        self._index_complete = True
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
-        layout.addStretch(1)
+        self.search_edit = ImageSearchLineEdit(self)
+        self.search_icon_action = decorate_list_query_field(
+            self.search_edit,
+            "search",
+        )
+        self.search_edit.textChanged.connect(self._set_search)
+        self.search_edit.openFirstResultRequested.connect(
+            self.openFirstSearchResultRequested
+        )
+        layout.addWidget(self.search_edit, 1)
         self.sort_button = FileListControlButton("sort", self)
         self.filter_button = FileListControlButton("filter", self)
-        self.sort_button.installEventFilter(self)
-        self.filter_button.installEventFilter(self)
         layout.addWidget(self.sort_button)
         layout.addWidget(self.filter_button)
         self.sort_menu = QMenu(self.sort_button)
@@ -469,7 +530,7 @@ class FileListControlBar(QWidget):
         self.sort_button.setPopupMode(QToolButton.InstantPopup)
         self.filter_panel = FileListFilterPanel(self)
         self.filter_panel.filterChanged.connect(self._set_filter)
-        self.filter_panel.clearRequested.connect(self.clear_filters)
+        self.filter_panel.clearRequested.connect(self.clear_advanced_filters)
         self.filter_button.clicked.connect(self.show_filter_panel)
         self.set_workspace_available(False)
         self._update_sort_presentation()
@@ -478,6 +539,9 @@ class FileListControlBar(QWidget):
         self.retranslate_ui()
 
     def retranslate_ui(self, _language=None):
+        self.search_edit.setPlaceholderText(tr("imageSearch.placeholder"))
+        self.search_edit.setAccessibleName(tr("imageSearch.accessibleName"))
+        self.search_edit.setToolTip(tr("imageSearch.tooltip"))
         self.sort_button.setAccessibleName(tr("fileSort.sort"))
         self.filter_button.setAccessibleName(tr("fileSort.filter"))
         for key, action in self.sort_actions.items():
@@ -490,32 +554,31 @@ class FileListControlBar(QWidget):
         self._update_filter_presentation()
 
     def set_workspace_available(self, available):
-        self.filter_button.setEnabled(bool(available))
-        if not available:
+        self._workspace_available = bool(available)
+        self.search_edit.setEnabled(self._workspace_available)
+        self.filter_button.setEnabled(
+            self._workspace_available and self._index_complete
+        )
+        if not self._workspace_available:
             self.filter_panel.hide()
 
     def set_index_complete(self, complete):
+        self._index_complete = bool(complete)
         self.filter_button.setEnabled(
-            bool(complete and self.state is not None)
+            self._workspace_available and self._index_complete
         )
-        if not complete:
+        if not self._index_complete:
             self.filter_panel.hide()
 
-    def eventFilter(self, watched, event):
-        if watched in (self.sort_button, self.filter_button):
-            if (
-                event.type() in (
-                    QEvent.ShortcutOverride,
-                    QEvent.KeyPress,
-                )
-                and event.key() == Qt.Key_F
-                and event.modifiers() == Qt.ControlModifier
-            ):
-                event.accept()
-                if event.type() == QEvent.KeyPress:
-                    self.show_filter_panel()
-                return True
-        return super().eventFilter(watched, event)
+    @property
+    def index_complete(self):
+        return self._index_complete
+
+    def focus_search(self):
+        if not self.search_edit.isEnabled():
+            return
+        self.search_edit.setFocus(Qt.ShortcutFocusReason)
+        self.search_edit.selectAll()
 
     def _set_sort_key(self, key):
         if key == self.state.sort_key:
@@ -561,17 +624,21 @@ class FileListControlBar(QWidget):
             )
         )
 
-    def _set_filter(self, text, annotation, review, alert, quality="all"):
+    def _set_search(self, text):
+        before = self.state.text_filter
+        self.state.set_search(text)
+        if before != self.state.text_filter:
+            self.viewChanged.emit()
+
+    def _set_filter(self, annotation, review, alert, quality="all"):
         before = (
-            self.state.text_filter,
             self.state.annotation_filter,
             self.state.review_filter,
             self.state.alert_filter,
             self.state.quality_filter,
         )
-        self.state.set_filter(text, annotation, review, alert, quality)
+        self.state.set_filter(annotation, review, alert, quality)
         after = (
-            self.state.text_filter,
             self.state.annotation_filter,
             self.state.review_filter,
             self.state.alert_filter,
@@ -581,22 +648,43 @@ class FileListControlBar(QWidget):
         if before != after:
             self.viewChanged.emit()
 
-    def clear_filters(self, _checked=False, emit=True):
-        changed = self.state.filter_active
-        self.state.reset_filter()
-        self.filter_panel.set_filter("", "all", "all", "all", "all")
+    def clear_search(self, emit=True):
+        changed = self.state.search_active
+        blocker = QSignalBlocker(self.search_edit)
+        self.search_edit.clear()
+        del blocker
+        self.state.reset_search()
+        if changed and emit:
+            self.viewChanged.emit()
+
+    def clear_advanced_filters(self, _checked=False, emit=True):
+        changed = self.state.advanced_filter_active
+        self.state.reset_advanced_filters()
+        self.filter_panel.set_filter("all", "all", "all", "all")
         self._update_filter_presentation()
         if changed and emit:
             self.viewChanged.emit()
 
+    def clear_all_conditions(self, _checked=False, emit=True):
+        changed = self.state.filter_active
+        blocker = QSignalBlocker(self.search_edit)
+        self.search_edit.clear()
+        del blocker
+        self.state.reset_filter()
+        self.filter_panel.set_filter("all", "all", "all", "all")
+        self._update_filter_presentation()
+        if changed and emit:
+            self.viewChanged.emit()
+
+    def clear_filters(self, _checked=False, emit=True):
+        self.clear_all_conditions(_checked, emit)
+
     def _update_filter_presentation(self):
-        self.filter_button.set_active(self.state.filter_active)
-        if not self.state.filter_active:
+        self.filter_button.set_active(self.state.advanced_filter_active)
+        if not self.state.advanced_filter_active:
             self.filter_button.setToolTip(tr("fileFilter.disabled"))
             return
         labels = []
-        if self.state.text_filter:
-            labels.append(tr("fileFilter.pathContains", text=self.state.text_filter))
         labels.append({
             "all": "common.all",
             "unannotated": "state.unannotated",
@@ -787,7 +875,7 @@ class FileListWidget(QListView):
     itemOpenRequested = pyqtSignal(object)
     renameRequested = pyqtSignal()
     deleteRequested = pyqtSignal()
-    filterRequested = pyqtSignal()
+    searchRequested = pyqtSignal()
     itemSelectionChanged = pyqtSignal()
 
     def __init__(self, parent=None):
@@ -1192,7 +1280,7 @@ class FileListWidget(QListView):
             event.accept()
             return
         if key == Qt.Key_F and modifiers == Qt.ControlModifier:
-            self.filterRequested.emit()
+            self.searchRequested.emit()
             event.accept()
             return
         if key == Qt.Key_Space:
