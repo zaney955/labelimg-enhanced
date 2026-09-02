@@ -90,6 +90,22 @@ class HelpDialogTest(unittest.TestCase):
             for row in rows
         ))
         self.assertTrue(any(
+            row.keys == "Ctrl+F"
+            and row.action == "Search Images"
+            and "current image directory" in row.explanation
+            for row in rows
+        ))
+        self.assertTrue(any(
+            row.keys == "Ctrl+0"
+            and row.action == "Fit Window"
+            for row in rows
+        ))
+        self.assertTrue(any(
+            row.keys == "Enter"
+            and row.action == "Open first search result"
+            for row in rows
+        ))
+        self.assertTrue(any(
             row.keys == "Click overlap badge"
             and row.action == "Inspect near-duplicate boxes"
             for row in rows

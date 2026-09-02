@@ -129,9 +129,16 @@ class FileListQuery:
 
     @property
     def filter_active(self):
+        return self.search_active or self.advanced_filter_active
+
+    @property
+    def search_active(self):
+        return bool(self.text)
+
+    @property
+    def advanced_filter_active(self):
         return bool(
-            self.text
-            or self.annotation != "all"
+            self.annotation != "all"
             or self.review != "all"
             or self.alert != "all"
             or self.quality != "all"

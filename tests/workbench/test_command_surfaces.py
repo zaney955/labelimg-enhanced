@@ -415,6 +415,20 @@ class CommandSurfacesTest(unittest.TestCase):
             self.assertEqual({row.x() for row in rows}, {6})
             self.assertEqual({row.width() for row in rows}, {rows[0].width()})
 
+        self.assertEqual(
+            self.window.label_filter.height(),
+            self.window.file_list_controls.search_edit.height(),
+        )
+        self.assertFalse(self.window.label_filter_icon_action.isEnabled())
+        self.assertFalse(
+            self.window.label_filter_icon_action.icon().isNull()
+        )
+        self.assertEqual(
+            self.window.label_filter.accessibleName(),
+            "Label filter",
+        )
+        self.assertEqual(self.window.label_filter.toolTip(), "Label filter")
+
     def test_one_shot_create_accept_returns_to_enabled_selection(self):
         self.load_image("accept.png")
         self.window.use_default_label_checkbox.setChecked(True)
@@ -574,22 +588,25 @@ class CommandSurfacesTest(unittest.TestCase):
         self.assertEqual(
             edit_actions,
             [
+                self.window.actions.searchImages,
+                edit_actions[1],
                 self.window.actions.create,
                 self.window.actions.undoAnnotation,
                 self.window.actions.redoAnnotation,
-                edit_actions[3],
+                edit_actions[5],
                 self.window.actions.edit,
                 self.window.actions.copyAnnotations,
                 self.window.actions.pasteAnnotations,
                 self.window.actions.copyPrevBounding,
                 self.window.actions.copy,
                 self.window.actions.delete,
-                edit_actions[10],
+                edit_actions[12],
                 self.window.draw_squares_option,
             ],
         )
-        self.assertTrue(edit_actions[3].isSeparator())
-        self.assertTrue(edit_actions[10].isSeparator())
+        self.assertTrue(edit_actions[1].isSeparator())
+        self.assertTrue(edit_actions[5].isSeparator())
+        self.assertTrue(edit_actions[12].isSeparator())
 
     def test_annotation_header_exposes_session_label_color_palette(self):
         self.assertEqual(

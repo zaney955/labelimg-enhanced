@@ -253,7 +253,7 @@ class FileListAnnotationStatusTest(unittest.TestCase):
             self.window.visible_file_paths(),
         )
         self.assertIn(
-            "当前图像已被筛选隐藏",
+            "当前图像已被搜索或筛选隐藏",
             self.window.file_selection_count_label.text(),
         )
 

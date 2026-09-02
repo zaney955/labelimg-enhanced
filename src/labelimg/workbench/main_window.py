@@ -225,6 +225,8 @@ class MainWindow(
         self.use_default_label_checkbox.setText(tr('useDefaultLabel'))
         self.diffc_button.setText(tr('useDifficult'))
         self.label_filter.setPlaceholderText(tr('labels.filter'))
+        self.label_filter.setToolTip(tr('labels.filterName'))
+        self.label_filter.setAccessibleName(tr('labels.filterName'))
         self.restore_near_duplicate_action.setText(
             tr('nearDuplicate.restoreDismissed')
         )
@@ -1534,7 +1536,7 @@ class MainWindow(
             self.clear_near_duplicate_session()
             self.file_operations.clear_recovery()
             self.image_processing.clear_recovery()
-            self.file_list_controls.clear_filters(emit=False)
+            self.file_list_controls.clear_all_conditions(emit=False)
             self._begin_workspace_editing_session()
         self.last_open_dir = dir_path
         self.dir_name = dir_path
@@ -1594,7 +1596,7 @@ class MainWindow(
             self.clear_near_duplicate_session()
             self.file_operations.clear_recovery()
             self.image_processing.clear_recovery()
-            self.file_list_controls.clear_filters(emit=False)
+            self.file_list_controls.clear_all_conditions(emit=False)
             self._begin_workspace_editing_session()
         self.last_open_dir = dir_path
         self.dir_name = dir_path
@@ -1613,11 +1615,13 @@ class MainWindow(
         from labelimg.files import FileListProjection
         self._file_list_projection = FileListProjection(
             os.path.abspath(self.dir_name),
-            self.file_list_controls.state.query,
+            self.file_list_controls.state.projection_query(False),
             (),
             all_paths,
             all_paths,
         )
+        if self.file_list_controls.state.search_active:
+            self.apply_file_list_view(scroll_current=False)
         if self.img_count:
             self.cur_img_idx = min(max(initial_index, 0), self.img_count - 1)
             self.load_file(self.m_img_list[self.cur_img_idx])
@@ -1668,6 +1672,8 @@ class MainWindow(
         self.file_list_widget.addItems(items)
         for offset, path in enumerate(image_paths):
             self._file_row_by_path[path] = first + offset
+        if self.file_list_controls.state.search_active:
+            self.apply_file_list_view(scroll_current=False)
         return len(items)
 
     def populate_file_list(
@@ -1691,24 +1697,26 @@ class MainWindow(
         del blocker
         if indexed:
             if query is not None:
+                self.file_list_controls.state.set_search(query.text)
                 self.file_list_controls.state.set_filter(
-                    text=query.text,
                     annotation=query.annotation,
                     review=query.review,
                     alert=query.alert,
                     quality=query.quality,
                 )
+            self.file_list_controls.set_index_complete(True)
             self.apply_file_list_view(scroll_current=False)
         else:
             from labelimg.files import FileListProjection
             paths = tuple(self.m_img_list)
             self._file_list_projection = FileListProjection(
                 os.path.abspath(self.dir_name) if self.dir_name else None,
-                self.file_list_controls.state.query,
+                self.file_list_controls.state.projection_query(False),
                 (),
                 paths,
                 paths,
             )
+            self.file_list_controls.set_index_complete(False)
             self.file_list_controls.set_workspace_available(bool(paths))
             self.file_list_stack.setCurrentWidget(self.file_list_widget)
             self.update_current_file_marker()

@@ -896,7 +896,7 @@ class FileListSelectionTest(unittest.TestCase):
         self.click_row(2, Qt.ControlModifier)
         current_before = self.window.file_path
 
-        self.window.file_list_controls.filter_panel.text_edit.setText("03")
+        self.window.file_list_controls.search_edit.setText("03")
         self.app.processEvents()
 
         self.assertEqual(self.window.visible_file_paths(), [self.paths[2]])
@@ -907,7 +907,7 @@ class FileListSelectionTest(unittest.TestCase):
         self.assertEqual(self.window.file_path, current_before)
         self.assertEqual(
             self.window.file_selection_count_label.text(),
-            "显示 1/4 · 已选 2（隐藏 1） · 当前图像已被筛选隐藏",
+            "显示 1/4 · 已选 2（隐藏 1） · 当前图像已被搜索或筛选隐藏",
         )
 
         self.window.file_list_widget.select_all_visible()
@@ -916,7 +916,7 @@ class FileListSelectionTest(unittest.TestCase):
 
     def test_zero_filter_result_shows_clearable_empty_state(self):
         current_before = self.window.file_path
-        self.window.file_list_controls.filter_panel.text_edit.setText(
+        self.window.file_list_controls.search_edit.setText(
             "does-not-exist"
         )
         self.app.processEvents()
@@ -928,7 +928,7 @@ class FileListSelectionTest(unittest.TestCase):
         self.assertEqual(self.window.file_path, current_before)
         self.assertEqual(
             self.window.file_selection_count_label.text(),
-            "显示 0/4 · 当前图像已被筛选隐藏",
+            "显示 0/4 · 当前图像已被搜索或筛选隐藏",
         )
 
         QTest.mouseClick(
@@ -941,6 +941,18 @@ class FileListSelectionTest(unittest.TestCase):
             self.window.file_list_widget,
         )
         self.assertEqual(self.window.visible_file_paths(), self.paths)
+
+    def test_name_search_remains_available_while_index_is_incomplete(self):
+        controls = self.window.file_list_controls
+        controls.set_index_complete(False)
+
+        self.assertTrue(controls.search_edit.isEnabled())
+        self.assertFalse(controls.filter_button.isEnabled())
+
+        controls.search_edit.setText("03")
+        self.app.processEvents()
+
+        self.assertEqual(self.window.visible_file_paths(), [self.paths[2]])
 
     def test_sort_changes_full_order_and_navigation_uses_visible_order(self):
         self.window.file_list_controls._set_descending(True)
@@ -971,7 +983,6 @@ class FileListSelectionTest(unittest.TestCase):
                 ),
             )
         self.window.file_list_controls._set_filter(
-            "",
             "all",
             "questioned",
             "all",
@@ -1000,7 +1011,7 @@ class FileListSelectionTest(unittest.TestCase):
             load_file.assert_called_once_with(self.paths[1])
 
     def test_filter_resets_only_when_workspace_changes(self):
-        self.window.file_list_controls.filter_panel.text_edit.setText("03")
+        self.window.file_list_controls.search_edit.setText("03")
         self.window.import_dir_images(self.image_dir)
         self.assertEqual(
             self.window.file_list_controls.state.text_filter,
@@ -1015,44 +1026,52 @@ class FileListSelectionTest(unittest.TestCase):
         self.window.import_dir_images(other)
         self.assertFalse(self.window.file_list_controls.state.filter_active)
 
-    def test_ctrl_f_opens_filter_and_escape_keeps_active_conditions(self):
-        self.window.file_list_controls.filter_panel.text_edit.setText("03")
-        self.window.file_list_controls.filter_panel.hide()
-        self.window.file_list_widget.setFocus()
+    def test_global_ctrl_f_focuses_search_and_escape_keeps_advanced_filters(self):
+        controls = self.window.file_list_controls
+        controls.search_edit.setText("03")
+        controls.filter_panel.annotation_combo.setCurrentIndex(2)
+        self.window.canvas.setFocus()
 
         QTest.keyClick(
-            self.window.file_list_widget,
+            self.window.canvas,
             Qt.Key_F,
             Qt.ControlModifier,
         )
         self.app.processEvents()
-        self.assertTrue(
-            self.window.file_list_controls.filter_panel.isVisible()
+        self.assertTrue(controls.search_edit.hasFocus())
+        self.assertEqual(controls.search_edit.selectedText(), "03")
+        self.assertEqual(
+            self.window.actions.fitWindow.shortcut().toString(),
+            "Ctrl+0",
         )
 
         QTest.keyClick(
-            self.window.file_list_controls.filter_panel,
+            controls.search_edit,
             Qt.Key_Escape,
         )
         self.app.processEvents()
-        self.assertFalse(
-            self.window.file_list_controls.filter_panel.isVisible()
-        )
-        self.assertEqual(
-            self.window.file_list_controls.state.text_filter,
-            "03",
-        )
+        self.assertEqual(controls.state.text_filter, "")
+        self.assertEqual(controls.state.annotation_filter, "annotated")
 
-        self.window.file_list_controls.sort_button.setFocus()
+        controls.sort_button.setFocus()
         QTest.keyClick(
-            self.window.file_list_controls.sort_button,
+            controls.sort_button,
             Qt.Key_F,
             Qt.ControlModifier,
         )
         self.app.processEvents()
-        self.assertTrue(
-            self.window.file_list_controls.filter_panel.isVisible()
-        )
+        self.assertTrue(controls.search_edit.hasFocus())
+
+    def test_search_enter_opens_first_result_and_returns_canvas_focus(self):
+        controls = self.window.file_list_controls
+        controls.search_edit.setText("03")
+        controls.search_edit.setFocus()
+
+        QTest.keyClick(controls.search_edit, Qt.Key_Return)
+        self.app.processEvents()
+
+        self.assertEqual(self.window.file_path, self.paths[2])
+        self.assertTrue(self.window.canvas.hasFocus())
 
 
 if __name__ == "__main__":

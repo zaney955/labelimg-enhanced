@@ -2,8 +2,9 @@
 
 ## Scope
 
-The operation icon set contains the 79 SVG files used by actions and buttons. The
-application identity asset, `app.svg`, is outside this system.
+The operation icon set contains the 82 SVG files used by actions, buttons, and
+query-field decorations. The application identity asset, `app.svg`, is outside
+this system.
 
 The icons are designed from action names and behavior. Existing icon artwork is
 not a visual reference.
@@ -82,13 +83,13 @@ shape always carries the same meaning.
 
 ## Implementation
 
-All 79 operation SVGs implement this grammar. `app.svg` remains the separate
+All 82 operation SVGs implement this grammar. `app.svg` remains the separate
 application identity asset. The complete review sheet is
 [`icon-review-all.png`](./icon-review-all.png).
 
 Automated verification covers:
 
-- exactly 79 operation SVGs and one application SVG;
+- exactly 82 operation SVGs and one application SVG;
 - the shared 24 × 24 canvas, 1.8-unit stroke, round caps, and round joins;
 - the approved functional colors, structure color, and family tints;
 - absence of fonts, embedded images, scripts, styles, and dashed strokes;
