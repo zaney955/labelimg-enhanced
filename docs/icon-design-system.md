@@ -83,8 +83,8 @@ shape always carries the same meaning.
 
 ## Implementation
 
-The complete review sheet is
-[`icon-review-all.png`](./icon-review-all.png).
+The current artwork is in [resources/icons](../resources/icons/). The asset
+contract is checked by [test_app_icon_assets.py](../tests/packaging/test_app_icon_assets.py).
 
 Verification enforces the asset count and construction grammar, rejects embedded
 images, scripts, and styles, checks nonempty inset rendering at 16, 20, and 24

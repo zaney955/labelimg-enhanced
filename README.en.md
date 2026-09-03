@@ -46,7 +46,7 @@ python -m pip wheel . --no-deps --no-build-isolation
 python tools/run_tests.py --installed
 ```
 
-The source uses a feature-first modular-monolith structure. See [docs/design](docs/design) for design notes.
+The source uses a feature-first modular-monolith structure. See the [documentation index](docs/README.md) for terminology, current designs, and decisions.
 
 ## Origin and license
 
