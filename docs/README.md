@@ -10,7 +10,7 @@
 | --- | --- |
 | 功能模块、状态归属、调用关系与架构检查范围 | [模块化架构](design/modular-architecture-refactor.md) |
 | 标注事务、Undo/Redo、自动保存、格式选择、外部冲突、候选类别与文件恢复 | [标注历史与文件恢复](design/undo-redo-and-file-recovery.md) |
-| 指针命中、框选、标签编辑、标注列表及近重复框提示 | [标注交互](design/annotation-interaction.md) |
+| 绘制预览、指针命中、框选、标签编辑、标注列表及近重复框提示 | [标注交互](design/annotation-interaction.md) |
 | 工作区搜索、筛选、文件选择、状态显示及剪贴板传输 | [工作区与文件列表](design/workspace-file-list.md) |
 | 大目录渐进打开、索引完成与后台任务取消 | [目录加载](design/large-directory-loading.md) |
 | 图像处理、裁剪、质量分析、显示调整及处理恢复 | [图像工具](design/image-tools.md) |

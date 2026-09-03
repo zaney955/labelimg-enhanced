@@ -470,6 +470,56 @@ class CommandSurfacesTest(unittest.TestCase):
         self.assertTrue(self.window.actions.create.isEnabled())
         self.assertEqual(self.window.canvas.shapes, [])
 
+    def test_new_box_keeps_pending_outline_through_label_confirmation(self):
+        for label in ("cat", None):
+            with self.subTest(label=label):
+                self.load_image("pending-%s.png" % label)
+                self.window.use_default_label_checkbox.setChecked(False)
+                self.window.single_class_mode.setChecked(False)
+                canvas = self.window.canvas
+                canvas.scale = 1.0
+                canvas.resize(100, 100)
+                observed = {}
+
+                def choose(**_kwargs):
+                    image = canvas.grab().toImage()
+                    for name, point in (
+                        ("outline", (8, 2)),
+                        ("guide", (17, 14)),
+                        ("start_marker", (0, 2)),
+                    ):
+                        position = canvas.image_to_widget(QPointF(*point))
+                        observed[name] = image.pixelColor(
+                            round(position.x()), round(position.y()),
+                        )
+                    observed["pending"] = self.window.annotation_editing.pending
+                    return label
+
+                with patch.object(self.window.candidate_label_dialog, "choose", choose):
+                    self.window.create_shape()
+                    canvas.handle_drawing(QPointF(2, 2))
+                    canvas.line[1] = QPointF(14, 14)
+                    canvas.handle_drawing(QPointF(14, 14))
+
+                self.assertTrue(observed["pending"])
+                color = observed["outline"]
+                self.assertEqual(color.red(), color.green())
+                self.assertEqual(color.green(), color.blue())
+                self.assertLess(color.red(), 200)
+                self.assertEqual(observed["guide"], QColor(Qt.white))
+                self.assertEqual(observed["start_marker"], QColor(Qt.white))
+                self.assertFalse(self.window.annotation_editing.pending)
+                self.assertEqual(canvas.mode, Canvas.EDIT)
+                if label is None:
+                    self.assertEqual(canvas.shapes, [])
+                else:
+                    self.assertEqual(len(canvas.shapes), 1)
+                    self.assertEqual(canvas.shapes[0].label, label)
+                    self.assertEqual(
+                        canvas.shapes[0].line_color,
+                        self.window.label_color_palette.color(label),
+                    )
+
     def test_annotation_panel_owns_copy_delete_and_visibility(self):
         self.assertIs(
             self.window.copy_button.defaultAction(),

@@ -2,21 +2,25 @@
 
 This is the current contract for selecting, targeting, and presenting annotation boxes and label groups. Terminology is in [CONTEXT.md](../../CONTEXT.md); [Canvas command surfaces](canvas-tool-rail.md) own tool placement and zoom, [annotation history](undo-redo-and-file-recovery.md) owns transactions and persistence, and the [session palette](session-label-color-palette.md) owns label colors.
 
-## Pending box preview redesign (draft)
+## Pending box preview
 
-The agreed scope is the new-box preview between placing its first corner and completing its geometry. The agreed visual goals are clear boundaries, precise alignment with image content, and minimal obstruction of the target. This is a design draft, with agreed choices and remaining questions distinguished below; it does not describe implemented behavior.
+From placing the first corner through initial category confirmation, the preview emphasizes precise alignment and minimal obstruction of the target. Its appearance distinguishes unfinished creation from committed category-colored annotations.
 
-The current preview paints corner dots, a diagonal between the two defining corners, and a rectangle with a diagonal-pattern fill. The rectangle outline does not explicitly compensate for Canvas zoom, unlike the diagonal and dots. Width and height are already shown in the Canvas status strip using constrained preview geometry. The full-image crosshair is shown before the first corner and is cleared when the pending preview moves.
+The solid outline is approximately 1.5 logical screen pixels wide and follows the Windows reverse-screen cursor rule: fully covered displayed RGB channels become `255 - channel`. Gray backgrounds yield inverted gray, colored backgrounds yield complementary colors, and pure black and white interchange. Near-middle gray intentionally has little contrast with its inverse. This follows the reverse-screen mask behavior in [Microsoft's cursor documentation](https://learn.microsoft.com/en-us/windows/win32/menurc/using-cursors) and the raster operations described by [DrawIconEx](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-drawiconex).
 
-Agreed presentation:
+The interior stays transparent, without patterned fill or a connecting diagonal. While geometry is being drawn, the first corner has one solid circular marker approximately four logical screen pixels in diameter. The moving corner is indicated by the crosshair. Full-image horizontal and vertical alignment guides use approximately one-pixel lines and meet at the actual constrained corner, including image-boundary and square constraints. Marker and guides use the same reverse-screen treatment. These screen dimensions remain stable across image zoom and display density.
 
-- Use a high-contrast grayscale outline whose color adapts to the background, replacing the proposed fixed green. The outline stays opaque and approximately 1.5 logical screen pixels wide across zoom levels. The grayscale contrast treatment supersedes the proposed fixed dark underlay; its exact behavior is still under discussion.
-- Keep the interior transparent and remove both the diagonal-pattern fill and the line connecting the defining corners.
-- Use a solid circular start marker instead of the proposed hollow circle. The moving endpoint remains indicated by the crosshair.
-- Continue the thin full-image horizontal and vertical alignment guides during the preview. Their intersection follows the actual constrained preview corner, including image-boundary and square constraints.
-- Keep width and height in the existing Canvas status strip.
+Reversal acts on the already displayed Canvas pixels, including display adjustments and any visible annotations underneath. Geometry is combined into one mask before applying white Difference composition, so overlapping outlines, guides, and markers reverse each pixel only once. Antialiasing affects boundary coverage only. There are no brightness thresholds, averaged sampling strips, or palette approximations; fixed portions remain stable when the endpoint moves or a partial repaint occurs. The image and repaint clips bound the output.
 
-Open decisions are how the outline adapts when one edge crosses both light and dark content, and whether the alignment guides and start marker share the adaptive grayscale treatment. The existing selection, hover, and completed-box presentation contracts remain outside this redesign's scope.
+Width and height remain in the Canvas status strip and report the constrained preview geometry. Preview drawing uses that same floating-point geometry. It operates on rendered pixels even when the displayed pixmap resolution differs from the annotation coordinate space.
+
+### Pending label confirmation
+
+Completing geometry leaves a static reverse-screen outline while the initial category chooser is open. Alignment guides and the start marker disappear. The new box remains visually pending throughout modal repaints and is excluded from ordinary category-colored shape drawing, so there is no intermediate green outline.
+
+Confirming the category ends the preview and resolves the committed box's category color. Canceling removes the new box and its preview. Default-label creation follows the same boundary without displaying the chooser. Scene replacement and drawing cancellation clear temporary presentation state; they do not leave a ghost outline.
+
+The Canvas tracks the pending label shape only as presentation state. Geometry finalization, scene membership, label assignment, annotation transactions, Undo/Redo, and persistence retain their existing ownership and commit sequence.
 
 ## Selection and pointer targets
 
