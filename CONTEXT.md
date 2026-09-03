@@ -85,8 +85,20 @@ The explicit top-level control beside Save that shows the current annotation sto
 _Avoid_: Format cycle button, view-status control, implicit conversion
 
 **Canvas zoom control**:
-The bottom status-bar control for Canvas view scale, combining symmetric incremental actions, a logarithmic `1%`–`3200%` slider, and the current native-pixel-relative percentage as a menu for actual size, fit-to-window, and available fit-to-width choices. Wheel input anywhere over the closed control adjusts the same scale; the control changes view state rather than image dimensions or annotation content.
+The always-visible control on the right of the Canvas status strip for Canvas view scale, combining symmetric incremental actions, a logarithmic nominal `1%`–`600%` slider whose safe per-image bounds expand to include exact fit-to-window, fit-to-width, and retained manual scales, and the current native-pixel-relative percentage as a menu for those presets and actual size. The active range applies to every manual zoom input and changes view state rather than image dimensions or annotation content; the control remains inactive until an image is loaded.
 _Avoid_: Toolbar zoom stack, image resize, annotation-format control
+
+**Canvas status strip**:
+The dedicated area immediately below and aligned with the Canvas, presenting image pointer coordinates and annotation size on the left and view zoom on the right, with a two-row arrangement when space is insufficient. It is distinct from application-wide status messages, never covers the image, and keeps the zoom slider stationary as readout text changes.
+_Avoid_: Image overlay, file-panel footer, application-wide status bar
+
+**Image pointer coordinates**:
+The zero-based original-image pixel indices beneath the pointer, displayed as X/Y independently of view zoom or pan and valid only within the rendered image, from zero through width minus one and height minus one. Outside the image or after leaving the Canvas, unavailable placeholders replace the indices rather than retaining stale or out-of-bounds values.
+_Avoid_: Canvas-widget coordinates, image-edge geometry, clamped pointer position, last valid pointer position
+
+**Annotation size readout**:
+The W/H display of the actual annotation rectangle's width and height during drawing and adjustment, including the effects of image-boundary and square constraints, presented separately from image pointer coordinates in the Canvas status strip. Leaving the image does not invalidate this size: the readout changes only when the actual rectangle changes, not merely because the pointer moves farther outside.
+_Avoid_: Raw pointer displacement, pointer coordinates, image dimensions, combined coordinate sentence
 
 **Canvas zoom percentage**:
 The Canvas view scale whose `100%` baseline displays one image pixel as one logical screen pixel, independent of the viewport's fitted-image size. Fit commands report their resulting native-pixel-relative percentage rather than redefining the baseline.
@@ -97,7 +109,7 @@ A Canvas scale change that keeps the same image-coordinate point beneath the poi
 _Avoid_: Scroll-range-proportional zoom, viewport-centered zoom, approximate cursor compensation
 
 **Canvas wheel navigation**:
-The pointer-driven Canvas view interaction in which an ordinary wheel moves vertically, Shift plus wheel moves horizontally, and any wheel gesture containing Ctrl performs cursor-anchored zoom with a smooth symmetric multiplicative curve. Ctrl takes priority when combined with other modifiers.
+The pointer-driven Canvas view interaction in which an ordinary wheel moves vertically, Shift plus wheel moves horizontally, and any wheel gesture containing Ctrl performs cursor-anchored zoom using the same symmetric `×1.10` or `÷1.10` standard increment as every other incremental zoom input, with one-step snapping when crossing `100%`. Ctrl takes priority when combined with other modifiers, while high-precision wheel deltas retain proportional continuous scaling.
 _Avoid_: Shift vertical scroll, additive percentage zoom, modifier-equality dispatch
 
 **Fit-to-window scale**:

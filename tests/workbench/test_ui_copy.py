@@ -50,7 +50,7 @@ class UserInterfaceCopyTest(unittest.TestCase):
                 "create": "Draw Box (W)",
                 "questioned": "Needs Review (Ctrl+Space)",
                 "verified": "Verified (Space)",
-                "zoom_in": "Zoom In (Ctrl++)",
+                "zoom_in": "Zoom In (Ctrl+=)",
                 "zoom_out": "Zoom Out (Ctrl+-)",
             },
             SIMPLIFIED_CHINESE: {
@@ -58,7 +58,7 @@ class UserInterfaceCopyTest(unittest.TestCase):
                 "create": "绘制标注框（W）",
                 "questioned": "待复核（Ctrl+Space）",
                 "verified": "已验证（Space）",
-                "zoom_in": "放大（Ctrl++）",
+                "zoom_in": "放大（Ctrl+=）",
                 "zoom_out": "缩小（Ctrl+-）",
             },
         }

@@ -3,8 +3,8 @@
 ## Scope
 
 The operation icon set contains the 82 SVG files used by actions, buttons, and
-query-field decorations. The application identity asset, `app.svg`, is outside
-this system.
+query-field decorations, including the [Canvas rail and top command surface](design/canvas-tool-rail.md).
+The application identity asset, `app.svg`, is outside this system.
 
 The icons are designed from action names and behavior. Existing icon artwork is
 not a visual reference.
@@ -83,16 +83,11 @@ shape always carries the same meaning.
 
 ## Implementation
 
-All 82 operation SVGs implement this grammar. `app.svg` remains the separate
-application identity asset. The complete review sheet is
+The complete review sheet is
 [`icon-review-all.png`](./icon-review-all.png).
 
-Automated verification covers:
-
-- exactly 82 operation SVGs and one application SVG;
-- the shared 24 × 24 canvas, 1.8-unit stroke, round caps, and round joins;
-- the approved functional colors, structure color, and family tints;
-- absence of fonts, embedded images, scripts, styles, and dashed strokes;
-- nonempty, inset rendering at 16, 20, and 24 pixels;
-- unique 24-pixel raster output for every operation icon; and
-- byte-identical Qt rendering between each source SVG and its compiled resource.
+Verification enforces the asset count and construction grammar, rejects embedded
+images, scripts, and styles, checks nonempty inset rendering at 16, 20, and 24
+pixels and unique 24-pixel output, and compares each source SVG with its compiled
+Qt resource for byte-identical rendering. Button states, translated accessible
+names, and focus behavior belong to the command-surface contract.

@@ -4,7 +4,7 @@ Design status: approved on 2026-08-07. This document is an implementation contra
 
 ## Outcome
 
-LabelImg Enhanced uses a single-image annotation workbench with one stable command layout. The left edge is a compact Canvas tool rail rather than a general shortcut catalog. Commands are placed according to what they act on: Canvas tools on the left, current-image workflow at the top, annotation-object commands in the annotation panel and context menu, and view scale in the bottom status bar.
+LabelImg Enhanced uses a single-image annotation workbench with one stable command layout. The left edge is a compact Canvas tool rail rather than a general shortcut catalog. Commands are placed according to what they act on: Canvas tools on the left, current-image workflow at the top, annotation-object commands in the annotation panel and context menu, and view scale in the dedicated status strip below the Canvas.
 
 Beginner and advanced layouts are removed. Routine commands never move or disappear because of an interface mode, and the application does not restore a different command layout at the next launch.
 
@@ -107,7 +107,17 @@ Hide All and Show All become one all-annotations-visible state button in the ann
 
 ## Bottom Canvas status
 
-Zoom moves to the bottom-right status area as `minus | slider | plus | percentage menu`. The percentage menu offers Actual Size, Fit to Window, and Fit to Width. Existing zoom shortcuts remain available.
+Coordinate and zoom placement revision approved and implemented on 2026-09-03.
+
+A dedicated status strip sits immediately below the Canvas, aligned with its width rather than extending beneath the annotation and file panels. Image pointer coordinates and annotation size appear on the left, with zoom on the right as `minus | slider | plus | percentage menu`. The percentage menu offers Actual Size, Fit to Window, and Fit to Width. Existing zoom shortcuts, range behavior, and cursor anchoring remain unchanged. Application-wide status messages and directory-loading controls remain separate from this strip.
+
+X/Y are zero-based original-image pixel indices, independent of zoom and pan. Only points inside the rendered image have valid indices, from zero through width minus one and height minus one; outside the image or after leaving the Canvas, the fields display unavailable placeholders rather than stale, negative, or out-of-range values. Refreshes after view changes apply the same validity rule.
+
+W/H remain separate from X/Y and describe the actual annotation rectangle, including the current drawing preview after image-boundary and square constraints. While drawing or adjusting a box, moving outside the image does not hide W/H or substitute raw pointer displacement: unchanged geometry retains the same size, and genuine changes in the constrained rectangle update it. This readout change does not freeze annotation interaction or alter its existing boundary rules.
+
+When no rectangle is being drawn, adjusted, or hovered, W/H have no visible text, including no labels or unavailable placeholders. The empty readout retains its reserved space so showing or clearing dimensions never moves the zoom slider.
+
+Responsive layout uses the Canvas's available width, including changes caused by resizing side panels. The slider shortens first; if a single row still cannot fit, readouts and zoom occupy two rows without hiding controls or truncating values; the X/Y and W/H groups can also stack within the readout area when necessary. Readout changes and percentage digit changes must not move the slider while it is dragged. The strip does not overlay the image or conflict with the existing display-adjustment overlay.
 
 Zoom is view state. It does not change image dimensions, annotation geometry, or the selected annotation storage format.
 

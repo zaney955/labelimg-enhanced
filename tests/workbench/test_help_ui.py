@@ -101,6 +101,21 @@ class HelpDialogTest(unittest.TestCase):
             for row in rows
         ))
         self.assertTrue(any(
+            row.keys == "Ctrl+="
+            and row.action == "Zoom In"
+            for row in rows
+        ))
+        self.assertTrue(any(
+            row.keys == "Ctrl+-"
+            and row.action == "Zoom Out"
+            for row in rows
+        ))
+        self.assertTrue(any(
+            row.keys == "Ctrl+1"
+            and row.action == "Original Size"
+            for row in rows
+        ))
+        self.assertTrue(any(
             row.keys == "Enter"
             and row.action == "Open first search result"
             for row in rows
@@ -113,6 +128,27 @@ class HelpDialogTest(unittest.TestCase):
         self.assertTrue(any(
             row.keys == "Click risk marker"
             and row.action == "Manage overlap finding"
+            for row in rows
+        ))
+        self.assertTrue(any(
+            row.keys == "Mouse wheel"
+            and row.action == "Scroll canvas vertically"
+            for row in rows
+        ))
+        self.assertTrue(any(
+            row.keys == "Shift+Mouse wheel"
+            and row.action == "Scroll canvas horizontally"
+            for row in rows
+        ))
+        self.assertTrue(any(
+            row.keys == "Ctrl+Mouse wheel"
+            and row.action == "Zoom canvas"
+            and "fixed" in row.explanation
+            for row in rows
+        ))
+        self.assertTrue(any(
+            row.keys == "Mouse wheel"
+            and row.action == "Adjust zoom"
             for row in rows
         ))
         self.assertEqual(

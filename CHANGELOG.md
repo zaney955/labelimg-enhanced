@@ -4,6 +4,10 @@
 
 - Added persistent image-directory search by file name or relative path, with global `Ctrl+F`, first-result opening, and search-aware filtering and navigation.
 - Distinguished label filtering from image search with aligned query fields, concise bilingual descriptions, and dedicated leading filter and search icons.
+- Made the always-visible Canvas zoom native-pixel-relative and smoothly cursor-anchored, added a nominal `1%`–`600%` per-image dynamic range, reciprocal 10% wheel/button/keyboard increments, `Ctrl+=`/`Ctrl+-` scaling, `Ctrl+1` actual size, Shift-wheel horizontal navigation, and high-precision wheel support, and hardened fit behavior for tiny, huge, and extreme-aspect images.
+- Stabilized the zoom slider while dragging across changing percentage widths, kept outside-image wheel zoom anchored to the pointer, and refreshed pointer coordinates after every wheel zoom.
+- Moved coordinates, annotation dimensions, and zoom into a responsive Canvas-local status strip; cleared out-of-image pixel coordinates and derived W/H from the actual constrained rectangle rather than outside pointer displacement, while preserving the view center across status-strip reflows.
+- Simplified the Canvas status strip to one grid layout and removed idle W/H labels without moving the zoom slider when annotation dimensions appear or disappear.
 - Added a compact lower-left Canvas display-adjustment button with floating workspace-wide and current-image brightness and contrast controls.
 - Added session-scoped label color customization and synchronized annotation styling across the Canvas and annotation workflow.
 - Replaced the brightness, contrast, and Gamma number fields in Adjust Image with compact sliders and live value badges, and added one-shot automatic adjustment plus a control reset.

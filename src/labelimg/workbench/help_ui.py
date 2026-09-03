@@ -103,7 +103,15 @@ _CONTEXT_SECTIONS = (
             ("Esc", "shortcuts.canvas.cancel", "shortcuts.canvas.cancelDetail"),
             ("Enter", "shortcuts.canvas.finish", "shortcuts.canvas.finishDetail"),
             ("shortcuts.keys.arrows", "shortcuts.canvas.nudge", "shortcuts.canvas.nudgeDetail"),
+            ("shortcuts.keys.mouseWheel", "shortcuts.canvas.wheelScroll", "shortcuts.canvas.wheelScrollDetail"),
+            ("shortcuts.keys.shiftWheel", "shortcuts.canvas.wheelScrollHorizontal", "shortcuts.canvas.wheelScrollHorizontalDetail"),
             ("shortcuts.keys.controlWheel", "shortcuts.canvas.wheelZoom", "shortcuts.canvas.wheelZoomDetail"),
+        ),
+    ),
+    (
+        "shortcuts.section.zoomControlContext",
+        (
+            ("shortcuts.keys.mouseWheel", "shortcuts.zoomControl.wheel", "shortcuts.zoomControl.wheelDetail"),
         ),
     ),
     (

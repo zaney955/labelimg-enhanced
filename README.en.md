@@ -14,7 +14,7 @@ LabelImg Enhanced is an independently maintained bounding-box annotation tool de
 - Flags likely duplicate boxes and overlapping category conflicts for focused inspection, editing, visibility changes, deletion, or session-only dismissal.
 - Searches the current image directory live by file name or relative path, and tracks `Unreviewed / Needs Review / Verified` states with annotation, review, and save-state filtering or sorting.
 - Provides per-image Undo/Redo, real-time autosave, external-conflict handling, and recoverable file operations.
-- Includes rotation, flipping, cropping, resizing, image adjustments, and non-destructive quality checks for corruption, blur, darkness, overexposure, and more.
+- Includes rotation, flipping, cropping, native-pixel-relative zoom, and image adjustments; a dedicated strip below the Canvas shows in-image pixel coordinates and actual annotation dimensions on the left and a nominal `1%–600%` zoom slider on the right, safely expanding for exact fit scales and wrapping when space is limited. `Ctrl+=`/`Ctrl+-` apply reciprocal 10% increments, `Ctrl+1` restores actual size, Ctrl-wheel zooms around the pointer, Shift-wheel moves horizontally, and non-destructive quality checks find corruption, blur, darkness, overexposure, and more.
 
 ## Requirements and installation
 

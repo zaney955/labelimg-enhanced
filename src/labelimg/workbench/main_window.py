@@ -285,8 +285,15 @@ class MainWindow(
         self.crop_controls.retranslate()
         self.zoom_widget.setWhatsThis(tr(
             'zoom.help',
-            keyboard=format_shortcut("Ctrl+[-+]"),
+            keyboard=(
+                "%s / %s"
+                % (
+                    format_shortcut("Ctrl+="),
+                    format_shortcut("Ctrl+-"),
+                )
+            ),
             wheel=format_shortcut("Ctrl+Wheel"),
+            shift_wheel=format_shortcut("Shift+Wheel"),
         ))
         for language, action in self.language_actions.items():
             action.setChecked(language == current_language())
@@ -320,6 +327,13 @@ class MainWindow(
             self.canvas.set_multi_selection_mode(True)
 
     def eventFilter(self, watched, event):
+        scroll_area = getattr(self, 'scroll_area', None)
+        if (
+            scroll_area is not None
+            and watched is scroll_area.viewport()
+            and event.type() == QEvent.Resize
+        ):
+            self.canvas_viewport_resize_event(event)
         if (
             watched is getattr(self, 'canvas', None)
             and event.type() == QEvent.KeyPress
@@ -379,6 +393,7 @@ class MainWindow(
         self.review_control.setEnabled(value)
         if value:
             self.actions.selectTool.setChecked(True)
+            self._update_fit_width_availability()
 
     def queue_event(self, function):
         QTimer.singleShot(0, function)
@@ -399,7 +414,6 @@ class MainWindow(
             self.display_adjustment_controller.deactivate_image()
             if not preserve_session:
                 self.display_adjustment_controller.replace_workspace(None)
-        self.label_coordinates.clear()
         if hasattr(self, 'file_list_widget'):
             self.update_current_file_marker()
 

@@ -15,8 +15,8 @@ from functools import cmp_to_key, partial
 from types import SimpleNamespace
 
 from PyQt5.QtCore import QByteArray, QDateTime, QEvent, QFileInfo, QItemSelectionModel, QModelIndex, QPersistentModelIndex, QPoint, QPointF, QProcess, QRect, QRectF, QSignalBlocker, QSize, QThread, QTimer, Qt, pyqtSignal
-from PyQt5.QtGui import QBrush, QColor, QCursor, QImage, QImageReader, QPainter, QPainterPath, QPalette, QPen, QPixmap
-from PyQt5.QtWidgets import QAbstractItemView, QAction, QActionGroup, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDockWidget, QFileDialog, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QProgressDialog, QPushButton, QScrollArea, QSizePolicy, QStackedWidget, QStyle, QStyleOptionViewItem, QStyledItemDelegate, QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget, QWidgetAction
+from PyQt5.QtGui import QBrush, QColor, QCursor, QImage, QImageReader, QKeySequence, QPainter, QPainterPath, QPalette, QPen, QPixmap
+from PyQt5.QtWidgets import QAbstractItemView, QAction, QActionGroup, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDockWidget, QFileDialog, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QProgressDialog, QPushButton, QScrollArea, QShortcut, QSizePolicy, QStackedWidget, QStyle, QStyleOptionViewItem, QStyledItemDelegate, QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget
 
 import labelimg.ui.generated_resources  # noqa: F401 - registers Qt resources
 from labelimg import __version__
@@ -76,6 +76,7 @@ from labelimg.workbench.commands import (
 from labelimg.workbench.canvas_context_menu import (
     CanvasContextMenuController,
 )
+from labelimg.workbench.canvas_status import CanvasStatusStrip
 from labelimg.annotations.ui.candidate_label_dialog import CandidateLabelDialog
 from labelimg.annotations.ui.label_list import (
     LabelListItemDelegate,
@@ -530,6 +531,7 @@ class WorkbenchComposer:
         scroll = QScrollArea()
         scroll.setWidget(self.canvas)
         scroll.setWidgetResizable(True)
+        scroll.viewport().installEventFilter(self)
         self.scroll_bars = {
             Qt.Vertical: scroll.verticalScrollBar(),
             Qt.Horizontal: scroll.horizontalScrollBar()
@@ -672,7 +674,21 @@ class WorkbenchComposer:
             .set_canvas_gesture_active(False)
         )
 
-        self.setCentralWidget(scroll)
+        canvas_container = QWidget(self)
+        canvas_layout = QVBoxLayout(canvas_container)
+        canvas_layout.setContentsMargins(0, 0, 0, 0)
+        canvas_layout.setSpacing(0)
+        canvas_layout.addWidget(scroll, 1)
+        self.canvas_status = CanvasStatusStrip(self.zoom_widget)
+        canvas_layout.addWidget(self.canvas_status)
+        self.label_coordinates = self.canvas_status.coordinates
+        self.label_dimensions = self.canvas_status.dimensions
+        self.canvas.coordinatesChanged.connect(self.label_coordinates.setText)
+        self.canvas.annotationSizeChanged.connect(self.label_dimensions.setText)
+        self.canvas.imageSizeChanged.connect(self.canvas_status.set_image_size)
+        for bar in self.scroll_bars.values():
+            bar.valueChanged.connect(self.queue_canvas_readout_refresh)
+        self.setCentralWidget(canvas_container)
         self.addDockWidget(Qt.RightDockWidgetArea, self.dock)
         self.addDockWidget(Qt.RightDockWidgetArea, self.file_dock)
         self.addDockWidget(Qt.RightDockWidgetArea, self.image_quality_dock)
@@ -935,23 +951,31 @@ class WorkbenchComposer:
         show_info = action(get_str('info'), self.show_info_dialog, None, 'about', get_str('infoDetail'))
         show_shortcut = action(get_str('shortcut'), self.show_shortcuts_dialog, None, 'keyboard-shortcuts', get_str('shortcutDetail'))
 
-        zoom = QWidgetAction(self)
-        zoom.setDefaultWidget(self.zoom_widget)
         self.zoom_widget.setWhatsThis(
             tr(
                 'zoom.help',
-                keyboard=format_shortcut("Ctrl+[-+]"),
+                keyboard=(
+                    "%s / %s"
+                    % (
+                        format_shortcut("Ctrl+="),
+                        format_shortcut("Ctrl+-"),
+                    )
+                ),
                 wheel=format_shortcut("Ctrl+Wheel"),
+                shift_wheel=format_shortcut("Shift+Wheel"),
             )
         )
         self.zoom_widget.setEnabled(False)
 
-        zoom_in = action(get_str('zoomin'), partial(self.add_zoom, 10),
-                         'Ctrl++', 'zoom-in', get_str('zoominDetail'), enabled=False)
-        zoom_out = action(get_str('zoomout'), partial(self.add_zoom, -10),
+        zoom_in = action(get_str('zoomin'), partial(self.add_zoom, 1),
+                         'Ctrl+=', 'zoom-in', get_str('zoominDetail'), enabled=False)
+        zoom_in_alias = QShortcut(QKeySequence('Ctrl++'), self)
+        zoom_in_alias.activated.connect(partial(self.add_zoom, 1))
+        zoom_in_alias.setEnabled(False)
+        zoom_out = action(get_str('zoomout'), partial(self.add_zoom, -1),
                           'Ctrl+-', 'zoom-out', get_str('zoomoutDetail'), enabled=False)
         zoom_org = action(get_str('originalsize'), partial(self.set_zoom, 100),
-                          'Ctrl+=', 'zoom', get_str('originalsizeDetail'), enabled=False)
+                          'Ctrl+1', 'zoom', get_str('originalsizeDetail'), enabled=False)
         fit_window = action(get_str('fitWin'), self.set_fit_window,
                             'Ctrl+0', 'fit-window', get_str('fitWinDetail'),
                             checkable=True, enabled=False)
@@ -959,7 +983,7 @@ class WorkbenchComposer:
                            'Ctrl+Shift+F', 'fit-width', get_str('fitWidthDetail'),
                            checkable=True, enabled=False)
         # Group zoom controls into a list for easier toggling.
-        zoom_actions = (self.zoom_widget, zoom_in, zoom_out,
+        zoom_actions = (self.zoom_widget, zoom_in, zoom_in_alias, zoom_out,
                         zoom_org, fit_window, fit_width)
         self.zoom_mode = self.MANUAL_ZOOM
         self.scalers = {
@@ -1040,7 +1064,8 @@ class WorkbenchComposer:
                                checkUpdates=check_updates,
                                showInfo=show_info,
                                showShortcut=show_shortcut,
-                               zoom=zoom, zoomIn=zoom_in, zoomOut=zoom_out, zoomOrg=zoom_org,
+                               zoomIn=zoom_in, zoomInAlias=zoom_in_alias,
+                               zoomOut=zoom_out, zoomOrg=zoom_org,
                               fitWindow=fit_window, fitWidth=fit_width,
                               zoomActions=zoom_actions,
                               fileMenuActions=(
@@ -1425,15 +1450,10 @@ class WorkbenchComposer:
             self.queue_event(partial(self.load_file, self.file_path or ""))
 
         # Callbacks:
-        self.zoom_widget.valueChanged.connect(self.paint_canvas)
+        self.zoom_widget.valueChanged.connect(self.apply_zoom_value)
+        self.zoom_widget.zoomStepRequested.connect(self.add_zoom)
 
-        # Display cursor coordinates at the right of status bar
-        self.label_coordinates = QLabel('')
-        self.statusBar().addPermanentWidget(self.label_coordinates)
-        self.statusBar().addPermanentWidget(self.zoom_widget)
-        self.canvas.coordinatesChanged.connect(
-            self.label_coordinates.setText
-        )
+        self.zoom_widget.show()
         self.top_commands.set_counter(0, 0)
         QTimer.singleShot(3000, self.update_ui.check_automatic)
 
