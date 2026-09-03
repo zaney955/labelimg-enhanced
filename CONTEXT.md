@@ -277,8 +277,12 @@ An uncommitted annotation shape whose geometry or label has not yet completed cr
 _Avoid_: Created annotation, reversible annotation change
 
 **Pending box preview**:
-The transient rectangle shown between placing the first corner and completing a new annotation box's geometry, within a pending drawing.
+The transient rectangle shown from placing the first corner through initial label confirmation, until a new annotation is committed or canceled.
 _Avoid_: Selected annotation, selection region, image crop region
+
+**Pending label confirmation**:
+The stage of a pending drawing whose box geometry is complete but whose first annotation label has not yet been confirmed.
+_Avoid_: Committed annotation, existing-label edit, completed creation
 
 **Pending annotation gesture**:
 A geometry-changing interaction started but not yet committed or canceled.

@@ -2,7 +2,6 @@ import math
 
 from PyQt5.QtCore import QEvent, QPoint, QPointF, QRectF, QSize, Qt, pyqtSignal
 from PyQt5.QtGui import (
-    QBrush,
     QColor,
     QCursor,
     QFont,
@@ -19,6 +18,7 @@ from labelimg.ui.risk_glyphs import draw_not_equal_glyph
 
 
 from labelimg.canvas.shape import Shape
+from labelimg.canvas.drawing_preview import paint_pending_box
 from labelimg.canvas.interaction import (
     CanvasContextRequest,
     CanvasInteraction,
@@ -76,6 +76,7 @@ class Canvas(QWidget):
         self.mode = self.EDIT
         self.shapes = []
         self.current = None
+        self._pending_label_shape = None
         self._pixmap_logical_size = QSize()
         self._selection = SelectionSet()
         self._interaction = CanvasInteraction()
@@ -178,6 +179,7 @@ class Canvas(QWidget):
         self.mode = mode
         if mode != self.CREATE:
             self.current = None
+            self._pending_label_shape = None
             self.line.points = []
         if mode != self.EDIT:
             self.clear_near_duplicate_focus()
@@ -1245,6 +1247,8 @@ class Canvas(QWidget):
             else ()
         )
         for shape in self.shapes:
+            if shape is self._pending_label_shape:
+                continue
             if (
                 (
                     shape.selected
@@ -1285,9 +1289,6 @@ class Canvas(QWidget):
                         shape.paint(p)
                 if peer_in_focus:
                     p.restore()
-        if self.current:
-            self.current.paint(p)
-            self.line.paint(p)
         if self.selection_rect is not None:
             p.save()
             selection_color = QColor(0, 120, 215, 200)
@@ -1301,19 +1302,23 @@ class Canvas(QWidget):
             p.drawRect(self.selection_rect)
             p.restore()
 
-        # Paint rect
+        # The pending box has its own presentation, independent of label colors.
         if self.current is not None and len(self.line) == 2:
-            left_top = self.line[0]
-            right_bottom = self.line[1]
-            rect_width = right_bottom.x() - left_top.x()
-            rect_height = right_bottom.y() - left_top.y()
-            p.setPen(self.drawing_rect_color)
-            brush = QBrush(Qt.BDiagPattern)
-            p.setBrush(brush)
-            p.drawRect(int(round(left_top.x())), int(round(left_top.y())),
-                       int(round(rect_width)), int(round(rect_height)))
+            paint_pending_box(
+                p, image_size, self.line[0], self.line[1],
+            )
+        elif self._pending_label_shape is not None:
+            bounds = self._pending_label_shape.bounding_rect()
+            paint_pending_box(
+                p, image_size, bounds.topLeft(), bounds.bottomRight(),
+                drawing=False,
+            )
 
-        if self.drawing() and not self.prev_point.isNull() and not self.out_of_pixmap(self.prev_point):
+        if (
+            self.current is None and self._pending_label_shape is None
+            and self.drawing() and not self.prev_point.isNull()
+            and not self.out_of_pixmap(self.prev_point)
+        ):
             p.setPen(QColor(0, 0, 0))
             image_size = self.pixmap_size
             p.drawLine(int(round(self.prev_point.x())), 0,
@@ -1676,10 +1681,15 @@ class Canvas(QWidget):
 
         self.current.close()
         self.shapes.append(self.current)
+        self._pending_label_shape = self.current
         self.current = None
         self.set_hiding(False)
-        self.newShape.emit()
-        self.update()
+        try:
+            # The modal label chooser processes repaints inside this signal.
+            self.newShape.emit()
+        finally:
+            self._pending_label_shape = None
+            self.update()
 
     def close_enough(self, p1, p2):
         # d = distance(p1 - p2)
@@ -1927,6 +1937,7 @@ class Canvas(QWidget):
         self.shapes[-1].label = text
         if line_color:
             self.shapes[-1].line_color = line_color
+        self._pending_label_shape = None
 
         return self.shapes[-1]
 
@@ -1939,6 +1950,7 @@ class Canvas(QWidget):
 
     def reset_all_lines(self):
         assert self.shapes
+        self._pending_label_shape = None
         self.current = self.shapes.pop()
         self.current.set_open()
         self.line.points = [self.current[-1], self.current[0]]
@@ -1949,8 +1961,9 @@ class Canvas(QWidget):
 
     def cancel_current_drawing(self, force=False):
         """Finish the drawing lifecycle after a projected cancellation."""
-        was_drawing = self.current is not None
+        was_drawing = self.current is not None or self._pending_label_shape is not None
         self.current = None
+        self._pending_label_shape = None
         self.line.points = []
         self.update()
         if was_drawing or force:
@@ -2076,6 +2089,7 @@ class Canvas(QWidget):
         self.update()
 
     def _reset_transient_interaction(self):
+        self._pending_label_shape = None
         previous_hover_shape = self.interaction_snapshot.hover.shape
         if previous_hover_shape is not None:
             previous_hover_shape.highlight_clear()
