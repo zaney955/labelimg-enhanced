@@ -13,7 +13,7 @@ Color resolution is:
 1. use the session override for the exact label when present;
 2. otherwise use the deterministic automatic color derived from the exact label text.
 
-The resolved color is always opaque. It drives box outlines, candidate-label capsules, and annotation-list instance controls. The annotation-list group label keeps its established plain-text style. A selected box derives its translucent fill from the same color at the fixed selection opacity; contrasting text and hover treatments are also derived rather than stored independently.
+The resolved color is always opaque. It drives box outlines, candidate-label capsules, and annotation-instance outlines. Unselected instance buttons retain the theme background; their selected, hovered, and hidden treatments follow [annotation interaction](annotation-interaction.md). The group label remains plain text. A selected Canvas box derives its translucent fill from the resolved color at the fixed selection opacity; text contrast and hover treatments are derived rather than stored independently.
 
 There are no default drawing colors, per-box colors, independent fill colors, or user-adjustable alpha values.
 
@@ -31,14 +31,8 @@ Overrides survive navigation between images in one image-directory workspace. Th
 
 ## Removed legacy behavior
 
-The old default line-color setting and unreachable per-box line/fill color commands are deleted. Annotation reader tuples, domain boxes, history snapshots, writer inputs, clipboard records, and runtime shapes no longer carry stored fill colors or serialized color placeholders.
+Default line-color settings and per-box line/fill commands are absent. Annotation readers, domain boxes, history snapshots, writers, clipboard records, and runtime shapes carry no stored fill colors or serialized color placeholders.
 
 ## Acceptance checks
 
-- Setting a label color updates all current boxes with that exact label and the corresponding label surfaces.
-- Labels that differ only by case remain independent.
-- New and loaded boxes resolve their color from the active palette.
-- Restoring one label or all labels returns to deterministic automatic colors.
-- Palette changes do not make the document dirty and Undo or Redo does not change palette entries.
-- Navigation within one directory retains overrides; changing or closing the workspace clears them.
-- Saving annotations or application settings writes no palette data.
+Verify the resolution, staging, refresh, and lifetime rules through new and loaded boxes, exact-case label variants, Save/Cancel, and both reset actions. Palette changes must leave annotation history, dirty state, annotation files, and application settings unchanged.

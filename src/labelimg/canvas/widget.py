@@ -1,3 +1,4 @@
+import math
 
 from PyQt5.QtCore import QEvent, QPoint, QPointF, QRectF, QSize, Qt, pyqtSignal
 from PyQt5.QtGui import (
@@ -45,10 +46,12 @@ CURSOR_SIZE_BACKWARD_DIAGONAL = Qt.SizeBDiagCursor
 
 
 class Canvas(QWidget):
-    zoomRequest = pyqtSignal(int)
-    scrollRequest = pyqtSignal(int, int)
+    zoomRequest = pyqtSignal(float, QPointF)
+    scrollRequest = pyqtSignal(float, int, bool)
     panRequest = pyqtSignal(int, int)
     coordinatesChanged = pyqtSignal(str)
+    annotationSizeChanged = pyqtSignal(str)
+    imageSizeChanged = pyqtSignal(QSize)
     statusRequest = pyqtSignal(str)
     newShape = pyqtSignal()
     selectionChanged = pyqtSignal(bool)
@@ -78,6 +81,7 @@ class Canvas(QWidget):
         self._interaction = CanvasInteraction()
         self._external_hover_shapes = tuple()
         self._last_pointer_pos = None
+        self._pointer_global_pos = None
         self._near_duplicate_clusters = tuple()
         self._near_duplicate_marker_hits = tuple()
         self._near_duplicate_focus = None
@@ -89,6 +93,8 @@ class Canvas(QWidget):
         self.prev_point = QPointF()
         self.offsets = QPointF(), QPointF()
         self.scale = 1.0
+        self._view_offset = QPointF()
+        self._content_margins = (0.0, 0.0, 0.0, 0.0)
         self.label_font_size = 8
         self.pixmap = QPixmap()
         self.visible = {}
@@ -126,6 +132,8 @@ class Canvas(QWidget):
         )
 
     def leaveEvent(self, ev):
+        self._pointer_global_pos = None
+        self._emit_coordinates(None, self._active_readout_shape())
         self.clear_near_duplicate_focus()
         self._set_near_duplicate_hover(None)
         if (
@@ -556,6 +564,7 @@ class Canvas(QWidget):
         """Update line with last point and current coordinates."""
         pos = self.transform_pos(ev.pos())
         self._last_pointer_pos = QPointF(pos)
+        self._pointer_global_pos = self.mapToGlobal(ev.pos())
 
         if (
             self._near_duplicate_focus is not None
@@ -563,8 +572,9 @@ class Canvas(QWidget):
         ):
             self.clear_near_duplicate_focus()
 
-        if self.pixmap and not self.pixmap.isNull():
-            self._emit_coordinates(pos)
+        self._emit_pointer_coordinates(pos)
+        if not self.current and not ev.buttons():
+            self._emit_annotation_size(None)
 
         if self.editing() and not ev.buttons():
             marker = self._near_duplicate_marker_at(ev.pos())
@@ -607,9 +617,6 @@ class Canvas(QWidget):
         if self.drawing():
             self.override_cursor(CURSOR_DRAW)
             if self.current:
-                # Display annotation width and height while drawing
-                self._emit_coordinates(pos, self.current)
-
                 color = self.drawing_line_color
                 if self.out_of_pixmap(pos):
                     # Don't allow the user to draw outside the pixmap.
@@ -641,6 +648,8 @@ class Canvas(QWidget):
                 self.line.line_color = color
                 self.prev_point = QPointF()
                 self.current.highlight_clear()
+                # Read the constrained preview, not the outside pointer.
+                self._emit_annotation_size(self.current)
             else:
                 self.prev_point = pos
             self.repaint()
@@ -686,6 +695,7 @@ class Canvas(QWidget):
         # Resolve one geometry-only target shared by every pointer gesture.
         self.setToolTip(tr("canvas.image"))
         target = self._refresh_hover(pos)
+        self._emit_annotation_size(target.shape)
         if target.vertex is not None:
             self.override_cursor(self.vertex_cursor(target.vertex))
             self.setToolTip(tr("canvas.movePoint"))
@@ -706,12 +716,12 @@ class Canvas(QWidget):
             )
             self.setStatusTip(self.toolTip())
             self.override_cursor(CURSOR_GRAB)
-            self._emit_coordinates(pos, target.shape)
         else:
             self.override_cursor(CURSOR_DEFAULT)
 
     def mousePressEvent(self, ev):
         pos = self.transform_pos(ev.pos())
+        self._pointer_global_pos = self.mapToGlobal(ev.pos())
         self._last_pointer_pos = QPointF(pos)
 
         if ev.button() == Qt.LeftButton and self.editing():
@@ -790,6 +800,7 @@ class Canvas(QWidget):
 
     def mouseReleaseEvent(self, ev):
         self._last_pointer_pos = self.transform_pos(ev.pos())
+        self._pointer_global_pos = self.mapToGlobal(ev.pos())
         if self._pan_dragging and ev.button() in (
             Qt.MiddleButton, Qt.LeftButton
         ):
@@ -870,6 +881,7 @@ class Canvas(QWidget):
             self.line.points = [pos, pos]
             self.set_hiding()
             self.drawingPolygon.emit(True)
+            self._emit_coordinates(pos, self.current)
             self.update()
 
     def set_hiding(self, enable=True):
@@ -1541,39 +1553,113 @@ class Canvas(QWidget):
         """Convert from widget-logical coordinates to painter-logical coordinates."""
         return point / self.scale - self.offset_to_center()
 
+    def image_to_widget(self, point):
+        """Convert one image-coordinate point to Canvas widget coordinates."""
+        return (QPointF(point) + self.offset_to_center()) * self.scale
+
+    def refresh_pointer_coordinates(self, widget_position):
+        """Refresh the status coordinates after view geometry changes."""
+        position = self.transform_pos(QPointF(widget_position))
+        self._pointer_global_pos = self.mapToGlobal(
+            QPointF(widget_position).toPoint()
+        )
+        self._last_pointer_pos = QPointF(position)
+        shape = self._active_readout_shape()
+        if shape is None and self._valid_pointer_position(position):
+            shape = self.resolve_pointer_target(position).shape
+        self._emit_coordinates(position, shape)
+
+    def refresh_tracked_pointer_coordinates(self):
+        """Reproject the last screen position after scrolling, panning or zoom."""
+        if self._pointer_global_pos is None:
+            self._emit_coordinates(None, self._active_readout_shape())
+        else:
+            self.refresh_pointer_coordinates(
+                self.mapFromGlobal(self._pointer_global_pos)
+            )
+
+    @property
+    def view_offset(self):
+        return QPointF(self._view_offset)
+
+    def set_view_offset(self, offset):
+        self._view_offset = QPointF(offset)
+        self.update()
+
+    def reset_view_offset(self):
+        self.set_view_offset(QPointF())
+
+    @property
+    def content_margins(self):
+        return tuple(self._content_margins)
+
+    def set_content_margins(self, left, top, right, bottom):
+        self._content_margins = tuple(
+            max(0.0, float(value))
+            for value in (left, top, right, bottom)
+        )
+        self.updateGeometry()
+
+    def reset_view_geometry(self):
+        self._view_offset = QPointF()
+        self._content_margins = (0.0, 0.0, 0.0, 0.0)
+        self.updateGeometry()
+        self.update()
+
     def offset_to_center(self):
         s = self.scale
         area = super(Canvas, self).size()
         image_size = self.pixmap_size
         w, h = image_size.width() * s, image_size.height() * s
         aw, ah = area.width(), area.height()
-        x = (aw - w) / (2 * s) if aw > w else 0
-        y = (ah - h) / (2 * s) if ah > h else 0
-        return QPointF(x, y)
+        left, top, right, bottom = self._content_margins
+        content_width = left + w + right
+        content_height = top + h + bottom
+        x = left + max(0.0, (aw - content_width) / 2.0)
+        y = top + max(0.0, (ah - content_height) / 2.0)
+        return (
+            QPointF(x, y) + self._view_offset
+        ) / max(s, 0.01)
 
     def pan_canvas(self, delta):
         self.panRequest.emit(int(delta.x()), int(delta.y()))
 
-    def _emit_coordinates(self, pos, shape=None):
-        if shape is None:
-            text = 'X: %d; Y: %d' % (pos.x(), pos.y())
-        else:
-            if len(shape) >= 4:
-                point1 = shape[1]
-                point3 = shape[3]
-            else:
-                point1 = shape[0]
-                point3 = pos
-            text = (
-                'Width: %d, Height: %d / X: %d; Y: %d'
-                % (
-                    abs(point1.x() - point3.x()),
-                    abs(point1.y() - point3.y()),
-                    pos.x(),
-                    pos.y(),
-                )
-            )
+    def _valid_pointer_position(self, pos):
+        size = self.pixmap_size
+        return (
+            pos is not None and not size.isEmpty()
+            and 0 <= pos.x() < size.width()
+            and 0 <= pos.y() < size.height()
+        )
+
+    def _active_readout_shape(self):
+        if self.current is not None:
+            return self.current
+        if self._annotation_gesture_source is not None:
+            return self.interaction_snapshot.hover.shape or self.selected_shape
+        return None
+
+    def _emit_pointer_coordinates(self, pos):
+        text = "X: —  Y: —"
+        if self._valid_pointer_position(pos):
+            text = "X: %d  Y: %d" % (math.floor(pos.x()), math.floor(pos.y()))
         self.coordinatesChanged.emit(text)
+
+    def _emit_annotation_size(self, shape):
+        text = ""
+        if shape is self.current and shape is not None and len(self.line) >= 2:
+            start, end = self.line[0], self.line[1]
+            text = "W: %d  H: %d" % (
+                abs(end.x() - start.x()), abs(end.y() - start.y()),
+            )
+        elif shape is not None and len(shape) >= 4:
+            bounds = shape.bounding_rect()
+            text = "W: %d  H: %d" % (bounds.width(), bounds.height())
+        self.annotationSizeChanged.emit(text)
+
+    def _emit_coordinates(self, pos, shape=None):
+        self._emit_pointer_coordinates(pos)
+        self._emit_annotation_size(shape)
 
     def out_of_pixmap(self, p):
         size = self.pixmap_size
@@ -1608,7 +1694,12 @@ class Canvas(QWidget):
 
     def minimumSizeHint(self):
         if self.pixmap:
-            return self.scale * self.pixmap_size
+            left, top, right, bottom = self._content_margins
+            scaled = self.scale * self.pixmap_size
+            return QSize(
+                int(math.ceil(scaled.width() + left + right)),
+                int(math.ceil(scaled.height() + top + bottom)),
+            )
         return super(Canvas, self).minimumSizeHint()
 
     def contextMenuEvent(self, event):
@@ -1666,12 +1757,30 @@ class Canvas(QWidget):
             h_delta = delta.x()
             v_delta = delta.y()
 
+        pixel_delta = ev.pixelDelta() if qt_version == 5 else QPoint()
+        use_pixels = not pixel_delta.isNull()
+        if use_pixels:
+            h_delta = pixel_delta.x()
+            v_delta = pixel_delta.y()
+
         mods = ev.modifiers()
-        if Qt.ControlModifier == int(mods) and v_delta:
-            self.zoomRequest.emit(v_delta)
+        if mods & Qt.ControlModifier and v_delta:
+            if ev.buttons() == Qt.NoButton:
+                units = float(v_delta) / 120.0
+                self.zoomRequest.emit(units, QPointF(ev.pos()))
+        elif mods & Qt.ShiftModifier:
+            horizontal_delta = v_delta or h_delta
+            if horizontal_delta:
+                self.scrollRequest.emit(
+                    horizontal_delta,
+                    Qt.Horizontal,
+                    use_pixels,
+                )
         else:
-            v_delta and self.scrollRequest.emit(v_delta, Qt.Vertical)
-            h_delta and self.scrollRequest.emit(h_delta, Qt.Horizontal)
+            if v_delta:
+                self.scrollRequest.emit(v_delta, Qt.Vertical, use_pixels)
+            if h_delta:
+                self.scrollRequest.emit(h_delta, Qt.Horizontal, use_pixels)
         ev.accept()
 
     def keyPressEvent(self, ev):
@@ -1846,6 +1955,7 @@ class Canvas(QWidget):
         self.update()
         if was_drawing or force:
             self.drawingPolygon.emit(False)
+        self._emit_annotation_size(None)
 
     @property
     def pixmap_size(self):
@@ -1863,7 +1973,11 @@ class Canvas(QWidget):
         )
         self.shapes = []
         self.current = None
+        self._view_offset = QPointF()
+        self._content_margins = (0.0, 0.0, 0.0, 0.0)
         self._reset_transient_interaction()
+        self.imageSizeChanged.emit(self.pixmap_size)
+        self._emit_coordinates(None)
         before = self._selection.snapshot
         after = self._selection.set_scene((), selected=())
         self._project_selection(before, after, emit=False)
@@ -1945,8 +2059,12 @@ class Canvas(QWidget):
         self._pixmap_logical_size = QSize()
         self.shapes = []
         self.current = None
+        self._view_offset = QPointF()
+        self._content_margins = (0.0, 0.0, 0.0, 0.0)
         self.set_near_duplicate_clusters(())
         self._reset_transient_interaction()
+        self.imageSizeChanged.emit(self.pixmap_size)
+        self._emit_coordinates(None)
         before = self._selection.snapshot
         after = self._selection.set_scene((), selected=())
         self._project_selection(before, after)
@@ -1968,6 +2086,7 @@ class Canvas(QWidget):
         self._interaction.reset()
         self._external_hover_shapes = tuple()
         self._last_pointer_pos = None
+        self._pointer_global_pos = None
         if previous_hover_shape is not None:
             self.hoverShapeChanged.emit(None)
 

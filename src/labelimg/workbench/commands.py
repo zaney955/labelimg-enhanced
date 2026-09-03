@@ -1,7 +1,9 @@
 """Stable, task-oriented command surfaces for the main window."""
 
+import math
+
 try:
-    from PyQt5.QtCore import Qt, QSize, pyqtSignal
+    from PyQt5.QtCore import QEvent, QSignalBlocker, Qt, QSize, pyqtSignal
     from PyQt5.QtWidgets import (
         QAction,
         QActionGroup,
@@ -17,7 +19,7 @@ try:
         QWidgetAction,
     )
 except ImportError:  # pragma: no cover - legacy Qt4 compatibility
-    from PyQt4.QtCore import Qt, QSize, pyqtSignal
+    from PyQt4.QtCore import QEvent, QSignalBlocker, Qt, QSize, pyqtSignal
     from PyQt4.QtGui import (
         QAction,
         QActionGroup,
@@ -408,11 +410,20 @@ class TopCommandBar(QToolBar):
 
 
 class ZoomControl(QFrame):
-    valueChanged = pyqtSignal(int)
+    valueChanged = pyqtSignal(float)
+    zoomStepRequested = pyqtSignal(float)
+
+    SLIDER_STEPS = 10000
+    DEFAULT_MINIMUM = 1.0
+    DEFAULT_MAXIMUM = 600.0
+    INCREMENT_FACTOR = 1.10
 
     def __init__(self, value=100, parent=None):
         super(ZoomControl, self).__init__(parent)
         self.setObjectName("zoomControl")
+        self._minimum = self.DEFAULT_MINIMUM
+        self._maximum = self.DEFAULT_MAXIMUM
+        self._value = float(value)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(2)
@@ -424,7 +435,8 @@ class ZoomControl(QFrame):
         self.minus.setText("−")
         self.plus.setText("+")
         self.slider = QSlider(Qt.Horizontal)
-        self.slider.setRange(1, 500)
+        self.slider.setRange(0, self.SLIDER_STEPS)
+        self._compact = False
         self.slider.setFixedWidth(112)
         self.value_button = QToolButton()
         self.value_button.setAutoRaise(True)
@@ -432,26 +444,154 @@ class ZoomControl(QFrame):
         self.value_button.setMinimumWidth(58)
         self.menu = QMenu(self.value_button)
         self.value_button.setMenu(self.menu)
+        self._update_value_button_width()
         layout.addWidget(self.minus)
         layout.addWidget(self.slider)
         layout.addWidget(self.plus)
         layout.addWidget(self.value_button)
-        self.minus.clicked.connect(lambda: self.setValue(self.value() - 10))
-        self.plus.clicked.connect(lambda: self.setValue(self.value() + 10))
-        self.slider.valueChanged.connect(self._value_changed)
+        self.minus.clicked.connect(lambda: self.zoomStepRequested.emit(-1.0))
+        self.plus.clicked.connect(lambda: self.zoomStepRequested.emit(1.0))
+        self.slider.valueChanged.connect(self._slider_value_changed)
+        for widget in (
+            self.minus,
+            self.slider,
+            self.plus,
+            self.value_button,
+        ):
+            widget.installEventFilter(self)
+        self._update_slider_steps()
         self.setValue(value)
         language_changed.connect(self.retranslate_ui)
         self.retranslate_ui()
 
-    def _value_changed(self, value):
-        self.value_button.setText("%d%%" % value)
+    def set_compact(self, compact):
+        compact = bool(compact)
+        self.set_slider_width(80 if compact else 112)
+
+    def set_slider_width(self, width):
+        width = max(64, min(112, int(width)))
+        if width == self.slider.width():
+            return
+        self._compact = width < 112
+        self.slider.setFixedWidth(width)
+        self.updateGeometry()
+
+    @staticmethod
+    def format_value(value):
+        number = ("%.2f" % float(value)).rstrip("0").rstrip(".")
+        return number + "%"
+
+    def _slider_value_changed(self, position):
+        value = self._value_for_slider_position(position)
+        if math.isclose(value, self._value, rel_tol=1e-12, abs_tol=1e-12):
+            return
+        self._value = value
+        self.value_button.setText(self.format_value(value))
         self.valueChanged.emit(value)
 
     def value(self):
-        return self.slider.value()
+        return self._value
 
     def setValue(self, value):
-        self.slider.setValue(max(1, min(500, int(round(value)))))
+        value = min(max(float(value), self._minimum), self._maximum)
+        changed = not math.isclose(
+            value,
+            self._value,
+            rel_tol=1e-12,
+            abs_tol=1e-12,
+        )
+        self._value = value
+        blocker = QSignalBlocker(self.slider)
+        self.slider.setValue(self._slider_position_for_value(value))
+        del blocker
+        self.value_button.setText(self.format_value(value))
+        if changed:
+            self.valueChanged.emit(value)
+        return changed
+
+    def setMinimumValue(self, value):
+        return self.setRangeValues(value, self._maximum)
+
+    def setMaximumValue(self, value):
+        return self.setRangeValues(self._minimum, value)
+
+    def setRangeValues(self, minimum, maximum):
+        minimum = max(float(minimum), 1e-12)
+        maximum = max(float(maximum), minimum)
+        self._minimum = minimum
+        self._maximum = maximum
+        self._update_slider_steps()
+        self._update_value_button_width()
+        return self.setValue(self._value)
+
+    def minimumValue(self):
+        return self._minimum
+
+    def maximumValue(self):
+        return self._maximum
+
+    def _update_value_button_width(self):
+        current_text = self.value_button.text()
+        self.value_button.setMinimumWidth(58)
+        self.value_button.setMaximumWidth(16777215)
+        self.value_button.setText("%.2f%%" % self._maximum)
+        width = max(58, self.value_button.sizeHint().width())
+        self.value_button.setFixedWidth(width)
+        self.value_button.setText(current_text)
+
+    def _slider_position_for_value(self, value):
+        if self._maximum <= self._minimum:
+            return 0
+        ratio = math.log(float(value) / self._minimum) / math.log(
+            self._maximum / self._minimum
+        )
+        return int(round(min(max(ratio, 0.0), 1.0) * self.SLIDER_STEPS))
+
+    def _value_for_slider_position(self, position):
+        if self._maximum <= self._minimum:
+            return self._minimum
+        ratio = float(position) / self.SLIDER_STEPS
+        return self._minimum * math.pow(
+            self._maximum / self._minimum,
+            ratio,
+        )
+
+    def _update_slider_steps(self):
+        if self._maximum <= self._minimum:
+            step = 1
+        else:
+            step = round(
+                self.SLIDER_STEPS
+                * math.log(self.INCREMENT_FACTOR)
+                / math.log(self._maximum / self._minimum)
+            )
+        self.slider.setSingleStep(max(1, int(step)))
+        self.slider.setPageStep(max(1, int(step) * 4))
+
+    @staticmethod
+    def _wheel_units(event):
+        pixel_delta = event.pixelDelta()
+        delta = pixel_delta.y() if not pixel_delta.isNull() else 0
+        if not delta:
+            delta = event.angleDelta().y()
+        return float(delta) / 120.0
+
+    def _handle_wheel(self, event):
+        units = self._wheel_units(event)
+        if not units:
+            return False
+        self.zoomStepRequested.emit(units)
+        event.accept()
+        return True
+
+    def wheelEvent(self, event):
+        if not self._handle_wheel(event):
+            super().wheelEvent(event)
+
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.Wheel and self._handle_wheel(event):
+            return True
+        return super().eventFilter(watched, event)
 
     def set_zoom_actions(self, actual, fit_window, fit_width):
         self.menu.clear()
@@ -468,7 +608,7 @@ class ZoomControl(QFrame):
             tr("zoom.outShort"), ("Ctrl+-",)
         ))
         self.plus.setToolTip(format_action_tooltip(
-            tr("zoom.inShort"), ("Ctrl++",)
+            tr("zoom.inShort"), ("Ctrl+=",)
         ))
         self.value_button.setToolTip(tr("zoom.presets"))
         self.minus.setAccessibleName(tr("zoom.outShort"))

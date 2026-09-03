@@ -21,29 +21,22 @@ When an operating-system diagnostic is shown, LabelImg supplies a localized titl
 
 ## Catalog
 
-`src/labelimg/translations.py` is the single source of application messages. English and Simplified Chinese catalogs use the same stable message IDs. English is the semantic fallback; an unknown message ID is a programming error rather than text to expose to the user.
+[The message catalogs](../../src/labelimg/localization/catalogs.py) are the single source of application messages. Both languages use the same stable message IDs and formatting fields. English is the semantic fallback; an unknown message ID is a programming error rather than text to expose to the user.
 
-The historic `StringBundle` API remains as a compatibility facade, but the Qt resource bundle no longer carries partial Japanese, Traditional Chinese, or legacy property catalogs. This prevents the application from presenting an apparently supported but incomplete language.
+Partial Japanese, Traditional Chinese, and legacy property catalogs are not supported. All statically referenced message IDs must exist, and UI construction and presentation must not hard-code application-language text.
 
 ## Runtime behavior
 
-`src/labelimg/i18n.py` owns locale normalization, the selected language, catalog lookup, and the language-change signal. The main window loads the saved preference before constructing visible controls. Choosing Settings → Language updates persistent settings immediately and retranslates long-lived widgets, actions, menus, panels, summaries, and tooltips without recreating the annotation workspace.
+[The localization runtime](../../src/labelimg/localization/runtime.py) owns locale normalization, the selected language, lookup, and the language-change signal. The main window loads the saved preference before constructing visible controls. Choosing Settings → Language persists the choice and retranslates long-lived widgets, actions, menus, panels, summaries, and tooltips without recreating the annotation workspace.
 
 Transient context menus and dialogs translate their text when opened. Application-owned dialog and message-box buttons receive explicit bilingual labels because the supported PyQt bundle lacks `qtbase_zh_CN`; standard buttons therefore use the same language without relying on platform translation availability. Native operating-system dialogs remain operating-system text by design. User data and active annotation state are untouched by a language switch.
 
 Internal annotation-history descriptions remain stable English identifiers inside history state. They are translated only when projected into Undo, Redo, and pending-operation text, so switching languages never mutates or invalidates history.
 
+## Keyboard shortcut catalog
+
+Help → Keyboard Shortcuts provides the complete bilingual catalog of keyboard commands and context-specific interactions, grouped by where they apply. Each entry includes its current binding and a concise usage explanation; Canvas and annotation-list mouse gestures are included where they explain the same interaction. Menu ownership follows [the menu contract](menu-information-architecture.md).
+
 ## Validation
 
-The localization tests enforce:
-
-- identical English and Simplified Chinese message-ID sets;
-- matching formatting fields across translations;
-- `zh-*` and unsupported-locale mapping rules;
-- safe English/Chinese lookup and unknown-ID failure;
-- immediate main-window retranslation and preference persistence;
-- Simplified Chinese and English Qt standard-button labels;
-- existence of every statically referenced message ID;
-- absence of hard-coded application-language text in UI construction and presentation calls.
-
-The normal per-file Qt test runner continues to validate all annotation, selection, history, file-operation, recovery, and persistence behavior under the localized interface.
+Localization validation checks catalog/format-field parity, static references, fallback and locale mapping, live retranslation, persistence, and explicit Qt button labels. Existing behavior suites exercise annotation, file, history, recovery, and persistence workflows under the localized interface; [the architecture guide](modular-architecture-refactor.md) owns repository validation instructions.

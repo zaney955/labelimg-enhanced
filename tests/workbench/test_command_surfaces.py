@@ -733,9 +733,17 @@ class CommandSurfacesTest(unittest.TestCase):
 
         self.assertIn(
             self.window.zoom_widget,
-            self.window.statusBar().findChildren(type(self.window.zoom_widget)),
+            self.window.canvas_status.findChildren(type(self.window.zoom_widget)),
         )
+        self.window.resize(1600, 760)
+        self.window.show()
+        self.app.processEvents()
+        self.assertTrue(self.window.zoom_widget.isVisible())
+        self.assertTrue(self.window.zoom_widget.slider.isVisible())
+        self.assertFalse(self.window.zoom_widget.isEnabled())
+        self.assertEqual(self.window.zoom_widget.slider.width(), 112)
         self.load_image("zoom.png")
+        self.assertTrue(self.window.zoom_widget.isEnabled())
         self.window.zoom_widget.setValue(135)
         self.assertEqual(self.window.zoom_widget.value(), 135)
         self.assertEqual(self.window.zoom_widget.value_button.text(), "135%")
