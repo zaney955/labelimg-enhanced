@@ -1,765 +1,677 @@
 # LabelImg Enhanced Context
 
-This context defines the project identity and the language used for selecting and operating on annotation boxes in LabelImg.
+The shared domain language for annotation workspaces, editing, and recovery. UI controls and appearance are defined in the linked feature designs; [docs](docs/README.md) indexes those contracts and decision history.
 
 ## Language
 
+### Project and updates
+
+Application and release behavior: [updates](docs/design/application-updates.md).
+
 **LabelImg Enhanced**:
-The independently maintained derivative whose GitHub repository and Python distribution are named `labelimg-enhanced`, whose import package is `labelimg`, and whose application name and command remain `LabelImg` and `labelImg`. Its first independent release is version `1.9.0`, continuing from the upstream `v1.8.6` baseline.
-_Avoid_: Upstream LabelImg, GitHub fork, `libs` distribution
+The independently maintained derivative of upstream LabelImg v1.8.6, distributed as labelimg-enhanced and presented to users as LabelImg.
+_Avoid_: Upstream LabelImg, GitHub fork
 
 **GitHub release**:
-The canonical public distribution record for one LabelImg Enhanced version in the project's GitHub repository, containing an annotated version tag, wheel, SHA-256 manifest, build provenance, and an unsigned Windows installer while GitHub supplies source archives. It does not imply publication to PyPI or a trusted Windows publisher identity.
-_Avoid_: PyPI release, tag-only version, GitHub version
+The canonical public distribution record for one LabelImg Enhanced version, with its downloadable assets and provenance.
+_Avoid_: PyPI release, tag-only version
 
 **Stable update check**:
-The read-only comparison between the running application version and the repository's latest published, non-prerelease GitHub release. Automatic checks are enabled by default, run asynchronously no more than once every 24 hours with bounded failure backoff, and may be disabled in Settings; Help also provides an explicit check that reports success or failure. It uses one ordinary GET of GitHub's public latest-release web redirect, does not call the rate-limited REST API, never uses an embedded GitHub credential, and never changes the installed application.
-_Avoid_: Silent updater, prerelease channel, startup blocker, authenticated client
+A read-only comparison of the running version with the latest published stable GitHub release.
+_Avoid_: Silent updater, prerelease channel
 
 **Update center**:
-The single ordinary independent application window that presents update checking, availability, download, failure, cancellation, and installation-readiness states without owning or blocking the annotation workbench. It may be minimized or placed behind the workbench; asynchronous attention states raise it without taking Canvas focus.
-_Avoid_: Owned dialog, modal alert sequence, status-bar message, transient toast
-
-**Manual update check feedback**:
-The checking, current-version, or failure state shown in the update center after a user-requested stable update check, with cancellation while checking and retry after failure. Automatic check failures remain silent.
-_Avoid_: Separate check dialog, automatic-check activity notice, status-only feedback
-
-**Update notification**:
-The update-center state for a newer stable release, containing compact distribution-specific actions: a Python installation may copy a wheel upgrade command, a managed Windows installation may download an installer, and a portable frozen build may only open the release. Every installation may defer the notice for 24 hours or ignore exactly that version.
-_Avoid_: Separate release dialog, forced update, automatic pip execution, permanent update dismissal
+The independent application window that presents the complete update lifecycle without blocking annotation work.
+_Avoid_: Owned dialog, modal alert sequence
 
 **Distribution strategy**:
-The runtime ownership of application replacement: Python when launched from source or an environment, portable frozen when bundled without an installer marker, or managed Windows when the executable and the exact current-user Inno installation marker share one installation directory. Frozen status alone never grants self-update capability.
-_Avoid_: Operating system, package format, `sys.frozen` as installer proof
+The application-replacement ownership of a Python, portable frozen, or managed Windows installation.
+_Avoid_: Operating system, package format
 
 **Managed Windows installation**:
-The unsigned Windows 10/11 x64 onedir application installed for the current user beneath LocalAppData by the project Inno Setup package. It requires no elevation, owns shortcuts and uninstallation, preserves user settings and annotation data, and is the only distribution strategy allowed to launch an application update installer.
-_Avoid_: Portable archive, pip environment, machine-wide installation, trusted publisher
+The current-user Windows application installed and maintained by the project's unsigned installer.
+_Avoid_: Portable archive, pip environment
 
 **Update package**:
-The versioned Windows x64 setup executable and its exact entry in the same GitHub Release `SHA256SUMS` asset. The package has no Authenticode signature, so matching the SHA-256 manifest detects corruption or substitution relative to that release but does not establish a publisher identity.
-_Avoid_: Signed installer, wheel, checksum as publisher authentication
+The Windows installer and its matching release checksum entry; integrity verification does not establish publisher identity.
+_Avoid_: Signed installer, wheel
 
 **Downloaded candidate**:
-An update package streamed into a private temporary directory within a fixed 512 MiB limit and retained only after its SHA-256 matches the unique release-manifest entry. A matching candidate remains inert until the user explicitly requests installation from the update center and the workbench accepts its ordinary guarded close.
-_Avoid_: Installed version, trusted publisher, background execution
+A verified update package retained for an explicit installation request, not yet installed.
+_Avoid_: Installed version, trusted publisher
 
 **Update rollback**:
-The Inno Setup transaction restoring the prior installed files when replacement fails before installation completes. Phase 2 does not monitor the newly installed application after launch and does not automatically return to a prior version after a successful installation transaction.
-_Avoid_: Post-launch health recovery, session restore, version-channel downgrade
+Restoration of the prior installed files when the installation transaction fails before completion.
+_Avoid_: Post-launch health recovery, session restore
+
+### Interface and Canvas navigation
+
+Interaction details: [command surfaces](docs/design/canvas-tool-rail.md), [language](docs/design/bilingual-interface.md), [menus](docs/design/menu-information-architecture.md), and [icons](docs/icon-design-system.md).
 
 **Application language**:
-The user-selected language used for all visible LabelImg interface text. It is either Simplified Chinese or English, persists across launches, initially maps every `zh-*` system locale to Simplified Chinese and every other locale to English, and immediately updates the current application surface when changed without requiring a restart.
-_Avoid_: Annotation language, label language, system-locale lock
-
-**Application settings menu**:
-The stable top-level Settings menu that owns application preferences: language, automatic saving, single-class mode, automatic stable-update checks, and resetting all settings. View owns only visible presentation and Canvas scale, while File and Edit retain file/workspace commands and annotation-editing commands respectively.
-_Avoid_: View-menu preferences, File-menu reset command, duplicated settings entry
-
-**Keyboard shortcut catalog**:
-The complete bilingual Help view of keyboard-operated commands and context-specific interactions, grouped by where they apply and paired with their current key bindings and concise usage explanations.
-_Avoid_: Upstream hotkey webpage, menu-only shortcut list, unexplained key list
+The user-selected Simplified Chinese or English language of the interface, independent of annotation labels and file content.
+_Avoid_: Annotation language, label language
 
 **Interface text**:
-Application-authored text visible during operation, including commands, panels, status and guidance, validation, confirmations, recovery, conflicts, and application-owned buttons. It excludes user-authored labels, file names and paths, annotation-format names, and verbatim operating-system diagnostics.
-_Avoid_: User data, translated path, rewritten system error
-
-**Operation icon set**:
-The 82 coordinated flat, duotone SVG symbols used by LabelImg actions, buttons, and query-field decorations, excluding the separate application identity icon. The restrained light-theme set prioritizes clarity at 16 pixels, uses functional-family colors, shares a base motif between related actions, and remains distinguishable without color; annotation formats use structural symbols rather than names, while language choices may use font-independent path glyphs.
-_Avoid_: Application icon, dark-theme icon set, monochrome action icons, high-saturation icon set, color-only distinction, unrelated family motifs, text-dependent format icon
-
-**Canvas tool rail**:
-The stable application surface containing only tools whose primary purpose is direct interaction with the current Canvas. Workspace entry, image navigation, review classification, saving, annotation-format choice, and view zoom belong to their own contextual surfaces rather than this rail.
-_Avoid_: General command toolbar, workflow toolbar, duplicate menu catalog
+Application-authored visible text, excluding user labels, filenames, paths, format names, and verbatim operating-system diagnostics.
+_Avoid_: User data, translated path
 
 **Selection and editing tool**:
-The default Canvas tool that combines annotation selection with direct geometry and property editing. It is one stable tool rather than separate Select and Edit modes, and transient one-shot Canvas work returns to it after completion or cancellation.
-_Avoid_: Separate selection mode, separate editing mode, disabled-button-as-active-state
+The default Canvas tool combining annotation selection, geometry editing, and property editing.
+_Avoid_: Separate selection mode, separate editing mode
 
 **Canvas pan mode**:
-The direct Canvas mode in which dragging pans the viewport from any image position without selecting or moving annotation boxes. It remains distinct from selection and annotation creation, while a temporary pan gesture may be used from another Canvas mode.
-_Avoid_: Blank-area-only pan, annotation move, view zoom
-
-**Annotation format selector**:
-The explicit top-level control beside Save that shows the current annotation storage format and lists every available format as a direct choice. Selecting a format replaces the current cycling command and follows the same pending-edit and storage-transition safeguards as any format change.
-_Avoid_: Format cycle button, view-status control, implicit conversion
-
-**Canvas zoom control**:
-The always-visible control on the right of the Canvas status strip for Canvas view scale, combining symmetric incremental actions, a logarithmic nominal `1%`–`600%` slider whose safe per-image bounds expand to include exact fit-to-window, fit-to-width, and retained manual scales, and the current native-pixel-relative percentage as a menu for those presets and actual size. The active range applies to every manual zoom input and changes view state rather than image dimensions or annotation content; the control remains inactive until an image is loaded.
-_Avoid_: Toolbar zoom stack, image resize, annotation-format control
-
-**Canvas status strip**:
-The dedicated area immediately below and aligned with the Canvas, presenting image pointer coordinates and annotation size on the left and view zoom on the right, with a two-row arrangement when space is insufficient. It is distinct from application-wide status messages, never covers the image, and keeps the zoom slider stationary as readout text changes.
-_Avoid_: Image overlay, file-panel footer, application-wide status bar
+The Canvas mode in which dragging moves the viewport without selecting or moving annotation boxes.
+_Avoid_: Blank-area-only pan, annotation move
 
 **Image pointer coordinates**:
-The zero-based original-image pixel indices beneath the pointer, displayed as X/Y independently of view zoom or pan and valid only within the rendered image, from zero through width minus one and height minus one. Outside the image or after leaving the Canvas, unavailable placeholders replace the indices rather than retaining stale or out-of-bounds values.
-_Avoid_: Canvas-widget coordinates, image-edge geometry, clamped pointer position, last valid pointer position
+The zero-based original-image pixel indices beneath the pointer, available only inside the rendered image.
+_Avoid_: Canvas-widget coordinates, image-edge geometry
 
 **Annotation size readout**:
-The W/H display of the actual annotation rectangle's width and height during drawing and adjustment, including the effects of image-boundary and square constraints, presented separately from image pointer coordinates in the Canvas status strip. Leaving the image does not invalidate this size: the readout changes only when the actual rectangle changes, not merely because the pointer moves farther outside.
-_Avoid_: Raw pointer displacement, pointer coordinates, image dimensions, combined coordinate sentence
+The width and height of the actual annotation rectangle, including active geometry constraints.
+_Avoid_: Raw pointer displacement, pointer coordinates
 
 **Canvas zoom percentage**:
-The Canvas view scale whose `100%` baseline displays one image pixel as one logical screen pixel, independent of the viewport's fitted-image size. Fit commands report their resulting native-pixel-relative percentage rather than redefining the baseline.
-_Avoid_: Fit-relative percentage, image resize percentage, viewport-dependent zoom baseline
+The view scale at which 100% maps one image pixel to one logical screen pixel.
+_Avoid_: Fit-relative percentage, image resize percentage
 
 **Cursor-anchored zoom**:
-A Canvas scale change that keeps the same image-coordinate point beneath the pointer at the same viewport position before and after scaling; outside the rendered image, the nearest image-boundary point becomes the anchor. The invariant takes priority over automatic centering when the scaled image fits inside the viewport and is exact rather than an approximate movement toward the pointer.
-_Avoid_: Scroll-range-proportional zoom, viewport-centered zoom, approximate cursor compensation
+A scale change preserving the image point beneath the pointer at the same viewport position, using the nearest image boundary outside the image.
+_Avoid_: Scroll-range-proportional zoom, viewport-centered zoom
 
 **Canvas wheel navigation**:
-The pointer-driven Canvas view interaction in which an ordinary wheel moves vertically, Shift plus wheel moves horizontally, and any wheel gesture containing Ctrl performs cursor-anchored zoom using the same symmetric `×1.10` or `÷1.10` standard increment as every other incremental zoom input, with one-step snapping when crossing `100%`. Ctrl takes priority when combined with other modifiers, while high-precision wheel deltas retain proportional continuous scaling.
-_Avoid_: Shift vertical scroll, additive percentage zoom, modifier-equality dispatch
+Wheel-based vertical scrolling, Shift-horizontal scrolling, or Ctrl cursor-anchored zoom.
+_Avoid_: Shift vertical scroll, additive percentage zoom
 
 **Fit-to-window scale**:
-The native-pixel-relative Canvas scale that reveals the complete image within the viewport without enlarging an image beyond `100%`. It shrinks oversized images and preserves the original pixel scale of images already small enough to fit.
-_Avoid_: Fill-window scale, fit-relative 100%, automatic small-image enlargement
+The view scale revealing the whole image without enlarging it beyond its native pixel scale.
+_Avoid_: Fill-window scale, fit-relative 100%
+
+### Workspace lifecycle
+
+Workspace behavior: [file list](docs/design/workspace-file-list.md), [directory loading](docs/design/large-directory-loading.md), and [document replacement](docs/design/undo-redo-and-file-recovery.md#per-image-history-and-workspace-lifecycle).
 
 **Image directory**:
-The directory whose supported images form the current image-by-image annotation workspace. Opening another image directory replaces that workspace after unresolved changes are handled.
-_Avoid_: Annotation directory, generic folder, implicit batch target
+The directory supplying the images in the current annotation workspace.
+_Avoid_: Annotation directory, generic folder
 
 **Standalone file opening**:
-Opening one image or annotation document directly without treating its containing directory as the current image directory. It is a secondary entry into the annotation workbench rather than the primary workspace-opening action.
-_Avoid_: Open image directory, import directory, batch open
+Opening one image or annotation document without making its containing directory the image workspace.
+_Avoid_: Open image directory, import directory
 
 **Annotation directory**:
-The directory that supplies and stores the active annotation documents for the current image directory. When no separate annotation directory is selected, the image directory serves this role. Switching it changes the annotation side of the workspace, reloads the current image's corresponding annotation document, and begins a new workspace editing session; it is not merely a passive save destination.
-_Avoid_: Image directory, export directory, save-location-only setting
+The directory supplying and storing the workspace's annotation documents; changing it begins a new workspace editing session.
+_Avoid_: Image directory, export directory
 
 **Directory ready state**:
-The workspace milestone at which the selected directory's current image and initial file-list content are usable, even if remaining derived file states are still being incorporated. It is distinct from completion of the full workspace index.
-_Avoid_: Directory fully loaded, scan complete, indexing complete
+The milestone at which the current image and initial file list are usable, before all derived states are necessarily indexed.
+_Avoid_: Directory fully loaded, scan complete
 
 **Workspace index completion**:
-The workspace milestone at which every discovered file and its annotation-related workspace states have been incorporated for the currently selected image and annotation directories. It belongs only to the current application session, may occur after the workspace is already usable, and excludes explicit image-quality analysis.
-_Avoid_: Directory ready state, first image loaded, initial list shown
+The milestone at which all discovered files and their annotation-related states are incorporated into the current session index.
+_Avoid_: Directory ready state, first image loaded
 
 **Current annotation document replacement**:
-The explicit replacement of the current image's annotation content and active storage target with a user-selected annotation document. It rebases annotation history and therefore requires unresolved edits to be handled before replacement; it is not an ordinary file-opening action.
-_Avoid_: Open file, merge annotations, import additional boxes
+An explicit replacement of the current image's annotation content and storage target that establishes a new history baseline.
+_Avoid_: Open file, merge annotations
+
+### Image tools
+
+Processing and recovery behavior: [image tools](docs/design/image-tools.md).
 
 **Image tool target set**:
-The images explicitly chosen for one image-tool operation: the image currently displayed on the Canvas, the images selected in the file list, or every image in the current annotation workspace. The all-images choice includes workspace images hidden by the active file-list filter and is never inferred from opening a directory.
-_Avoid_: Current directory, visible file-list rows, inferred batch
+The explicit current image, selected files, or all workspace images chosen for one image-tool operation, including hidden members.
+_Avoid_: Current directory, visible file-list rows
 
 **Canvas display adjustment**:
-A non-destructive brightness-and-contrast presentation applied while annotating on the Canvas. It changes neither source-image pixels nor annotation documents and is distinct from committed image processing.
-_Avoid_: Image adjustment, pixel correction, source-image edit
+A non-destructive brightness-and-contrast presentation that changes neither source pixels nor annotations.
+_Avoid_: Image adjustment, pixel correction
 
 **Canvas display adjustment scope**:
-The images that share one Canvas display adjustment: either the current image alone or the entire annotation workspace, including workspace images hidden by the active file-list filter.
-_Avoid_: Image tool target set, visible file-list rows, file selection set
+The current image or whole workspace sharing one Canvas display adjustment.
+_Avoid_: Image tool target set, visible file-list rows
 
 **Canvas display adjustment session**:
-The lifetime of Canvas display-adjustment state while one annotation workspace remains open. Workspace-wide and current-image values survive image navigation but return to neutral when the workspace closes or the application exits.
-_Avoid_: Saved image setting, persistent workspace preference, application-wide display preference
+The lifetime of display-adjustment state within one open annotation workspace.
+_Avoid_: Saved image setting, persistent workspace preference
 
 **Workspace display adjustment**:
-The master brightness-and-contrast presentation shared by every image in the annotation workspace. Changing either master value removes every current-image display adjustment so the whole workspace becomes visually uniform again.
-_Avoid_: Batch image processing, persisted display preset, inferred image-tool target
+The master display adjustment shared across the workspace, whose changes clear per-image overrides.
+_Avoid_: Batch image processing, persisted display preset
 
 **Current-image display adjustment**:
-A session-only brightness-and-contrast override whose absolute values replace the workspace display adjustment for one image and are remembered while navigating within the workspace. It is removed when the workspace display adjustment changes or that image's source pixels are replaced.
-_Avoid_: Source-image correction, permanent per-image setting, annotation edit
+An absolute per-image override replacing the workspace display adjustment for that image during the session.
+_Avoid_: Source-image correction, permanent per-image setting
 
 **Image tool**:
-A built-in LabelImg operation that transforms an image through an image processing session. A pixel-only image tool leaves annotation documents unchanged, while a geometry-changing image tool transforms the shared annotation coordinate space in the same recoverable operation.
-_Avoid_: Annotation tool, external script, optional plugin
+A built-in image transformation prepared through an image processing session.
+_Avoid_: Annotation tool, external script
 
 **Automatic image adjustment**:
-A repeatable one-shot suggestion for brightness, contrast, and Gamma derived from the current image's source pixels and represented directly by those three adjustment values, which remain available for manual refinement.
-_Avoid_: Automatic contrast, hidden correction layer, persistent automatic mode
-
-**Image tool entry point**:
-One place from which an image tool is started: the Image menu is the complete capability catalog, the Canvas tool rail exposes dedicated direct Canvas modes, and the top image quick-action group exposes only frequent immediate current-image commands.
-_Avoid_: Image tool implementation, toolbar-only capability, duplicate workflow
-
-**Image quick-action group**:
-The top contextual surface for frequent immediate operations on the current image that do not require a direct Canvas mode. Rotate and Flip are separate split commands in this group, while the Image menu remains their complete catalog.
-_Avoid_: Canvas tool rail, complete Image menu, batch tool workspace
+A repeatable source-pixel-derived suggestion expressed through brightness, contrast, and Gamma values available for manual refinement.
+_Avoid_: Automatic contrast, hidden correction layer
 
 **Quick image transform**:
-A current-image-only 90-degree rotation, 180-degree rotation, or flip that commits the transformed image and annotations immediately as one recoverable operation without opening a preview workspace or confirmation dialog.
-_Avoid_: Batch transform, uncommitted preview, non-recoverable one-click edit
+An immediate current-image rotation or flip committed with annotations as one recoverable operation.
+_Avoid_: Batch transform, uncommitted preview
 
 **Image quality check**:
-An analysis-only inspection that records quality findings for images in the annotation workspace without changing their files or annotations.
-_Avoid_: Automatic repair, image filter, annotation validation
+An analysis-only inspection that records image-quality findings without modifying files or annotations.
+_Avoid_: Automatic repair, image filter
 
 **Image quality finding**:
-A derived, filterable description of one detected image-quality problem, bound to the inspected file content rather than stored as annotation review state.
-_Avoid_: Review state, annotation error, permanent file property
+A derived description of an image-quality problem tied to inspected file content, independent of annotation review state.
+_Avoid_: Review state, annotation error
 
 **Image quality result cache**:
-Application-owned storage for image quality findings keyed by the inspected file path, content fingerprint, and check policy; it never adds files to an image or annotation directory.
-_Avoid_: Annotation document, dataset sidecar, authoritative quality record
+Application-owned storage of findings identified by file content and check policy, outside image and annotation directories.
+_Avoid_: Annotation document, dataset sidecar
 
 **Specialized image repair**:
-An image tool justified by representative problem samples and explicit acceptance criteria, rather than a general-purpose editing effect added speculatively.
-_Avoid_: Generic filter, unvalidated enhancement, feature checklist item
+An image tool justified by representative problem samples and explicit acceptance criteria.
+_Avoid_: Generic filter, unvalidated enhancement
 
 **Geometry-changing image tool**:
-An image tool, such as crop, that changes image bounds or dimensions and therefore treats the image and its annotation document as one atomic, recoverable unit.
-_Avoid_: Pixel-only filter, independent annotation edit, image-only replacement
+An image tool that changes image bounds or dimensions and treats the image and associated annotations as one recoverable unit.
+_Avoid_: Pixel-only filter, independent annotation edit
 
 **Image-annotation geometry state**:
-The valid in-memory pairing of an image's current dimensions with its annotation coordinates and every editable annotation projection. A geometry-changing commit or recovery is complete only when the entire state represents one coordinate space; mixed old and new geometry is never an editable state.
-_Avoid_: Image size alone, stale annotation snapshot, eventual geometry synchronization
+The consistent pairing of image dimensions, annotation coordinates, and editable projections in one coordinate space.
+_Avoid_: Image size alone, stale annotation snapshot
 
 **Colored frame overlay**:
-A red or yellow rectangular outline added over image content and selected for removal by an image tool. Solid colored regions and ordinary red or yellow image content are not colored frame overlays.
-_Avoid_: Every red pixel, every yellow region, colored object
+A red or yellow rectangular outline added over image content, distinct from naturally colored objects or solid regions.
+_Avoid_: Every red pixel, every yellow region
 
 **Colored frame repair region**:
-The detected colored frame overlay plus only the bounded compression halo needed to remove its residual color. Pixels outside this region retain their color unless the user explicitly requests whole-image near-grayscale normalization.
-_Avoid_: Whole image, every near-gray pixel, implicit grayscale conversion
-
-**Image candidate badge**:
-The fixed-screen-size numbered ring that identifies one detected image-tool candidate in Original and Result previews without becoming part of the previewed or committed pixels. Its number matches the candidate list; a theme-accent ring means included and a neutral ring means excluded.
-_Avoid_: Colored frame, image annotation, committed overlay, detection rectangle
+The detected frame plus the bounded compression halo eligible for repair.
+_Avoid_: Whole image, every near-gray pixel
 
 **Image crop region**:
-The rectangular portion of the current Canvas image selected to become the new image bounds. It changes the coordinate space shared by that image and its annotations and is never applied implicitly to other selected images.
-_Avoid_: Annotation box, file-list selection, implicit batch crop, pixel-only filter
+The rectangle selected to become the current image's new bounds and shared annotation coordinate space.
+_Avoid_: Annotation box, file-list selection
 
 **Image crop mode**:
-The temporary Canvas state in which annotation interaction is suspended while one image crop region is created and adjusted through its own transient history before application or cancellation.
-_Avoid_: Annotation creation mode, committed crop, modal image-tools workspace
+The temporary Canvas state for preparing and adjusting a crop through its own uncommitted history.
+_Avoid_: Annotation creation mode, committed crop
 
 **Image processing session**:
-The temporary editing context in which an image-tool operation is prepared before commit, either in the modal image-tools workspace or a tool-specific Canvas mode. Pixel-only tools may coexist with unsaved annotations, while geometry-changing tools first resolve them because their commit includes annotation resources.
-_Avoid_: Annotation session, saved image, mixed history
+The temporary context for preparing an image-tool operation before commit, in its workspace or a tool-specific Canvas mode.
+_Avoid_: Annotation session, saved image
 
 **Image processing Undo**:
-A request made while an image processing session is active to reverse its most recent uncommitted image-tool operation. Outside that context, Undo continues to target annotation edit history.
-_Avoid_: Annotation Undo, committed-file recovery, global mixed Undo
+Reversal of the latest uncommitted operation in the active image processing session.
+_Avoid_: Annotation Undo, committed-file recovery
 
 **Committed image processing**:
-A committed image-tool result that retains a recoverable record for every resource it replaced. Pixel-only processing replaces image files; geometry-changing processing replaces each image and its associated annotation resources as one recovery unit, restored through image-processing recovery rather than annotation Undo.
-_Avoid_: Preview, annotation edit, Ctrl+Z after commit
+An image-tool result with a recovery record for every replaced image and associated annotation resource.
+_Avoid_: Preview, annotation edit
 
 **Image processing batch commit**:
-The all-or-nothing replacement of every image in one image tool target set after every result and original-file recovery path has passed preflight. A failure leaves every source image and annotation document unchanged.
-_Avoid_: Partial batch, best-effort replacement, annotation rewrite
+The all-or-nothing replacement of an entire image tool target set after successful preflight.
+_Avoid_: Partial batch, best-effort replacement
 
 **Image processing recovery selection**:
-The explicit subset of one committed image-processing batch chosen for restoration. The selected images restore atomically, while unselected processed images keep both their current result and their remaining recovery eligibility.
-_Avoid_: Implicit file-list selection, mandatory whole-batch restore, partial selected restore
+The explicitly selected subset of a committed batch to restore atomically; unselected results remain recoverable.
+_Avoid_: Implicit file-list selection, mandatory whole-batch restore
+
+### Annotation history and persistence
+
+Editing, saving, conflicts, and recovery: [history contract](docs/design/undo-redo-and-file-recovery.md).
 
 **Undo**:
-A request to reverse the most recent reversible change in the applicable editing history.
-_Avoid_: Recall, withdraw, rollback
+A request to reverse the latest reversible change in the applicable editing history.
+_Avoid_: Recall, withdraw
 
 **Redo**:
-A request to reapply the most recently undone change while no newer reversible change has replaced that image's history branch. A new reversible annotation change discards only that image's redo branch; saving and view-state changes do not.
+A request to reapply the latest undone change while its history branch remains available.
 _Avoid_: Repeat command, restore from recycle bin
 
 **Annotation edit history**:
-The ordered reversible changes to one image's annotation document that are targeted by Undo and Redo. Each image retains its own history while the same annotation workspace remains open; the history does not contain file selection changes or cross-file operations.
-_Avoid_: Application history, workspace history, file-operation log
+The reversible annotation changes retained independently for one image within a workspace editing session.
+_Avoid_: Application history, workspace history
 
 **Annotation history snapshot**:
-An immutable history state containing annotation boxes, stored properties, annotation order, review state, and session annotation identities. It shares only the current image's read-only identity and dimensions and never copies pixel buffers, so history retention accounts for annotation state rather than repeated image data.
-_Avoid_: Canvas screenshot, copied image, serialized annotation file
+An immutable annotation-document state, including annotation order, review state, and session identities, without image pixels.
+_Avoid_: Canvas screenshot, copied image
 
 **Annotation edit transaction**:
-The single mutation boundary used by every user-committed annotation change. It captures the complete pre-edit snapshot, accepts one committed post-edit snapshot plus action metadata and affected identities, and either records the whole non-no-op transition or restores the pre-edit state. Nested annotation transactions are invalid.
-_Avoid_: Direct `set_dirty`, per-event history write, partially recorded edit
+One complete annotation mutation that either records an atomic change or restores its prior state.
+_Avoid_: Direct `set_dirty`, per-event history write
 
 **Pending annotation transaction**:
-An annotation edit or prepared history step that has started but has not committed or canceled. It belongs to exactly one current image and blocks every ordinary manual save, including Save As, plus automatic saving and storage-format changes. Navigation, an accepted batch-review command, explicit annotation-document loading, workspace switching, and close cancel it back to its source snapshot before reading dirty state, selecting another document, or writing review fields. Declining a batch confirmation preserves the pending transaction unchanged. It is never silently abandoned or captured by a timer-fired save.
-_Avoid_: Dirty Canvas, background gesture, transferable edit token
+An unfinished edit or prepared history step owned by one current image, preventing saves of intermediate state.
+_Avoid_: Dirty Canvas, background gesture
 
 **History projection**:
-The guarded replacement of the Canvas shapes, label-list rows, review state, and result selection from one annotation history snapshot. Projection blocks widget mutation signals, preserves eligible view state by session identity, clears stale hover state, and never creates another history entry.
-_Avoid_: User edit, recursive history record, incremental best-effort rebuild
+Replacement of Canvas and annotation-list content from a history snapshot without creating another edit.
+_Avoid_: User edit, recursive history record
 
 **Reversible annotation change**:
-A user-committed change to the current image's annotation boxes, their stored properties, or its review state. Box creation, removal, duplication, paste, geometry adjustment, property editing, previous-image copying, and current-image review changes all qualify. Load-time geometry normalization is a deliberate non-history exception.
-_Avoid_: View change, selection change, cross-file operation
+A committed change to annotation boxes, stored properties, or current-image review state.
+_Avoid_: View change, selection change
 
 **Atomic annotation edit**:
-One complete user intention recorded as a single reversible annotation change. A drag gesture, review toggle, bulk operation, or one direction-key hold from press through release is atomic regardless of its internal event count or number of affected annotation boxes. Confirming an edit to an existing annotation records all label and property changes made through that confirmation as one entry; canceling it, or confirming without a content change, creates no entry. Candidate labels react only to the resulting committed annotation document. Redo restores the recorded completed document state rather than rerunning interaction algorithms; geometry therefore returns to its exact recorded coordinates regardless of later zoom, snapping, or view configuration.
-_Avoid_: Mouse-move event, per-box batch entry, partial bulk undo
+One complete user intention retained as a single reversible annotation change regardless of event or affected-box count.
+_Avoid_: Mouse-move event, per-box batch entry
 
 **History result selection**:
-The view-state selection derived after Undo or Redo. For an entry that affects annotation boxes, the current selection is replaced by the affected boxes that exist in the resulting document; affected boxes removed by the result are absent, and unrelated prior selections are cleared. One surviving affected box becomes active; among multiple survivors, the last box in annotation order, and therefore the topmost drawing layer, becomes active; no survivor leaves no active box. The label list scrolls enough to reveal the active box but does not take keyboard focus, and canvas zoom and pan remain unchanged. For an entry such as a review-state change that affects no boxes, the current selection and active box remain unchanged. This feedback is not itself an annotation edit.
+The view-state selection derived from boxes affected by Undo or Redo, independent of historical selection.
 _Avoid_: Restored historical selection, selection history entry
 
 **Session annotation identity**:
-A stable identity assigned to an annotation box only for one workspace editing session, allowing history application to preserve view state for boxes that continue to exist without writing that identity into annotation documents. A create, paste, duplicate, or previous-image copy assigns each result a unique identity once, and every later Undo or Redo restoration of that result reuses it rather than generating another identity. Newly restored boxes use default view state.
-_Avoid_: Persistent annotation ID, geometric matching, list-row identity
+A stable per-box identity within one workspace editing session, reused by history restoration and never written to annotations.
+_Avoid_: Persistent annotation ID, geometric matching
 
 **Annotation order**:
-The ordering of annotation boxes that determines label-list position, drawing layer, and the topmost tie-break in pointer target resolution. Undo and Redo restore this order exactly, including the relative positions of every box in a bulk edit.
-_Avoid_: Unordered box set, append-on-restore, selection order
+The box order shared by the annotation list, drawing layers, and topmost targeting tie-breaks.
+_Avoid_: Unordered box set, append-on-restore
 
 **View state**:
-Transient interaction state such as selections, annotation visibility, zoom, pan, filters, editing modes, and canvas or annotation-list hover targets that does not alter an annotation document. View-state changes are not part of the annotation edit history and do not make the current annotation document dirty. A successful Undo or Redo clears any hovered box, vertex, edge, or annotation-list row because the scene or annotation order may have changed; hover is recomputed on later pointer movement without otherwise changing the result selection.
+Transient presentation and interaction state that neither changes annotation content nor enters annotation history.
 _Avoid_: Annotation content, reversible annotation change
 
 **Pending drawing**:
-An annotation shape currently being drawn that has not yet become a valid annotation box. Undo cancels it before consulting the annotation edit history, and the canceled drawing cannot be redone. Redo is unavailable until the drawing is completed or canceled and does not modify the pending drawing.
+An uncommitted annotation shape whose geometry or label has not yet completed creation.
 _Avoid_: Created annotation, reversible annotation change
 
+**Pending box preview**:
+The transient rectangle shown between placing the first corner and completing a new annotation box's geometry, within a pending drawing.
+_Avoid_: Selected annotation, selection region, image crop region
+
 **Pending annotation gesture**:
-A geometry-changing mouse gesture, such as moving, resizing, or dragging a vertex or edge, that has started but has not yet been committed by mouse release. Undo cancels the gesture, restores the complete geometry from mouse press, creates no Undo or Redo entry, and does not continue into the preceding committed history. Redo is unavailable until the gesture is committed or canceled and neither commits nor cancels it.
-_Avoid_: Atomic annotation edit, live history entry, partial drag undo
+A geometry-changing interaction started but not yet committed or canceled.
+_Avoid_: Atomic annotation edit, live history entry
 
 **Load-time geometry normalization**:
-The silent clamping of annotation coordinates to image bounds while a stored document is loaded. It is not an atomic annotation edit, creates no Undo or Redo entry, cannot be reversed through annotation history, and becomes the clean in-memory representation paired with the original stored-file fingerprint. It neither makes the image appear unsaved nor triggers a write by itself; a later real edit and save may persist the normalized coordinates, while a reload repeats the same normalization.
-_Avoid_: Adjust-out-of-bounds history entry, user geometry edit, load confirmation
+Clamping stored geometry to image bounds when loading, establishing a clean representation without a user edit.
+_Avoid_: Adjust-out-of-bounds history entry, user geometry edit
 
 **Committed annotation creation**:
-One atomic annotation edit formed only after a pending drawing has valid geometry and its label is confirmed, including default-label and single-class flows. Canceling label confirmation discards the pending drawing without creating history.
-_Avoid_: Geometry-only creation, label-only creation, canceled annotation
+One atomic edit formed only after valid drawing geometry and label confirmation complete.
+_Avoid_: Geometry-only creation, label-only creation
 
 **Workspace editing session**:
-The period during which one image directory and one global annotation save directory remain open as a single annotation workspace. Switching among its images retains their independent in-memory annotation edit histories only while they still correspond to the latest stored documents; opening an image checks its storage resources and rebases a clean stale history to the latest valid stored version. Opening another image directory, changing the global annotation save directory, or restarting LabelImg ends the session after unresolved dirty states and conflicts are handled; the newly scanned stored annotation documents become fresh baselines and all prior in-memory histories are cleared. A global save-directory switch is transactional: the new directory and current image document are preflighted before commit, and any scan or load failure leaves the original directory, canvas, candidate labels, and histories unchanged. After a successful switch, the current image immediately loads its corresponding document from the new directory, or a clean empty baseline when none exists; content from the old directory is never carried across as an unsaved canvas. Saving one image to a different target does not by itself redefine the whole workspace.
-_Avoid_: Application lifetime, image visit, saved-file version
+The lifetime of one image-directory and annotation-directory pairing, retaining independent per-image histories across navigation.
+_Avoid_: Application lifetime, image visit
 
 **Workspace automatic saving**:
-The annotation-saving mode that is enabled whenever a new workspace editing session begins, may be disabled temporarily by the user for that session, and is not reset by ordinary image navigation. It saves to the annotation directory when one is selected and otherwise to the image directory.
-_Avoid_: Application-lifetime preference, mandatory separate save directory, per-image mode
+The session-scoped annotation-saving mode enabled when a workspace editing session begins.
+_Avoid_: Application-lifetime preference, mandatory separate save directory
 
 **Saved annotation baseline**:
-The independently retained identity of the clean in-memory annotation revision corresponding to a stored document, paired with the annotation storage target and fingerprint of its physical representation. The in-memory representation may include deterministic load-time normalization or differ because a format quantizes geometry or omits in-memory-only details. The image is clean only when both its current in-memory revision and current storage target match this baseline. Saving never replaces the canvas with a round-tripped parse or creates a history entry; an explicit reload may apply that representation and then rebase history. Each manual or automatic save binds to the immutable document revision and storage target present when that write was requested; confirmed success moves the baseline only to the revision and target actually written, without clearing Undo or Redo. Writes are serialized by every physical storage resource they touch, including a shared CreateML collection, YOLO class vocabulary, or identical annotation path; only resource-disjoint writes may run concurrently. Requests arriving during an active write are coalesced into a follow-up write of the latest requested revisions. If editing, Undo, Redo, or a storage-target change has already moved the current state elsewhere, that current state remains dirty and a fresh autosave may be scheduled. A failed write leaves the prior baseline, dirty state, and history intact and reports the failure. Undo and Redo invalidate any previously scheduled autosave request so that a later write can consume only the then-current document state. Returning to the complete saved baseline cancels the unnecessary pending write; landing on a different dirty state schedules that current state instead. The baseline remains authoritative even when retention limits evict the history position that once represented it.
-_Avoid_: History reset, undo boundary, application checkpoint
+The clean in-memory revision paired with its storage target and stored-resource fingerprint, retained independently of history eviction.
+_Avoid_: History reset, undo boundary
 
 **Annotation storage resource**:
-A physical file or shared metadata object touched by an annotation save, such as one Pascal VOC file, one YOLO annotation file plus its shared class vocabulary, or one CreateML collection. Save operations that share any resource are serialized under the same coordination boundary to prevent lost read-modify-write updates. Pending writes to one shared CreateML collection coalesce the latest requested revision for each affected image into one transactional collection update. The complete collection is written to a temporary file and atomically replaces the prior file; failure preserves the old collection and advances none of the included baselines. Only the exact revisions included in a fully successful batch advance their per-image saved baselines, while newer revisions wait for a later batch.
-_Avoid_: Image-only save lock, independent CreateML record, uncoordinated classes file
+A physical file or shared metadata object touched by annotation saves and therefore coordinated for writes and conflicts.
+_Avoid_: Image-only save lock, independent CreateML record
 
 **Annotation storage target**:
-The annotation format and destination path selected for storing one image's current annotation document. Changing the target makes the image require saving but is not a reversible annotation change, so Undo and Redo neither switch formats nor change paths. A successful save updates the target paired with the saved annotation baseline without clearing annotation history. Saving to another format creates or updates that target and makes it the active annotation document for the session without deleting the prior format representation.
-_Avoid_: Annotation content, Undoable format change, history branch
+The format and destination selected for one image's document, separate from reversible annotation content.
+_Avoid_: Annotation content, Undoable format change
 
 **Active annotation document**:
-The one stored annotation representation selected as the baseline source for an image in the current workspace session. When multiple supported formats exist for the same image, the application does not silently apply format or modification-time precedence: on first access it presents each format, path, and modification time for explicit selection, remembers that choice for the session, and leaves the unchosen files untouched. If another format appears externally while the image is current, the active representation remains selected and the application offers an explicit switch instead of treating the newest file as authoritative. A successful save to another format makes the new representation active for the remainder of the session while preserving the old representation; a later session presents the resulting multi-format choice again. Canceling document selection cancels the entire image navigation, preserving the prior current image, canvas, history, and file-list multi-selection while the target remains unresolved.
-_Avoid_: First-found document, merged formats, automatic conversion
+The explicitly selected stored representation supplying an image's baseline when multiple annotation formats exist.
+_Avoid_: First-found document, merged formats
 
 **Empty annotation baseline**:
-A successfully stored annotation state with no boxes and no retained review flag. The physical representation follows the active format's existing policy, including absence of a Pascal VOC file. Undo and Redo may move into or out of this state and autosave may remove or recreate the physical annotation file without creating a file-operation recovery entry.
-_Avoid_: Missing-data error, explicit clear-annotations operation, file deletion recovery
+A successfully stored document state with no boxes or review flag, potentially represented by absence of a file.
+_Avoid_: Missing-data error, explicit clear-annotations operation
 
 **Discard unsaved changes**:
-An explicit replacement of one image's in-memory annotation document with the externally verified stored document represented by its saved annotation baseline, followed by history rebase. If the stored document no longer matches the retained baseline fingerprint, the external annotation conflict flow applies before replacement. Discard cannot be undone or redone; canceling the discard prompt changes neither content nor history.
-_Avoid_: Undo all, history navigation, temporary rollback
+Replacement of local annotation content with the verified stored baseline followed by history rebase.
+_Avoid_: Undo all, history navigation
 
 **Unsaved image-navigation guard**:
-The blocking Save, Discard, or Cancel decision required before any user-requested image switch may leave the current image with committed but unsaved annotation changes. Before prompting, a safely queued automatic save with no open edit, conflict, or degraded state is completed synchronously; confirmed success makes the obsolete prompt unnecessary, while an unavailable, unsafe, or failed save leaves the guard in place. Save failure or Cancel keeps the current image open; only the current image is resolved, and the guard applies to previous/next navigation, file-list opening, and other user-requested image jumps but not automatic navigation after a confirmed destructive file operation. Workspace replacement and closing retain their all-dirty-image summary.
-_Avoid_: Non-blocking dirty indicator, workspace-close summary, silent image switch
+The Save, Discard, or Cancel decision protecting committed unsaved edits before a user-requested image switch.
+_Avoid_: Non-blocking dirty indicator, workspace-close summary
 
 **History rebase**:
-Replacement of an image's annotation edit history with a new baseline after a successful external document replacement or mutation, including explicitly loading another annotation document, annotation clearing, or cross-file review-state editing. Image renaming transfers the existing history to the renamed identity, while image deletion removes it.
-_Avoid_: Undo, save, redo-branch discard
+Replacement of an image's edit history with a new baseline after document replacement or an external mutation.
+_Avoid_: Undo, save
 
 **External annotation conflict**:
-A mismatch between an annotation storage resource on disk and an unsaved in-memory annotation revision that depends on its prior version. A valid external change to a clean current image is synchronization rather than conflict; a dirty current image instead requires an explicit choice to load the external version and discard local edits, overwrite the external resource immediately with the current version, or cancel without changing either side. Cancel pauses automatic saving for that resource, keeps a persistent conflict indication, and blocks image navigation until the conflict is resolved. While unresolved, candidate labels continue to reflect the current in-memory document; accepting the external version replaces that contribution, while unaffected records in a shared collection may use their latest valid external contributions. Repeated external writes are coalesced into one conflict whose external side is always the latest stable, valid representation. If a pending drawing, geometry gesture, or label confirmation is active when the change arrives, resolution waits until that interaction closes and then treats its committed result as the local version. For an independent per-image resource this affects one image. For a shared CreateML collection it marks every related image by matching each complete record reference, including qualified relative and absolute references, and conflict resolution targets the complete collection: loading the external version replaces the retained collection model and rebases every related image history, while overwriting applies current in-memory edits to the complete retained pre-conflict collection snapshot and atomically writes it, explicitly discarding every external collection change. Per-record mixing is unavailable. A collection-level resolution that discards multiple images' in-memory edits or external changes requires a second confirmation showing the total affected image count, dirty image count, and which side will be discarded. Conflicts are never silently merged, discarded, or overwritten.
-_Avoid_: Whole-workspace file watching, automatic merge, silent overwrite
+A stored-resource change conflicting with an unsaved local revision based on its prior content.
+_Avoid_: Whole-workspace file watching, automatic merge
 
 **Current annotation live synchronization**:
-Synchronization that may replace Canvas content and editing history only for the image currently displayed. External creation, modification, replacement, or deletion is detected after a short stability delay: a valid external version replaces a clean current document, becomes its saved baseline, clears that image's Undo and Redo history, refreshes candidate labels, and produces a non-blocking visible notification naming the changed resource. The watched annotation directory also uses resource metadata changes to refresh only the affected inactive images' derived file-list status and candidate-label contributions without opening their documents or changing their histories. A transient or invalid external representation never replaces the last valid Canvas state, retains its last valid candidate-label contribution, reports its path and parsing failure persistently, and remains eligible for a later successful retry. A clean current image may be left while its external document is invalid, but reopening that image while the resource remains invalid cancels navigation and preserves the then-current image. Inactive documents are loaded only when their images are opened. A watched shared CreateML collection immediately refreshes its complete candidate-label contribution but replaces only the current image's Canvas record; other records are loaded when their images are opened. Application-authored saves and content-identical external rewrites are recognized by resource fingerprint and do not reload the Canvas, clear history, or produce an external-change notification.
-_Avoid_: Whole-workspace document reload, stale file-list status, background history replacement
+Synchronization of the current image's stored annotation changes, with only derived index updates for inactive images.
+_Avoid_: Whole-workspace document reload, stale file-list status
 
 **History retention limit**:
-The bounded portion of a workspace editing session retained for Undo and Redo: at most 100 atomic edits per image and a soft target of approximately 256 MiB across the workspace. Least-recently-used inactive image histories are trimmed first while retaining a contiguous window around each current cursor: the farthest Undo-side edge is removed before a farthest Redo-side edge, and an atomic edit is never partially retained. If one newest atomic entry alone exceeds the soft target, it may remain as the sole retained entry after other history is evicted; failure to allocate that complete entry instead fails and rolls back the edit atomically. Eviction shortens only the reachable Undo or Redo window; it neither invents a new saved baseline nor makes dirty-state detection approximate. Cleanup is silent when it occurs, but attempting to continue Undo past an evicted boundary produces a non-modal status-bar explanation; an image that never had earlier history simply presents Undo as unavailable.
-_Avoid_: Persistent archive, unlimited history, partial batch history
+The bounded per-image and workspace-wide history window available for Undo and Redo.
+_Avoid_: Persistent archive, unlimited history
 
 **Annotation history shortcut context**:
-The focus context in which annotation Undo and Redo shortcuts apply: the canvas, label list, and non-text main-window areas. Text controls retain native text history, file-list focus performs no annotation history action, and modal dialogs suspend main-window history shortcuts. Ctrl+Z, Ctrl+Y, and Ctrl+Shift+Z ignore keyboard auto-repeat so that each physical key press advances exactly one history step; this does not alter direction-key hold coalescing.
-_Avoid_: Application-wide shortcut, file-operation undo, text-field override
-
-**History action presentation**:
-The Edit-menu and status-bar representation of the next available annotation Undo or Redo, named after its concrete atomic edit and disabled when unavailable or outside the annotation history shortcut context. Action labels remain concise and include affected-box counts where useful. A label change presents safely rendered, elided old and new values such as `Undo Change label: cat → dog`, while the status bar may show the complete values; other actions use the operation and count rather than verbose payloads. Undo uses Ctrl+Z; Redo accepts Ctrl+Y and Ctrl+Shift+Z; the initial feature has no history panel, preview, or arbitrary multi-step jump. While a drawing or annotation gesture is pending, Redo is disabled and its shortcut only reports that the current operation must first be completed or canceled.
-_Avoid_: Hidden unavailable action, unlabeled generic history button, toolbar history controls
+The Canvas, annotation list, and non-text workbench focus contexts in which annotation Undo and Redo apply.
+_Avoid_: Application-wide shortcut, file-operation undo
 
 **Atomic history execution**:
-Application of one Undo or Redo that either completes and advances the history position or restores the complete pre-attempt state without advancing. When restoration succeeds after an application failure, the failed entry remains available for an explicit retry and the UI reports the concrete action and error; it is not silently discarded. A later new edit follows normal branch rules. If both application and restoration fail, only that image's history is cleared. The application first reloads a fingerprint-checked stored document as a clean new baseline; if no trustworthy stored document can be loaded, it retains the last constructible in-memory snapshot as dirty, pauses autosave, and requires an explicit Save As, reload, or close decision rather than claiming that uncertain state is saved.
-_Avoid_: Partial undo, optimistic cursor advance, workspace-wide reset
+An Undo or Redo that either applies completely or restores its pre-attempt state without advancing history.
+_Avoid_: Partial undo, optimistic cursor advance
 
 **Degraded annotation state**:
-The protected per-image state entered when neither a history action nor restoration of its pre-attempt snapshot can complete and no trustworthy stored document can be loaded. The last constructible in-memory document remains visible and dirty, annotation history and all annotation mutations are unavailable, and autosave is paused until explicit recovery. View operations, selection, copying, Save As, reload, and close remain available so the visible content can be inspected or rescued. Recovery Save As requires a previously nonexistent target and cannot overwrite another annotation file. Its success establishes the visible document as a clean baseline with empty new history, unlocks editing, and leaves the original file untouched; failure preserves the degraded state.
-_Avoid_: Clean rebase, automatic overwrite, workspace-wide failure
+A protected dirty state after failed history application and restoration, allowing inspection and rescue while editing and autosave are paused.
+_Avoid_: Clean rebase, automatic overwrite
+
+### File recovery
+
+File transaction and restoration rules: [recovery contract](docs/design/undo-redo-and-file-recovery.md#file-operation-recovery-center).
 
 **File operation recovery**:
-A session-scoped recovery mechanism for successfully completed parts of cross-file deletion, annotation clearing, renaming, and review-state changes. Its newest-first list allows any entry that passes current preflight rather than enforcing stack order, uses explicit confirmation, and never uses annotation Undo or Redo shortcuts.
+Explicit session-scoped restoration of completed cross-file operations, separate from annotation Undo and Redo.
 _Avoid_: Global Undo, annotation Redo
 
 **File operation recovery entry**:
-One recoverable file operation retained among the 20 most recent entries of a workspace editing session. It records only the successfully changed targets, becomes non-repeatable after successful recovery, and may outlive neither a workspace switch nor an application restart.
-_Avoid_: Persistent audit log, annotation history entry, repeatable restore
+A one-use record of successfully changed targets retained in the current session's bounded recovery list.
+_Avoid_: Persistent audit log, annotation history entry
 
 **Recovered file selection**:
-The file selection set produced after deleted images are restored: every restored image is selected while the current image remains unchanged, unless the workspace previously had no image to display. Restored images use their recovered documents as new annotation-history baselines.
-_Avoid_: Automatic recovered-image navigation, old row restoration, deleted in-memory history
+The selection of restored images after deletion recovery, independent of the current image.
+_Avoid_: Automatic recovered-image navigation, old row restoration
 
 **File recovery conflict**:
-Any occupied original path or changed target document that prevents a file operation recovery entry from being restored exactly. One conflict blocks the entire recovery until resolved; recovery never overwrites, assigns conflict suffixes, or restores only a subset automatically, while rename recovery may carry later content edits through its inverse mapping.
-_Avoid_: Best-effort restore, overwrite confirmation, automatic conflict suffix
+An occupied original path or changed target that prevents exact restoration of a recovery entry.
+_Avoid_: Best-effort restore, overwrite confirmation
 
 **Rename recovery**:
-An inverse synchronized rename that returns images, associated annotation documents, current-image identity, file selection, and annotation edit histories to their former paths while preserving content edited under the newer names. It requires a complete unique reverse mapping and unoccupied former paths.
-_Avoid_: Old-byte restoration, content rollback, partial reverse rename
+The inverse synchronized rename that restores prior paths while preserving content edited under the newer names.
+_Avoid_: Old-byte restoration, content rollback
 
 **Review-state recovery**:
-A field-level reversal of one cross-file review-state operation that preserves later annotation-box content and its dirty candidate-label contribution. After acquiring every affected storage-resource lease, recovery reloads every record and verifies that its current fields still equal the operation result before capturing rollback bytes or writing. An absent empty Pascal VOC document is the valid physical representation of empty and unreviewed, so it can be restored to a prior review-only document. Every attempted resource is rollback-eligible even when its writer commits and post-commit fingerprinting or derived-index bookkeeping then raises. Successful recovery restores the prior states atomically and rebases the affected annotation edit histories.
-_Avoid_: Whole-document restoration, box rollback, partial review recovery
+A field-level reversal of a cross-file review operation that preserves later annotation-box content.
+_Avoid_: Whole-document restoration, box rollback
 
 **Cleared-annotation recovery**:
-Exact restoration of annotation documents removed by one clear operation, allowed only while every target remains in the empty annotation state produced by that operation. New stored annotations or unsaved canvas annotations create a conflict; old and new annotations are never overwritten or merged automatically.
-_Avoid_: Annotation merge, overwrite restore, partial clear recovery
+Exact restoration of cleared documents while their targets still match the operation's empty state.
+_Avoid_: Annotation merge, overwrite restore
 
 **Manual trash recovery**:
-The fallback for a platform that can move data to its system trash but cannot return a stable recovery identity. The destructive operation remains allowed with an explicit warning, but its recovery entry is non-actionable in LabelImg; permanent deletion is never used when system trash is unavailable.
-_Avoid_: Application recovery, permanent-delete fallback, silent degradation
+Restoration through the operating system when trash is available but provides no stable in-application recovery identity.
+_Avoid_: Application recovery, permanent-delete fallback
 
 **Trash recovery identity**:
-An opaque session-scoped handle returned by the platform trash adapter for one successfully recycled path. On Windows, `IFileOperationProgressSink::PostDeleteItem` reports a callback-owned Recycle Bin `IShellItem`; the adapter immediately copies its absolute PIDL bytes and later reconstructs a fresh item for availability checks and restore. A same-directory recycle-and-restore probe must succeed before user data is touched. On platforms where Qt returns a usable path in trash, that path forms the identity. The application never retains a callback-owned COM pointer or derives identities by matching only names or deletion timestamps.
-_Avoid_: Original path, filename search, guessed recycle-bin path
+An opaque session handle identifying one successfully recycled path for later availability checks and restoration.
+_Avoid_: Original path, filename search
+
+### Annotation interaction
+
+Selection, targeting, and presentation: [annotation interaction](docs/design/annotation-interaction.md).
 
 **Temporary multi-selection mode**:
-A transient canvas state entered while Ctrl is held, shown with a crosshair cursor, in which a click toggles one annotation box and a drag creates a selection region without moving an annotation box. It retains the complete-box hover target appearance but suppresses corner enlargement and resize cursors; releasing Ctrl restores ordinary editing feedback, ends the mode, and preserves the selection set.
+The transient Ctrl-held Canvas mode for toggling boxes or selecting a fully contained group without moving them.
 _Avoid_: Square-drawing mode, generic selection mode
 
 **Selection region**:
-A dashed, lightly translucent rectangle drawn during temporary multi-selection mode that selects only annotation boxes fully contained within its bounds. Once its drag threshold is crossed it suppresses any single-box hover target, and release recomputes hover at the pointer position.
-_Avoid_: Intersection region, crop box, annotation box
+The temporary drag rectangle selecting only boxes fully contained within its bounds.
+_Avoid_: Intersection region, crop box
 
 **Selection set**:
-The zero or more annotation boxes currently selected as a group and mirrored between the canvas and label list. A new selection region replaces this set; Ctrl-click toggles individual members.
+The same selected boxes projected between Canvas shapes, annotation-instance buttons, and label-group rows.
 _Avoid_: Active box, current item
 
 **Bulk selection action**:
-An action whose target is every annotation box in the selection set. Bulk selection actions are limited to deletion and copying; other edits require a single selected box.
+A command explicitly targeting the complete annotation selection, such as copying or deletion.
 _Avoid_: Batch edit, group transform
 
 **In-image duplication**:
-A copy operation that creates slightly offset annotation boxes in the current image from every member of the selection set. The duplicates replace the originals as the selection set.
+A copy operation creating slightly offset boxes in the current image and selecting the duplicates.
 _Avoid_: Clipboard copy, paste
 
 **Clipboard selection**:
-A snapshot of every annotation box in the selection set, retained for pasting into another image. Paste history captures the boxes actually created, so Undo does not change the clipboard and Redo never rereads it.
+A retained snapshot of selected annotation boxes available for pasting independently of its source.
 _Avoid_: In-image duplication, all image labels
 
 **Previous-image annotation copy**:
-An atomic annotation edit that replaces the current image's box set with copies from the previous image's current session document, or its selected active stored document when no in-memory state exists. Its history entry retains the boxes actually created, including their properties and annotation order, so Redo restores that captured result without rereading the source image. Later edits, renames, or deletion of the source image cannot change the result.
-_Avoid_: Live link, source-dependent Redo, clipboard paste
+An atomic replacement of current boxes with captured copies from the previous image's active annotation document.
+_Avoid_: Live link, source-dependent Redo
 
 **Append paste**:
-A paste operation that adds the clipboard selection to the target image without removing its existing annotation boxes. The newly pasted boxes replace the prior selection set.
+A paste that preserves existing boxes and selects only the added clipboard copies.
 _Avoid_: Replace paste, overwrite labels
 
-**Selected appearance**:
-The visual state of a selected annotation box: an opaque outline in its own label color and a light translucent fill in the same color at 30/255 opacity. Hover feedback does not fill an unselected box, so it remains distinct from selection.
-_Avoid_: Default blue fill, white selection outline
+### Label colors
+
+Resolution and lifetime: [session label palette](docs/design/session-label-color-palette.md).
 
 **Label color palette**:
-The current annotation-workspace session's case-sensitive mapping from exact labels to user-selected category colors. It retains explicit entries for labels not currently used until the workspace closes, is never persisted, and never stores box-specific colors.
-_Avoid_: Application color theme, global label colors, saved workspace metadata, annotation-document colors, per-box colors
+The session-only mapping of exact labels to user-chosen display colors, independent of annotation data.
+_Avoid_: Application color theme, global label colors
 
 **Label color override**:
-One explicit user-selected entry in the session label color palette. It takes effect across the current annotation workspace immediately and independently of annotation-document saving or Undo and Redo; removing it restores the label's stable automatically assigned color.
-_Avoid_: Annotation edit, saved preference, default drawing color, per-box style
+One explicit palette entry replacing a label's stable automatic color until removed or the session ends.
+_Avoid_: Annotation edit, saved preference
 
 **Label display color**:
-The single opaque category color resolved for one exact label from the label color palette or its stable automatic fallback and shared by every matching annotation-box outline, candidate-label capsule background, and right annotation-list instance control. Selection fills, text colors, and hover borders are derived appearances; the label-group text retains the ordinary annotation-list style.
-_Avoid_: Per-surface label color, per-box color, translucent label background, selection color
+The opaque category color shared by matching box outlines, candidate capsules, and annotation-instance controls.
+_Avoid_: Per-surface label color, per-box color
 
-**Selected label text appearance**:
-The visual state of label text belonging to every selected annotation box: white text on a black background at about 60% opacity, with a small rounded rectangle and about two pixels of padding around the text. It remains at the annotation box's existing top-left position. Hovering without selection does not apply this appearance, and hidden label text remains hidden.
-_Avoid_: Label-list highlight, active-box-only label, hover label highlight
+### Annotation targeting and feedback
 
-**Hover target appearance**:
-The edit-mode preview of the one annotation box targeted by the Canvas pointer: its ordinary solid outline is replaced by a short-dashed outline with clearly separated, roughly equal dash and gap lengths, the same approximately 1.5-pixel width, and its own label color, without an underlay, added fill, or label-text change; creation mode never shows it. It outlines the complete box for corner, edge, and interior targets, takes priority over label text when an unmodified double-click is resolved at the same position, and remains on a locked gesture target, while annotation-list hover projections never become Canvas pointer targets.
-_Avoid_: Hover fill, hover label highlight, thick hover outline, white hover underlay
+Detailed gestures and visual states: [annotation interaction](docs/design/annotation-interaction.md).
 
 **Corner resize target**:
-The interactive area at an annotation-box corner that resizes the box along the corner's geometric diagonal. It contracts for very small boxes so that a distinct box-move target remains available.
+The corner area that resizes a box along its diagonal while preserving a move target in small boxes.
 _Avoid_: Fixed-radius corner target, entire small-box interior
 
 **Box-move target**:
-The annotation-box interior that remains after corner and edge resize targets are resolved and moves the whole box when dragged.
+The box interior remaining after corner and edge resize targets are resolved.
 _Avoid_: Corner resize target, edge resize target
 
 **Pointer target resolution**:
-The deterministic choice of the nearest visible annotation-box target at the pointer: the nearest eligible corner, nearest eligible edge, and overlap target among containing box-move targets. Label text never competes with box geometry in ordinary hover, selection, dragging, Ctrl-click, or right-button gestures; resolution depends only on current rendered box state and pointer position, never current selection membership, and distances inside a small equality tolerance resolve to the topmost drawing layer rather than using hover stickiness or approach direction.
-_Avoid_: Drawing-order scan, first hit, stateful selection-through
+The deterministic choice of a visible corner, edge, or containing box interior from pointer geometry alone.
+_Avoid_: Drawing-order scan, first hit
 
 **Canvas context command surface**:
-The transient secondary-click or context-key commands scoped to exactly one current Canvas interaction context: blank image area, one targeted annotation, the current multi-selection, or an active image crop session. It contains only commands valid for that target; Draw cancels its in-progress box and Pan exposes none, while right-button dragging never changes the command surface.
-_Avoid_: Static Canvas menu, global Edit menu, right-drag drop menu
-
-**Label text placement**:
-The label text position separated from the annotation-box outline, normally above its top-left corner and moved inside the box when the canvas boundary leaves insufficient space above.
-_Avoid_: Text baseline on the outline, clipped label text
+The transient commands valid for the current blank-area, annotation-selection, or crop context.
+_Avoid_: Static Canvas menu, global Edit menu
 
 **Label text hit region**:
-The screen-space bounds of actually rendered label text plus a stable two-pixel allowance, eligible only for an unmodified Canvas label-edit double-click while both the label text and its annotation box are visible. Selection styling, Canvas scale, and display density never create, remove, or materially resize this target.
-_Avoid_: Ordinary selection target, hidden label target, annotation-box bounds, image-space padding
+The rendered text area eligible only for the unmodified Canvas label-edit double-click.
+_Avoid_: Ordinary selection target, hidden label target
 
 **Label text overlap target**:
-The label text hit region chosen for a Canvas label-edit double-click only when ordinary pointer target resolution finds no annotation box at that position: strict text containment selects the innermost smallest region, partial text overlap selects the region whose boundary is nearest, and equality within tolerance selects the topmost annotation layer. It never participates in an ordinary pointer gesture; text with no box geometry beneath it therefore remains inert except for an unmodified label-edit double-click.
-_Avoid_: Ordinary pointer target, first text hit, nearest center
+The label-text region selected for editing when no annotation geometry is targeted at that position.
+_Avoid_: Ordinary pointer target, first text hit
 
 **Overlap candidates**:
-The visible annotation boxes whose box-move targets contain the pointer after corner and edge resize targets are resolved. Hidden boxes and boxes that do not contain the pointer never participate in overlap targeting.
-_Avoid_: Nearby boxes, hidden candidates, stateful selection-through
+Visible boxes whose move targets contain the pointer after resize targets are resolved.
+_Avoid_: Nearby boxes, hidden candidates
 
 **Overlap target**:
-The overlap candidate previewed by hover and targeted by an ensuing ordinary click, Ctrl-click, or right-button gesture; modifier keys never change this target. Strict containment chooses the innermost smallest-area candidate, partial overlap chooses the candidate whose boundary is nearest to the pointer, and unresolved geometric equality chooses the topmost drawing layer while lower identical boxes remain selectable from the annotation list.
-_Avoid_: Nearest center, drawing-order-only target, stateful selection-through
+The containing box chosen by strict containment, nearest boundary, then topmost drawing layer.
+_Avoid_: Nearest center, drawing-order-only target
 
 **Near-duplicate cluster**:
-Two or more similarly sized annotation boxes whose four corresponding boundaries are pairwise closely aligned in image coordinates. Its membership is stable across Canvas zoom, it is distinct from ordinary partial overlap or a materially larger box containing a smaller box, and it never proves that any member should be deleted.
-_Avoid_: Any overlap, containment pair, duplicate annotation, automatic deletion set
+A pairwise group of similarly sized boxes with closely aligned corresponding image-coordinate boundaries.
+_Avoid_: Any overlap, containment pair
 
 **Duplicate-label risk**:
-A near-duplicate cluster whose members share one label, indicating a likely accidental repeated annotation without asserting that the repetition is invalid.
+A near-duplicate cluster sharing one label, suggesting accidental repetition without declaring it invalid.
 _Avoid_: Confirmed duplicate, save error
 
 **Category-conflict cluster**:
-A near-duplicate cluster containing more than one label, indicating geometry that may have inconsistent categories or an intentional multi-label interpretation.
+A near-duplicate cluster containing different labels that may represent a category conflict or intentional multi-label interpretation.
 _Avoid_: Duplicate-label risk, invalid annotation
 
-**Near-duplicate marker**:
-The single low-interference Canvas indicator attached to one near-duplicate cluster, identifying its dominant risk through a distinct symbol and accessible risk color while its stable number means total members. Category conflict uses a mismatch symbol and dominates duplicate-label risk; member visibility never changes the number or risk meaning.
-_Avoid_: Shifted annotation outline, thick warning border, save blocker
-
-**Cluster member chooser**:
-The non-modal compact control opened from a near-duplicate marker or its annotation-list counterpart that lists every cluster member in annotation order by ordinal, label, and visibility, with geometry available on demand. Its highlighted row is the explicit target for focus, visibility, label, and deletion operations, while the cluster itself may be dismissed for the session.
-_Avoid_: Implicit bulk mutation, pointer-target cycling, geometry offset, layer control
-
-**Near-duplicate list signal**:
-The annotation-list risk corner attached to each involved annotation instance plus one dominant-risk indicator beside the stable total of each affected label group. It keeps fully hidden clusters discoverable; risk activation and group-total activation remain distinct even though they share one centered status area.
-_Avoid_: Separate quality panel, hidden-only warning, group-wide error state
-
 **Near-duplicate dismissal**:
-A workspace-session view-state choice that suppresses one acknowledged near-duplicate cluster from both Canvas and annotation-list feedback without changing or validating its annotations. A change to member identity, geometry, or label invalidates the dismissal, while selection and visibility do not; current-image dismissals can be restored together from the annotation-list command surface.
-_Avoid_: Saved annotation property, permanent validation, geometry-only identity
+A session-only choice suppressing one cluster's feedback until its membership, geometry, or labels change.
+_Avoid_: Saved annotation property, permanent validation
 
 **Cluster focus**:
-The temporary Canvas presentation entered after choosing one near-duplicate member, which replaces any prior selection set: the chosen member retains the ordinary selected appearance and label text, while peer outlines are strongly de-emphasized and peer label text is suppressed. Leaving the cluster or canceling focus restores ordinary presentation without restoring the prior selection or changing annotations.
-_Avoid_: Offset geometry, persistent isolation, annotation edit
+Temporary emphasis of one selected cluster member with peers visually subdued, without changing annotation content.
+_Avoid_: Offset geometry, persistent isolation
 
 **Pointer gesture target**:
-The annotation box recomputed at mouse press and retained for that click or drag until release or cancellation. Hover only previews this target; its complete-box highlight remains fixed during the open gesture, and crossing another box never retargets it.
+The box resolved at mouse press and locked until the interaction completes or is canceled.
 _Avoid_: Cached hover target, mid-drag retargeting
 
-**Synchronized selection**:
-A selection set projected between canvas boxes, annotation-instance buttons, and their label-group rows. An ordinary instance-button click selects only its box, while an ordinary click on the group-row body selects every box in the group; Shift ranges follow one global visual order across groups, reading rows top-to-bottom and buttons left-to-right, regardless of horizontal scroll position. A single box is a point anchor, while a group selection is an interval anchor that remains complete when a later Shift range extends before or after it. A multi-member group selection has no arbitrary active box and disables single-instance editing, while a one-member group remains a single selection. Each row reports none, partial, or all according to the resulting selection set.
-_Avoid_: Current row, independent list selection, one-row-one-box
+### Annotation list
+
+Group, instance, filtering, and visibility behavior: [annotation interaction](docs/design/annotation-interaction.md#label-groups-and-instance-strips).
 
 **Label group**:
-The annotation boxes in the current image that share exactly the same label, including letter case. A label group exists only while at least one matching box exists.
-_Avoid_: Dataset class, case-insensitive class, persistent group
-
-**Label-group row**:
-The single compact, theme-background right annotation-list row representing one label group, ordered by case-insensitive natural label order with exact text as the stable tie-breaker. Visible rows share a generous but bounded, content-fitted class-name column sized for its bold selected appearance, so selection never newly elides a name or shifts instance buttons; long names may claim nearly half the row while at least one button remains complete, and any necessary elision is identical across selection states with full hover identification.
-_Avoid_: Annotation row, instance row, category row
+The current image's boxes sharing exactly the same case-sensitive label.
+_Avoid_: Dataset class, case-insensitive class
 
 **Annotation-instance button**:
-The compact numbered in-row control representing exactly one annotation box within its label group, with an opaque background matching that box's actual outline color. Every group member has a button in current annotation-document order; ordinary click selects only that box, hover previews only that box, and its tooltip identifies the current ordinal and box geometry. Ordinals are current-image navigation aids that may be renumbered after structural edits, not persisted annotation identities.
-_Avoid_: Group button, count badge, hidden overflow item
-
-**Annotation-instance button appearance**:
-The theme-background button with an outline matching that box's actual annotation color and a readable theme-colored number. Neither the row nor an unselected button uses category-color fill; selection adds a modest 48/255 fill in the same color plus a bold number, while hover independently changes the color outline from solid to dashed so a selected-hovered button retains both states; a hidden button dims its outline and number to roughly 45% and adds a fine slash.
-_Avoid_: Category-color fill, label-group-only color, additional hover outline, state-overwrites-category-color
+The numbered in-row control for exactly one annotation box, identified visually by its category-color outline.
+_Avoid_: Group button, count badge
 
 **Annotation-instance strip**:
-The independently horizontally scrollable portion of a label-group row containing every annotation-instance button while the label identity, total count, and aggregate visibility control remain fixed. Ordinary wheel input continues to scroll the list vertically, deliberate horizontal input moves the strip, and canvas selection minimally reveals its matching button without hover-driven movement; canvas hover over an off-strip instance instead emphasizes the corresponding overflow direction until explicitly revealed. Strip positions survive view changes within the current image, reset on image change, and are never persisted as annotation or workspace data.
-_Avoid_: Wrapped button grid, clipped instance list, whole-row scrolling
-
-**Annotation-list keyboard navigation**:
-The focus model in which Tab reaches the label-group list without traversing every instance, arrows move between group rows and their visually ordered instance buttons, and Space performs the corresponding selection gesture. Escape returns from an instance to its group, F2 edits at the focused granularity, and keyboard focus movement reveals controls without creating hover state.
-_Avoid_: Button-by-button tab chain, mouse-only strip, focus-is-selection
+The horizontally scrollable instance controls within a row whose label, total, and aggregate visibility remain fixed.
+_Avoid_: Wrapped button grid, clipped instance list
 
 **Label-group rename**:
-An atomic label edit applied to every annotation box in one label group. Renaming to an existing label merges the groups, while an instance-only label edit moves its annotation-instance button between groups and removes an emptied source group.
-_Avoid_: Row-title-only edit, repeated independent rename, persistent empty group
+One atomic label edit of every group member, merging into an existing destination group when needed.
+_Avoid_: Row-title-only edit, repeated independent rename
 
 **Annotation-instance label edit**:
-An atomic label edit applied to exactly one annotation box, even when other boxes share its label. Changing the label may move that box into another label group, while the other members of its original group remain unchanged.
-_Avoid_: Label-group rename, bulk relabel, candidate-label edit
+One atomic label edit of exactly one box, independent of other boxes sharing its former label.
+_Avoid_: Label-group rename, bulk relabel
 
 **Canvas label-edit gesture**:
-An unmodified primary-button double-click on a visible annotation box or its visible label text in the Selection and Editing tool that replaces the current selection with that box and opens the existing single-box label editor. The ordinary corner, edge, and interior target is recomputed at the double-click position and takes priority, matching the single Canvas hover target even when unrelated label text overlaps it; only when no box is found does precise label-text resolution choose its owning box, while annotation-list hover projections never affect the result.
-_Avoid_: Label-group rename, property editor, creation-mode double-click
+An unmodified double-click in Selection/Edit that targets one visible box or label and opens its label editor.
+_Avoid_: Label-group rename, property editor
 
 **Label-group filter**:
-A case-insensitive text filter that limits which label-group rows are shown without changing canvas visibility, annotation selection, or row state. Selection outside the result remains active and is reported explicitly; list-focused select-all replaces it with all currently filtered results. Clearing the filter restores every group and its prior horizontal position.
-_Avoid_: Visibility filter, label isolation, selection filter
-
-**Annotation-list empty state**:
-The non-interactive explanation shown after projection when the current image has no annotations, distinct from the no-match state produced by a label-group filter. A no-match state offers filter clearing and continues to report selected annotations outside the result without changing canvas state.
-_Avoid_: Blank list, disabled placeholder row, transient rebuild flash
-
-**Annotation-list summary**:
-The compact current-image count of label groups and annotation boxes near the label-group filter. During filtering it reports shown and total counts and any selected annotations outside the result, without including workspace candidate labels.
-_Avoid_: Workspace class count, dashboard card, hidden-selection silence
+A case-insensitive row filter that changes neither Canvas visibility nor annotation selection.
+_Avoid_: Visibility filter, label isolation
 
 **Label-group isolation**:
-An explicit group command that hides other label groups on the canvas, distinct from filtering rows. Its inverse restores visibility to every group.
-_Avoid_: Search, implicit combo-box visibility, list-only filter
+An explicit command hiding other label groups on the Canvas, independent of list filtering.
+_Avoid_: Search, implicit combo-box visibility
 
 **Annotation-list command scope**:
-The explicit target of a context command: right-clicking an unselected instance makes it the selection target, right-clicking a selected instance preserves the selection set, and right-clicking a group body preserves selection while targeting the named group. Group-destructive commands state their affected annotation count.
-_Avoid_: Implicit group selection, ambiguous current item, unlabeled bulk scope
+The explicit instance selection or named group targeted by a context command.
+_Avoid_: Implicit group selection, ambiguous current item
 
 **Label-group deletion**:
-An atomic, undoable removal of every annotation box in one label group, identified before execution by the group label and affected count. It does not require modal confirmation because one Undo restores the complete group state.
-_Avoid_: Repeated instance deletion, irreversible bulk delete, confirmation dialog
+One immediate, atomic, undoable removal of every box in an identified label group.
+_Avoid_: Repeated instance deletion, irreversible bulk delete
 
 **Synchronized hover**:
-A view-only projection between canvas boxes and label-group rows at the granularity of its source. Hovering one canvas box previews only that box and its group row; hovering a group row previews every visible box in the group. It never changes selection, visibility, scrolling, dirty state, or annotation history, and hidden boxes remain absent from the canvas.
-_Avoid_: Hover selection, current row, one-way hover, reveal hidden boxes
-
-**Label-group hover preview**:
-The simultaneous ordinary hover outline shown on every visible annotation box belonging to a hovered label-group row. It represents the row's group-wide scope without creating a multi-selection or replacing the canvas pointer target.
-_Avoid_: Group selection, hidden-box preview, single representative box
-
-**Selected label-list appearance**:
-The aggregate selection state of a label-group row with its label background preserved. No selected members show no marker and normal text; some selected members show a small theme-accent dot and normal text; all selected members show the existing slim inset theme-accent marker and bold text.
-_Avoid_: Full blue border, primary row, active-row emphasis, binary group selection
-
-**Annotation-list hover appearance**:
-The view-only treatment of the complete annotation-list row in synchronized hover, including its visibility-control area: the same faint theme-gray background used by the file list plus an approximately one-pixel neutral-gray rounded border inset from the row bounds. A selected hovered row retains its selection marker and bold text, while instance buttons keep their own selection and category-color states.
-_Avoid_: Category-color hover background, blue border, bold hover text
+A view-only hover projection between Canvas and annotation list: a box previews itself and its row; a group previews all visible members without becoming a Canvas pointer target.
+_Avoid_: Hover selection, current row
 
 **Initial image selection**:
-The empty selection set established whenever an image becomes current, regardless of whether it was opened directly, reached by navigation, chosen from the file list, or revealed after deletion.
+The empty annotation selection established whenever an image becomes current.
 _Avoid_: Last-label selection, carried selection
 
 **Visibility toggle**:
-The right-aligned label-group eye control that changes whether the group's annotation boxes are rendered on the canvas without changing the selection set. Open-eye and subdued eye-off states mean all visible and all hidden; a distinct mixed state means only some are visible. Activating an all-visible group hides it, while activating an all-hidden or mixed group shows it completely; instance-button commands control individual or selected-box visibility without adding miniature eyes. Hidden boxes cannot be hit on the canvas but remain in their strips and eligible for selection actions.
-_Avoid_: Selection checkbox, disabled row, miniature instance eye
+The group eye control for showing or hiding boxes without changing selection.
+_Avoid_: Selection checkbox, disabled row
+
+### Labels and documents
+
+Candidate membership and storage behavior: [annotation persistence](docs/design/undo-redo-and-file-recovery.md).
 
 **Label**:
 The object-class name assigned to an annotation box.
 _Avoid_: Tag, category text
 
 **Candidate label**:
-A label derived from the classes currently used by committed annotation boxes anywhere in the open workspace and offered for reuse while creating or editing a box. Its scope includes unambiguous stored annotations for images that have not yet been opened, selected active annotation documents, and committed but not-yet-saved annotations in memory. A workspace rescan rebuilds stored contributions without clearing retained dirty-history contributions. An image with multiple formats and no selected active document contributes no candidates and remains visibly marked as awaiting document selection. A conflicted image contributes its current in-memory labels until conflict resolution: rebasing to the external document replaces its contribution, while overwriting preserves it. Candidates retain the existing case-insensitive alphabetical ordering, with the exact original label text as a deterministic secondary key. Labels that differ only by letter case remain distinct annotation classes and are never merged or renamed by Undo or Redo. Undo and Redo recompute membership without introducing operation-order sorting: if Undo removes the last committed use of a class across the whole scope, that class disappears; Redo makes it reappear at its deterministic sorted position. Merely typing, previously using, or predefining a label does not keep it in the candidate set when no committed annotation currently uses it.
-_Avoid_: Session label history, predefined class list, option, list item, tag
+A label currently used by committed annotations in the open workspace and offered for reuse, including retained unsaved documents.
+_Avoid_: Session label history, predefined class list
 
 **YOLO class index vocabulary**:
-The storage metadata that maps YOLO class names to stable numeric indices. It is independent of the visible candidate-label set. A new class appends an index when its first annotation is confirmed as a committed edit; typing and canceling does not reserve one. Once appended, the mapping remains stable across workspace rescans and later YOLO saves even if Undo removes every current box of that class. A reservation that has never been written and is no longer used does not by itself make an image dirty or force a save; it is persisted opportunistically by a later YOLO save or expires with the session when no stored annotation references it. Undo and Redo never remove, reorder, or renumber an established mapping when the class disappears from candidate labels.
-_Avoid_: Candidate labels, sorted class list, compacted indices
-
-**Candidate area**:
-The portion of the label-entry dialog that presents candidate labels.
-_Avoid_: Candidate frame, label list
+The stable mapping between YOLO labels and numeric storage indices, independent of visible candidate membership.
+_Avoid_: Candidate labels, sorted class list
 
 **Annotation document**:
-The annotation boxes and review status associated with one image, whether stored as Pascal VOC, YOLO, or CreateML.
+The boxes and review state associated with one image, independent of storage format.
 _Avoid_: Label file, format file
 
 **CreateML annotation collection**:
-A physical CreateML JSON file that may contain annotation-document records for multiple images. Each record is identified by the collection path plus its complete normalized image reference for document choice, review state, and candidate-label derivation; a qualified relative or absolute reference is never collapsed to a basename, while a legacy basename-only reference retains basename matching. A matching record keeps its original reference when saved, and zero or multiple matches are rejected instead of appending or selecting a guessed record. The collection file remains the physical save/conflict resource. File operations target the uniquely matching image record and remove the physical collection only when no records remain; one multi-image operation records one logical recovery resource per collection, retaining the earliest original trash identity and the final post-operation fingerprint. Recovery restores the complete prior collection only while that final state remains unchanged. Ambiguity or an unsaved override for one record does not suppress or replace unrelated record contributions.
+A shared stored collection of image records identified by complete image reference; writes and conflicts belong to the complete collection.
 _Avoid_: Single-image JSON document, delete-whole-file-by-default
 
 **Annotation workspace**:
-The images being annotated together with their corresponding annotation documents and the candidate labels discovered from them.
-_Avoid_: Image folder, save directory, dataset
+The images being annotated, their documents, and the candidate labels derived from them.
+_Avoid_: Image folder, save directory
+
+### File list and operations
+
+Search, selection, status, and clipboard behavior: [file list](docs/design/workspace-file-list.md).
 
 **File-list display path**:
-The image path shown in the file list relative to the opened annotation-workspace root. The root itself is omitted while nested folders remain visible; the full absolute path remains the image identity and is available on hover.
+An image's path relative to the workspace root, preserving nested directories.
 _Avoid_: Absolute-path label, basename-only flattening
 
 **File-list view order**:
-The complete workspace-image sequence produced by the chosen file-name, image-modification-time, annotation-state, or review-state ordering and direction. Relative directories remain natural-order batches, filenames are naturally ordered within each batch, and this stable sequence governs rows, visible-image navigation, and ordered batch commands.
-_Avoid_: Base-name-first order, visual-only sort, unstable status order
+The stable workspace image sequence governing rows, visible navigation, and ordered batch commands.
+_Avoid_: Base-name-first order, visual-only sort
 
 **File-list filter**:
-A conjunctive view of workspace images by annotation state, review state, persistence-alert presence, and image-quality state, combined with the independent image search query when one is active. It changes row visibility without changing the current image or retained file selection, explicitly reports hidden current and selected images, and scopes later selection-building commands to visible results.
-_Avoid_: Image search query, file selection, image navigation, destructive scope
+A conjunctive view by annotation, review, persistence, and quality state, combined with any active search query.
+_Avoid_: Image search query, file selection
 
 **Image search command**:
-The application-wide `Ctrl+F` command that focuses the persistent image-search field above the file list and selects its existing query regardless of the current workbench focus. Typing filters live, Enter opens the first result and returns focus to the Canvas, clearing or pressing Esc removes only the search query, and fitting the Canvas view to the window is the distinct `Ctrl+0` command.
-_Avoid_: Context-only file-list shortcut, hidden search popover, fit-to-window shortcut
+The workbench-wide command focusing the persistent image-search field.
+_Avoid_: Context-only file-list shortcut, hidden search popover
 
 **Image search query**:
-The session-only, case-insensitive literal-substring condition that matches the full file name, including its extension, or the separator-normalized relative display path within the current image directory and combines conjunctively with the file-list filters. It is available as soon as the directory is ready, survives a refresh of that directory, clears when the image directory changes or the application exits, and neither replaces a non-matching current image nor removes retained file selections.
-_Avoid_: External-directory search, image-content search, persisted search history, independent result set, regular expression, wildcard, fuzzy or Pinyin match
+A session-only literal filename or relative-path condition that combines with file-list filters without changing current image or selection.
+_Avoid_: External-directory search, image-content search
 
 **Filtered file navigation**:
-The non-wrapping previous/next sequence of visible images in file-list view order. A current image excluded by the filter remains open until navigation moves to the nearest visible image in the requested direction.
-_Avoid_: Full-workspace navigation, wraparound navigation, automatic current-image replacement
+The non-wrapping Previous/Next sequence through visible images in file-list view order.
+_Avoid_: Full-workspace navigation, wraparound navigation
 
 **File selection set**:
-The zero or more image files intentionally selected in the file list, independently of the current image and retained when filters hide members. An ordinary click replaces the set immediately, Ctrl-click toggles one member, Shift-click selects a contiguous visible range, Ctrl+A replaces the set with every visible file while the file list has focus, and clicking empty list space clears the set; other explicit selection-building commands likewise replace it from visible results. During the system double-click interval, the prior set may retain only its blue appearance so the first half of a double-click never flashes it as unselected; file commands and the selection count already target the newly clicked file.
-_Avoid_: Current image, opened file, annotation-box selection set
-
-**Selected file appearance**:
-The persistent light theme-accent background shown across every row in the file selection set, without a leading accent block. It remains visible when another image becomes current and after keyboard focus returns to the canvas.
-_Avoid_: Leading blue block, focus-only selection, current-image highlight
-
-**File hover appearance**:
-The theme-adaptive neutral-gray row background shown only while the pointer rests on an unselected file. It does not replace or overlay the selected-file appearance, current-image emphasis, or keyboard-focus indicator.
-_Avoid_: Blue hover background, gray selected-file overlay
+The intentionally selected image files, independent of the current image and retained when filters hide members.
+_Avoid_: Current image, opened file
 
 **Current image**:
-The single image currently loaded for viewing and annotation. It is visually identified independently of the file selection set; opening or navigating to another image does not add, remove, or otherwise change selected files.
+The single image loaded for viewing and annotation, independent of selected files.
 _Avoid_: Selected file, active selection
 
 **File selection context**:
-The file selection set targeted by a file-list context menu. Right-clicking a selected file preserves the existing set, while right-clicking an unselected file replaces the set with that file before opening the menu.
+The complete file selection targeted by a file-list context command.
 _Avoid_: Right-clicked file only, current image
 
 **File clipboard transfer**:
-An explicit file-list command that places the selected image files, their associated annotation resource set, or both onto the system clipboard for later pasting by another application. It targets the complete file selection context in file-list order, including selected images currently hidden by filters, and never writes destination files itself; missing annotation resources do not exclude available resources, an annotation-only transfer with no resources leaves the clipboard unchanged, and any unavailable selected image blocks the whole transfer without replacing the clipboard.
-_Avoid_: Copy path text, immediate export, current image only
+An explicit transfer of selected images, associated annotation resources, or both to the system clipboard for another application to paste.
+_Avoid_: Copy path text, immediate export
 
 **Associated annotation resource set**:
-All existing physical Pascal VOC, YOLO, and CreateML annotation resources associated with an image selection across both workspace annotation locations, with shared resources included once even when they contain records for unselected images. The set is copied without format selection or synthesized subsets; unresolved external conflicts must be handled first, and unsaved current-image annotations may be saved or deliberately omitted in favor of the stored version.
-_Avoid_: Active format only, generated selection export, annotation boxes in memory
+The deduplicated existing annotation files associated with selected images across both workspace annotation locations.
+_Avoid_: Active format only, generated selection export
 
 **Image review state**:
-The mutually exclusive review classification of an image's annotation document: unreviewed, verified, or questioned. A current-image shortcut toggles its corresponding verified or questioned state back to unreviewed when repeated, while a file-selection-context command sets every targeted image to one explicit state instead of toggling each image's prior state.
+The mutually exclusive unreviewed, verified, or questioned classification of an image's annotation document.
 _Avoid_: Independent verified and questioned flags, mixed-state toggle
 
-**Current-image review control**:
-The always-visible three-segment control in the top image context that shows and sets exactly one review state for the current image: Unreviewed, Review Required, or Verified. Its placement remains independent of the annotation panel's visibility.
-_Avoid_: Toolbar review buttons, annotation-property control, independent review toggles
-
 **Review-state representation**:
-The format-specific persistence of image review state in the selected active annotation target: the existing Pascal VOC root attribute, one leading YOLO `# labelimg-review:` metadata comment, or per-image `verified` and `questioned` fields in CreateML. Batch review and recovery preserve the active format. A legacy CreateML record without explicit fields remains verified when it contains annotations.
-_Avoid_: Pascal-only review file, format conversion, collection-wide CreateML flag
+The active annotation format's stored representation of image review state.
+_Avoid_: Pascal-only review file, format conversion
 
 **File annotation state**:
-The binary presence of annotation boxes for an image, independent of image review state. An annotated image shows a hollow bounding-box indicator in the first file-list status column, while an unannotated image leaves it empty; file selection by annotation state uses this same distinction.
-_Avoid_: Combined progress category, review state, file-system status
-
-**File-list status columns**:
-The two compact, fixed leading columns before every file name: annotation presence first and image review state second. Their indicators are read-only row metadata: default states leave a centered slot empty without collapsing it, while clicks retain ordinary file selection and opening behavior and state changes remain explicit commands elsewhere.
-_Avoid_: File-name suffix, variable leading badges, combined status column
+The presence or absence of annotation boxes, independent of review state.
+_Avoid_: Combined progress category, review state
 
 **File-list state selection**:
-A file-selection command scoped to exactly one independent status dimension: annotation selection distinguishes annotated from unannotated regardless of review, while review selection distinguishes unreviewed, questioned, and verified regardless of annotation presence. Each command replaces the current file selection set with all matching files.
-_Avoid_: Combined progress-state selection, cross-dimension implicit filter, additive status selection
-
-**File-list review indicator**:
-The outline indicator in the second file-list status column: empty for unreviewed, an amber circled question mark for questioned, and a green circled check for verified. Shape and color both carry the non-default state, with the full review name available on hover.
-_Avoid_: Binary verification dot, review suffix, color-only indicator
+A command replacing file selection with visible matches in one independent annotation or review dimension.
+_Avoid_: Combined progress-state selection, cross-dimension implicit filter
 
 **File-list persistence alert**:
-The fixed trailing file-list indicator reserved for unsaved, conflicting, ambiguous, or degraded annotation persistence state, prioritized in that severity order from degraded through dirty. Its distinct warning shape shows only the highest-priority active alert while hover identification lists every active condition, leaving the file-name text as the unmodified display path.
-_Avoid_: File-name suffix, multiple trailing symbols, annotation progress state
+The trailing indicator of the most severe active annotation persistence condition, with all conditions available on hover.
+_Avoid_: File-name suffix, multiple trailing symbols
 
 **Recoverable image deletion**:
-Removal of one current image or every image in a file selection context by moving each image and all matching Pascal VOC, YOLO, and CreateML annotation documents from both workspace annotation locations to the system recycle bin. Each image and its matching documents are one logical target: failure to recycle any member restores members already moved for that image before later targets continue. If that rollback is only partly successful, the recovery payload retains only identities that remain available in trash; already-consumed identities are never carried forward to block the residual recovery. Deletion does not preserve or separately prompt for unsaved changes to a targeted current image.
-_Avoid_: Permanent deletion, image-only deletion, active-format-only cleanup
+Removal of targeted images with all matching annotation resources through the system trash as logical image-and-annotation targets.
+_Avoid_: Permanent deletion, image-only deletion
 
 **Recoverable annotation clearing**:
-Removal of all Pascal VOC, YOLO, and CreateML annotation documents associated with every image in a file selection context by moving the documents to the system recycle bin while preserving the images. The matching documents for one image are one logical target and are restored if any recycle move for that target fails. Shared CreateML rewrites from multiple selected images coalesce to one logical recovery resource with the original collection identity and final fingerprint. If rollback is only partly successful, only resources still available in trash remain recoverable. Clearing a targeted current image also discards its unsaved annotation changes and leaves it open as unannotated.
-_Avoid_: Image deletion, active-format clearing, hiding annotations
+Removal of targeted annotation resources through the system trash while preserving their images.
+_Avoid_: Image deletion, active-format clearing
 
 **Synchronized image rename**:
-A rename that preserves an image's directory and extension while changing its base name together with all matching annotation-document names and embedded image references. The renamed identity remains the current image or a member of the file selection set when it held that role before the rename.
-_Avoid_: Rename image only, move image, convert image
+A basename change preserving directory and extension while updating associated annotation names and image references.
+_Avoid_: Rename image only, move image
 
 **Batch rename plan**:
-A previewed, conflict-free mapping from a file selection context to synchronized image renames. Names are generated in the pre-rename file-list order from a shared prefix, a template containing original-name or sequence tokens, a shared suffix, and the unchanged extension; the plan succeeds as a whole or is rolled back.
-_Avoid_: Sequential rename prompts, partial batch rename, automatic conflict suffix
+A previewed, conflict-free mapping of selected images to synchronized renames that succeeds as a whole or rolls back.
+_Avoid_: Sequential rename prompts, partial batch rename

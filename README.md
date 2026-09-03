@@ -46,7 +46,7 @@ python -m pip wheel . --no-deps --no-build-isolation
 python tools/run_tests.py --installed
 ```
 
-源码采用功能优先的模块化单体结构，设计说明见 [docs/design](docs/design)。
+源码采用功能优先的模块化单体结构，术语、设计与决策说明见 [文档导航](docs/README.md)。
 
 ## 来源与许可证
 

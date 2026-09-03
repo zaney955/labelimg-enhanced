@@ -1,0 +1,62 @@
+# Workspace and File List
+
+This document owns file-list navigation, selection, display, and clipboard behavior. [Directory loading](large-directory-loading.md) defines readiness and incremental indexing; [history and recovery](undo-redo-and-file-recovery.md) defines persistence, external changes, and destructive transactions. Terms are in [CONTEXT.md](../../CONTEXT.md).
+
+## Workspace and current image
+
+An image directory supplies the workspace images. The annotation directory supplies their documents and save targets; when absent, the image directory serves both roles. Changing the annotation directory is a transactional workspace replacement, not a passive save-location preference. Standalone file opening loads one image or annotation document without implicitly opening its containing directory.
+
+The current image and file selection are independent. Opening or navigating never adds or removes selected files. List labels show paths relative to the workspace root, preserving nested directories; full absolute paths identify files and remain available on hover.
+
+## Order, search, and filters
+
+The chosen file-name, image-modification-time, annotation-state, or review-state ordering and direction produce one stable workspace sequence used by rows, visible navigation, and ordered batch commands. Relative directories remain natural-order batches, with natural filename order within each batch. Incremental state updates do not reorder rows.
+
+Search is a session-only, case-insensitive literal substring of the complete filename, including extension, or separator-normalized relative display path. It combines with annotation, review, persistence-alert, and image-quality filters using AND. It does not use regular expressions, wildcards, fuzzy or Pinyin matching, image content, or external directories.
+
+`Ctrl+F` focuses the persistent search field and selects its query from anywhere in the workbench. Typing filters live; Enter opens the first result and returns focus to the Canvas; clearing or Escape removes only the search condition. Fit to Window remains `Ctrl+0`. Search is available at directory ready state, survives refresh of that directory, and clears on image-directory change or exit.
+
+Filtering never replaces a nonmatching current image or drops hidden selected files. The UI explicitly reports hidden current and selected images. Previous/Next navigate visible images without wrapping; when the current image is hidden, they find the nearest visible image in the requested direction. State-dependent controls become available only when the required index is complete.
+
+## File selection and appearance
+
+| Input | Selection result |
+| --- | --- |
+| Ordinary click | Replace with that file immediately |
+| Ctrl-click | Toggle one member |
+| Shift-click | Select a contiguous visible range |
+| File-list Ctrl+A | Replace with every visible file |
+| Click empty list space | Clear selection |
+| State-selection command | Replace with matching visible files in the chosen status dimension |
+| Right-click selected file | Preserve the complete selection |
+| Right-click unselected file | Replace with that file before opening commands |
+
+During the system double-click interval, a prior selection may retain only its blue appearance to avoid flashing. Commands and counts already use the newly clicked file. Selected rows retain a light theme-accent background without a leading block after focus returns to the Canvas. Unselected hover uses neutral gray and preserves current-image and keyboard-focus indicators. Current-image emphasis is independent of selection.
+
+## Status and review
+
+Two fixed leading status columns precede each path: annotation presence, then review state. Slots stay reserved when empty and remain read-only; clicking them follows ordinary file selection/opening behavior.
+
+| Dimension | States and presentation |
+| --- | --- |
+| Annotation presence | Hollow bounding box for one or more boxes; empty for no boxes |
+| Review | Empty for unreviewed, amber circled question for questioned, green circled check for verified; full names on hover |
+| Persistence | One trailing warning for the highest active severity: degraded, conflict, ambiguous document choice, dirty; tooltip lists all conditions |
+
+Annotation presence and review are independent: state selection and filters never infer one from the other. Persistence alerts do not modify filename text.
+
+Current-image shortcuts toggle their verified or questioned state back to unreviewed when repeated. The always-visible top three-segment review control shows and sets one explicit state, independently of annotation-panel visibility. Batch commands set every selected image to one explicit state. [ADR 0010](../adr/0010-preserve-review-state-in-every-active-format.md) owns format-specific review storage.
+
+## Clipboard transfer
+
+Explicit file-list commands copy selected image files, their associated annotation resource set, or both to the system clipboard for another application to paste. They target the complete file selection context in view order, including hidden selected images; they do not write destination files.
+
+Associated resources include every existing Pascal VOC, YOLO, and CreateML resource across both workspace annotation locations, deduplicating shared files even when those contain unselected image records. The operation neither chooses a format nor generates collection subsets. Resolve external conflicts first; unsaved current-image annotations may be saved or explicitly omitted in favor of stored bytes.
+
+Missing annotation resources do not exclude available files. Annotation-only copying with no resources leaves the clipboard unchanged. Any unavailable selected image blocks the entire transfer without replacing the clipboard.
+
+## File operations
+
+Delete and clear target images with all associated annotation formats; rename preserves directory and extension while changing basenames and embedded references together. Batch rename previews a unique mapping in pre-rename view order from prefix, original-name/sequence template, suffix, and unchanged extension. Transaction, rollback, unsaved-target handling, and recovery eligibility are specified once in [history and file recovery](undo-redo-and-file-recovery.md).
+
+Implementation and verification start at [files](../../src/labelimg/files), [file tests](../../tests/files), and [workbench file-entry tests](../../tests/workbench/test_file_entry_ui.py).
