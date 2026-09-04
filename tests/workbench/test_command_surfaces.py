@@ -16,6 +16,7 @@ from labelimg.workbench.bootstrap import WorkbenchLaunchOptions, create_workbenc
 from labelimg.canvas.widget import Canvas
 from labelimg.canvas.shape import Shape
 from labelimg.localization.runtime import ENGLISH, SIMPLIFIED_CHINESE, set_language
+from labelimg.platform.settings_keys import SETTING_AUTO_HIDE_OVERLAPPING
 
 
 class CommandSurfacesTest(unittest.TestCase):
@@ -47,10 +48,10 @@ class CommandSurfacesTest(unittest.TestCase):
         self.temporary.cleanup()
         set_language(ENGLISH)
 
-    def load_image(self, name="image.png"):
+    def load_image(self, name="image.png", color="white"):
         image_path = os.path.join(self.temporary.name, name)
         image = QImage(20, 20, QImage.Format_RGB32)
-        image.fill(QColor("white"))
+        image.fill(QColor(color))
         self.assertTrue(image.save(image_path))
         self.assertTrue(self.window.load_file(image_path))
         return image_path
@@ -473,7 +474,7 @@ class CommandSurfacesTest(unittest.TestCase):
     def test_new_box_keeps_pending_outline_through_label_confirmation(self):
         for label in ("cat", None):
             with self.subTest(label=label):
-                self.load_image("pending-%s.png" % label)
+                self.load_image("pending-%s.png" % label, color="#505050")
                 self.window.use_default_label_checkbox.setChecked(False)
                 self.window.single_class_mode.setChecked(False)
                 canvas = self.window.canvas
@@ -487,6 +488,7 @@ class CommandSurfacesTest(unittest.TestCase):
                         ("outline", (8, 2)),
                         ("guide", (17, 14)),
                         ("start_marker", (0, 2)),
+                        ("interior", (8, 8)),
                     ):
                         position = canvas.image_to_widget(QPointF(*point))
                         observed[name] = image.pixelColor(
@@ -506,8 +508,9 @@ class CommandSurfacesTest(unittest.TestCase):
                 self.assertEqual(color.red(), color.green())
                 self.assertEqual(color.green(), color.blue())
                 self.assertLess(color.red(), 200)
-                self.assertEqual(observed["guide"], QColor(Qt.white))
-                self.assertEqual(observed["start_marker"], QColor(Qt.white))
+                self.assertEqual(observed["guide"], QColor(80, 80, 80))
+                self.assertEqual(observed["start_marker"], QColor(80, 80, 80))
+                self.assertEqual(observed["interior"], QColor(90, 90, 90))
                 self.assertFalse(self.window.annotation_editing.pending)
                 self.assertEqual(canvas.mode, Canvas.EDIT)
                 if label is None:
@@ -519,6 +522,10 @@ class CommandSurfacesTest(unittest.TestCase):
                         canvas.shapes[0].line_color,
                         self.window.label_color_palette.color(label),
                     )
+                position = canvas.image_to_widget(QPointF(8, 8))
+                self.assertEqual(canvas.grab().toImage().pixelColor(
+                    round(position.x()), round(position.y()),
+                ), QColor(80, 80, 80))
 
     def test_annotation_panel_owns_copy_delete_and_visibility(self):
         self.assertIs(
@@ -539,6 +546,91 @@ class CommandSurfacesTest(unittest.TestCase):
         }
         self.assertNotIn(self.window.actions.copy, rail_actions)
         self.assertNotIn(self.window.actions.delete, rail_actions)
+
+    def test_overlap_hiding_survives_label_choice_and_preserves_list_visibility(self):
+        for label in ("cat", None):
+            with self.subTest(label=label):
+                self.load_image("overlap-%s.png" % label)
+                self.window.use_default_label_checkbox.setChecked(False)
+                self.window.single_class_mode.setChecked(False)
+                if not self.window.auto_hide_overlapping_option.isChecked():
+                    self.window.auto_hide_overlapping_option.trigger()
+                # Seed through creation so the scene and annotation history agree.
+                canvas = self.window.canvas
+                for index, left in enumerate((1, 7)):
+                    with patch.object(
+                        self.window.candidate_label_dialog, "choose",
+                        return_value="existing-%d" % index,
+                    ):
+                        self.window.create_shape()
+                        canvas.handle_drawing(QPointF(left, 1))
+                        canvas.line[1] = QPointF(left + 4, 5)
+                        canvas.handle_drawing(QPointF(left + 4, 5))
+                shapes = list(canvas.shapes)
+                self.window.label_visibility_requested((shapes[1],), False)
+                observed = []
+
+                def choose(**_kwargs):
+                    with patch.object(shapes[0], "paint") as paint:
+                        canvas.grab()
+                    observed.append((
+                        paint.called,
+                        canvas.isVisible(shapes[0]),
+                        canvas.isVisible(shapes[1]),
+                        shapes[0] in self.window.label_list._visible_shapes,
+                        shapes[1] in self.window.label_list._visible_shapes,
+                    ))
+                    return label
+
+                with patch.object(self.window.candidate_label_dialog, "choose", choose):
+                    self.window.create_shape()
+                    canvas.handle_drawing(QPointF(2, 2))
+                    canvas.line[1] = QPointF(14, 14)
+                    canvas.handle_drawing(QPointF(14, 14))
+
+                self.assertEqual(observed, [(False, True, False, True, False)])
+                with patch.object(shapes[0], "paint") as visible_paint, patch.object(
+                    shapes[1], "paint",
+                ) as hidden_paint:
+                    canvas.grab()
+                self.assertTrue(visible_paint.called)
+                self.assertFalse(hidden_paint.called)
+                self.assertIn(shapes[0], self.window.label_list._visible_shapes)
+                self.assertNotIn(shapes[1], self.window.label_list._visible_shapes)
+                self.assertEqual(len(canvas.shapes), 2 + (label is not None))
+                self.assertFalse(self.window.annotation_editing.pending)
+
+    def test_overlap_hiding_preference_defaults_off_persists_and_resets(self):
+        action = self.window.auto_hide_overlapping_option
+        self.assertFalse(action.isChecked())
+        self.assertFalse(self.window.canvas.auto_hide_overlapping)
+        self.assertTrue(action.isCheckable())
+        self.assertTrue(action.shortcut().isEmpty())
+        action.trigger()
+        self.assertTrue(self.window.canvas.auto_hide_overlapping)
+        self.window.change_language(SIMPLIFIED_CHINESE)
+        self.assertEqual(action.text(), "绘制时自动隐藏重叠框")
+        self.window.change_language(ENGLISH)
+        self.assertEqual(action.text(), "Auto-hide Overlapping Boxes While Drawing")
+        self.assertTrue(self.window.close())
+        self.assertTrue(self.window.settings[SETTING_AUTO_HIDE_OVERLAPPING])
+
+        def reopen():
+            self.window.deleteLater()
+            QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+            self.window = create_workbench(WorkbenchLaunchOptions(
+                class_file=os.path.join(self.temporary.name, "classes.txt"),
+                save_dir="",
+            ))
+
+        reopen()
+        self.assertTrue(self.window.auto_hide_overlapping_option.isChecked())
+        self.assertTrue(self.window.canvas.auto_hide_overlapping)
+        with patch("labelimg.workbench.main_window.QProcess.startDetached"):
+            self.window.reset_all()
+        reopen()
+        self.assertFalse(self.window.auto_hide_overlapping_option.isChecked())
+        self.assertFalse(self.window.canvas.auto_hide_overlapping)
 
     def test_settings_is_a_top_level_menu_for_application_preferences(self):
         self.assertEqual(
@@ -710,15 +802,17 @@ class CommandSurfacesTest(unittest.TestCase):
                 self.window.actions.hideAll,
                 self.window.actions.showAll,
                 view_actions[6],
+                self.window.auto_hide_overlapping_option,
+                view_actions[8],
                 self.window.actions.zoomIn,
                 self.window.actions.zoomOut,
                 self.window.actions.zoomOrg,
-                view_actions[10],
+                view_actions[12],
                 self.window.actions.fitWindow,
                 self.window.actions.fitWidth,
             ],
         )
-        for index in (3, 6, 10):
+        for index in (3, 6, 8, 12):
             self.assertTrue(view_actions[index].isSeparator())
         self.assertEqual(self.window.actions.labels.text(), "Annotation Panel")
         self.assertEqual(

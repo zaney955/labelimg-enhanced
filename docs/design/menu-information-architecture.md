@@ -15,7 +15,7 @@ Edit owns current-image annotation creation, Undo and Redo, label and box operat
 
 Image is the complete catalog for annotation-preparation image work. Its separators distinguish geometry preparation, pixel correction, analysis-only quality checks, specialized repair, and committed image-processing recovery; [Image Tools](image-tools.md#approved-capability-boundary) specifies the commands and processing contracts.
 
-View owns visible presentation and Canvas scale: box-label rendering, the annotation panel, box visibility, zoom, and fit commands. It does not own application preferences.
+View owns visible presentation and Canvas scale: box-label rendering, the annotation panel, box visibility, automatic overlap hiding while drawing, zoom, and fit commands. Auto-hide Overlapping Boxes While Drawing follows Hide All / Show All in its own group; it is initially off, has no shortcut, and remembers the user's choice. These presentation choices remain in View even when persisted between launches.
 
 Settings owns Language, Autosave, Single Class Mode, Automatically Check for Updates, and Reset All Settings. Save As retains `Ctrl+Shift+S`; Single Class Mode and update checking have no shortcuts so the sequence is unambiguous.
 

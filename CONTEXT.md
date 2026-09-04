@@ -284,6 +284,10 @@ _Avoid_: Selected annotation, selection region, image crop region
 The stage of a pending drawing whose box geometry is complete but whose first annotation label has not yet been confirmed.
 _Avoid_: Committed annotation, existing-label edit, completed creation
 
+**Automatic overlap hiding**:
+Temporary Canvas suppression of boxes containing the pointer in Draw mode before a new rectangle has area, then of other boxes sharing a positive-area intersection with the pending box through initial label confirmation, without changing explicit visibility choices.
+_Avoid_: Hide all background boxes, manual visibility toggle, annotation deletion
+
 **Pending annotation gesture**:
 A geometry-changing interaction started but not yet committed or canceled.
 _Avoid_: Atomic annotation edit, live history entry

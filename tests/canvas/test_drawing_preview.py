@@ -57,12 +57,20 @@ class DrawingPreviewTest(unittest.TestCase):
             self.assertEqual(color.red(), color.green())
             self.assertEqual(color.green(), color.blue())
 
-    def test_interior_has_no_fill_or_diagonal(self):
+    def test_interior_is_slightly_brighter_through_drawing_and_label_choice(self):
         source = self.source(QColor(70, 110, 150))
-        output = self.render_preview(source)
-        for y in range(35, 125):
-            for x in range(25, 175):
-                self.assertEqual(output.pixel(x, y), source.pixel(x, y))
+        for drawing in (True, False):
+            with self.subTest(drawing=drawing):
+                output = self.render_preview(source, drawing=drawing)
+                lifted = output.pixelColor(100, 80)
+                for actual, expected in zip(lifted.getRgb()[:3], (81, 119, 156)):
+                    self.assertAlmostEqual(actual, expected, delta=1)
+                # Uniform illumination, without the old hatch or diagonal.
+                for y in range(35, 125):
+                    for x in range(25, 175):
+                        self.assertEqual(output.pixelColor(x, y), lifted)
+                self.assertEqual(output.pixelColor(10, 10), QColor(70, 110, 150))
+                self.assertEqual(source.pixelColor(100, 80), QColor(70, 110, 150))
 
     def test_preview_inverts_gray_pixels_like_a_reverse_screen_cursor(self):
         for value in (0, 30, 90, 127, 128, 160, 220, 255):
@@ -90,7 +98,7 @@ class DrawingPreviewTest(unittest.TestCase):
                 255 - color.red(), 255 - color.green(), 255 - color.blue(),
             ))
 
-    def test_waiting_for_label_keeps_only_the_inverted_outline(self):
+    def test_waiting_for_label_hides_guides_and_start_marker(self):
         output = self.render_preview(self.source(), drawing=False)
         self.assertLess(output.pixelColor(60, 30).red(), 90)
         self.assertEqual(output.pixelColor(180, 10), QColor(Qt.white))

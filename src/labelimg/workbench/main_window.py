@@ -20,6 +20,7 @@ from PyQt5.QtWidgets import QAbstractItemView, QAction, QActionGroup, QCheckBox,
 import labelimg.ui.generated_resources  # noqa: F401 - registers Qt resources
 from labelimg.platform.settings_keys import (
     SETTING_AUTO_CHECK_UPDATES,
+    SETTING_AUTO_HIDE_OVERLAPPING,
     SETTING_AUTO_SAVE,
     SETTING_DRAW_SQUARE,
     SETTING_FILENAME,
@@ -974,6 +975,9 @@ class MainWindow(
         settings[SETTING_SINGLE_CLASS] = self.single_class_mode.isChecked()
         settings[SETTING_PAINT_LABEL] = self.display_label_option.isChecked()
         settings[SETTING_DRAW_SQUARE] = self.draw_squares_option.isChecked()
+        settings[SETTING_AUTO_HIDE_OVERLAPPING] = (
+            self.auto_hide_overlapping_option.isChecked()
+        )
         settings[SETTING_LABEL_FILE_FORMAT] = self.annotation_format
         settings[SETTING_FILE_LIST_SORT_KEY] = (
             self.file_list_controls.state.sort_key

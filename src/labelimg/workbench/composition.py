@@ -23,6 +23,7 @@ from labelimg import __version__
 from labelimg.ui.query_field import decorate_list_query_field
 from labelimg.platform.settings_keys import (
     SETTING_AUTO_CHECK_UPDATES,
+    SETTING_AUTO_HIDE_OVERLAPPING,
     SETTING_AUTO_SAVE,
     SETTING_DRAW_SQUARE,
     SETTING_FILENAME,
@@ -1200,6 +1201,20 @@ class WorkbenchComposer:
         self.display_label_option.setChecked(settings.get(SETTING_PAINT_LABEL, False))
         self.display_label_option.triggered.connect(self.toggle_paint_labels_option)
 
+        self.auto_hide_overlapping_option = action(
+            get_str('autoHideOverlapping'),
+            self.canvas.set_auto_hide_overlapping,
+            icon='auto-hide-overlapping',
+            tip=get_str('autoHideOverlappingDetail'),
+            checkable=True,
+        )
+        self.auto_hide_overlapping_option.setChecked(
+            settings.get(SETTING_AUTO_HIDE_OVERLAPPING, False)
+        )
+        self.canvas.set_auto_hide_overlapping(
+            self.auto_hide_overlapping_option.isChecked()
+        )
+
         add_actions(self.menus.file,
                     (open_dir, open, self.menus.recentFiles, None,
                      self.menus.annotationDirectory, None,
@@ -1237,6 +1252,7 @@ class WorkbenchComposer:
             self.display_adjustment_action,
             None,
             hide_all, show_all, None,
+            self.auto_hide_overlapping_option, None,
             zoom_in, zoom_out, zoom_org, None,
             fit_window, fit_width))
 
@@ -1386,6 +1402,9 @@ class WorkbenchComposer:
                 'updates.autoCheckDetail',
             ),
             self.display_label_option: ('displayLabel', None),
+            self.auto_hide_overlapping_option: (
+                'autoHideOverlapping', 'autoHideOverlappingDetail',
+            ),
         }
         self.retranslate_ui()
 
