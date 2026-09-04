@@ -479,7 +479,9 @@ class CommandSurfacesTest(unittest.TestCase):
                 self.window.single_class_mode.setChecked(False)
                 canvas = self.window.canvas
                 canvas.scale = 1.0
-                canvas.resize(100, 100)
+                # Keep pixel samples aligned when grab() polishes the parent
+                # layout, whose native minimum sizes differ across platforms.
+                canvas.setFixedSize(100, 100)
                 observed = {}
 
                 def choose(**_kwargs):

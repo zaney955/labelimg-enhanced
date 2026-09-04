@@ -212,7 +212,9 @@ class WorkbenchZoomTest(unittest.TestCase):
                                 )).y())
 
         window_width = self.window.width()
-        self.window.resizeDocks([self.window.file_dock], [1200], Qt.Horizontal)
+        # Let Qt expand the dock up to the Canvas minimum; a fixed 1200-pixel
+        # dock can still leave a full status row with Linux font metrics.
+        self.window.resizeDocks([self.window.file_dock], [window_width], Qt.Horizontal)
         for _ in range(3):
             self.app.processEvents()
         self.assertEqual(self.window.width(), window_width)
