@@ -19,6 +19,7 @@ from labelimg.ui.risk_glyphs import draw_not_equal_glyph
 
 from labelimg.canvas.shape import Shape
 from labelimg.canvas.drawing_preview import paint_pending_box
+from labelimg.canvas.drawing_scene import DrawingSceneCache
 from labelimg.canvas.interaction import (
     CanvasContextRequest,
     CanvasInteraction,
@@ -101,6 +102,8 @@ class Canvas(QWidget):
         self.visible = {}
         self._hide_background = False
         self.hide_background = False
+        self.auto_hide_overlapping = False
+        self._drawing_scene_cache = DrawingSceneCache()
         self._painter = QPainter()
         self._cursor = CURSOR_DEFAULT
         # Set widget options.
@@ -126,6 +129,7 @@ class Canvas(QWidget):
         self.multi_selection_mode = bool(
             QApplication.keyboardModifiers() & Qt.ControlModifier
         )
+        self.refresh_pointer_coordinates(self.mapFromGlobal(QCursor.pos()))
         self.override_cursor(
             CURSOR_SELECT
             if self.multi_selection_mode and self.current is None
@@ -134,6 +138,7 @@ class Canvas(QWidget):
 
     def leaveEvent(self, ev):
         self._pointer_global_pos = None
+        self.update()
         self._emit_coordinates(None, self._active_readout_shape())
         self.clear_near_duplicate_focus()
         self._set_near_duplicate_hover(None)
@@ -164,6 +169,55 @@ class Canvas(QWidget):
     def isVisible(self, shape):
         return self.visible.get(shape, True)
 
+    def set_auto_hide_overlapping(self, enabled):
+        self.auto_hide_overlapping = bool(enabled)
+        self._near_duplicate_marker_hits = tuple()
+        self.update()
+
+    def _is_overlap_hidden(self, shape):
+        """Temporary drawing presentation; explicit visibility stays untouched."""
+        if shape is self._pending_label_shape:
+            return False
+        geometry = self._overlap_hiding_geometry()
+        return geometry is not None and self._bounds_overlap_hidden(
+            shape.bounding_rect().normalized(), geometry,
+        )
+
+    @staticmethod
+    def _bounds_overlap_hidden(bounds, geometry):
+        if geometry is None:
+            return False
+        if isinstance(geometry, QPointF):
+            return bounds.contains(geometry)
+        overlap = geometry.intersected(bounds)
+        return overlap.width() > 0 and overlap.height() > 0
+
+    def _overlap_hiding_geometry(self):
+        """Snapshot the pointer or pending rectangle once for each rendered layer."""
+        if not self.auto_hide_overlapping:
+            return None
+        pending = QRectF()
+        if self.current is not None and len(self.line) == 2:
+            pending = QRectF(self.line[0], self.line[1]).normalized()
+        elif self._pending_label_shape is not None:
+            pending = self._pending_label_shape.bounding_rect().normalized()
+        if not pending.isEmpty():
+            return pending
+
+        # Keep point-based suppression through the first click / zero-area stage.
+        # Test original geometry, so hiding a box cannot remove its own hit area.
+        point = self._last_pointer_pos
+        if (
+            not self.drawing() or self._pending_label_shape is not None
+            or self.multi_selection_mode
+            or QApplication.keyboardModifiers() & Qt.ControlModifier
+            or self.selection_press_pos is not None
+            or self._pointer_global_pos is None or point is None
+            or self.pixmap_size.isEmpty() or self.out_of_pixmap(point)
+        ):
+            return None
+        return QPointF(point)
+
     def drawing(self):
         return self.mode == self.CREATE
 
@@ -178,6 +232,7 @@ class Canvas(QWidget):
             raise ValueError("Unknown canvas mode: %r" % (mode,))
         self.mode = mode
         if mode != self.CREATE:
+            self._drawing_scene_cache.clear()
             self.current = None
             self._pending_label_shape = None
             self.line.points = []
@@ -386,6 +441,7 @@ class Canvas(QWidget):
 
     def set_multi_selection_mode(self, enabled):
         self.multi_selection_mode = bool(enabled)
+        self.update()
         if self.current is not None:
             return
         if self.multi_selection_mode and self.current is None:
@@ -393,7 +449,6 @@ class Canvas(QWidget):
             if hover_shape is not None:
                 hover_shape.highlight_clear()
             self.override_cursor(CURSOR_SELECT)
-            self.update()
         elif not self.selection_dragging:
             self._cursor = CURSOR_DEFAULT
             self.restore_cursor()
@@ -1246,7 +1301,23 @@ class Canvas(QWidget):
             if self.editing()
             else ()
         )
-        for shape in self.shapes:
+        paint_shapes = self.shapes
+        if self.drawing() and self._near_duplicate_focus is None:
+            geometry = self._overlap_hiding_geometry()
+            shapes = [shape for shape in self.shapes if shape is not self._pending_label_shape]
+            cached = self._drawing_scene_cache.paint(
+                p, shapes, self.visibleRegion().boundingRect().united(event.rect()),
+                lambda shape, bounds: (
+                    self.isVisible(shape)
+                    and (shape.selected or not self._hide_background)
+                    and not self._bounds_overlap_hidden(bounds, geometry)
+                ),
+            )
+            if cached:
+                paint_shapes = ()
+        else:
+            self._drawing_scene_cache.clear()
+        for shape in paint_shapes:
             if shape is self._pending_label_shape:
                 continue
             if (
@@ -1256,6 +1327,7 @@ class Canvas(QWidget):
                     or shape in hover_shapes
                 )
                 and self.isVisible(shape)
+                and not self._is_overlap_hidden(shape)
             ):
                 shape.fill = shape.selected
                 peer_in_focus = (
@@ -1411,6 +1483,7 @@ class Canvas(QWidget):
             visible = [
                 shape for shape in cluster.members
                 if shape in self.shapes and self.isVisible(shape)
+                and not self._is_overlap_hidden(shape)
             ]
             if not visible:
                 continue
@@ -1473,7 +1546,12 @@ class Canvas(QWidget):
         return QPointF(x, rect.center().y())
 
     def _near_duplicate_marker_at(self, point):
-        hits = self._near_duplicate_marker_hits or self._near_duplicate_marker_layout()
+        # Pending geometry can change before the queued repaint updates the cache.
+        hits = (
+            self._near_duplicate_marker_layout()
+            if self.auto_hide_overlapping
+            else self._near_duplicate_marker_hits or self._near_duplicate_marker_layout()
+        )
         for rect, cluster, _anchor in reversed(hits):
             if rect.contains(QPointF(point)):
                 return cluster
@@ -1569,6 +1647,8 @@ class Canvas(QWidget):
             QPointF(widget_position).toPoint()
         )
         self._last_pointer_pos = QPointF(position)
+        if self.auto_hide_overlapping and self.drawing():
+            self.update()
         shape = self._active_readout_shape()
         if shape is None and self._valid_pointer_position(position):
             shape = self.resolve_pointer_target(position).shape
@@ -2089,6 +2169,7 @@ class Canvas(QWidget):
         self.update()
 
     def _reset_transient_interaction(self):
+        self._drawing_scene_cache.clear()
         self._pending_label_shape = None
         previous_hover_shape = self.interaction_snapshot.hover.shape
         if previous_hover_shape is not None:

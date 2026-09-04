@@ -14,6 +14,7 @@
 <file alias="fit-window">resources/icons/fit-window.svg</file>
 <file alias="undo">resources/icons/undo.svg</file>
 <file alias="hide">resources/icons/visibility.svg</file>
+<file alias="auto-hide-overlapping">resources/icons/auto-hide-overlapping.svg</file>
 <file alias="quit">resources/icons/quit.svg</file>
 <file alias="copy">resources/icons/copy.svg</file>
 <file alias="copy-annotations">resources/icons/copy-annotations.svg</file>

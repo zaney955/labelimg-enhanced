@@ -161,6 +161,45 @@ class NearDuplicateCanvasTest(unittest.TestCase):
         # The painter already renders a dedicated mismatch glyph.
         self.assertEqual(self.canvas._near_duplicate_marker_text(cluster), "3")
 
+    def test_pending_overlap_hides_marker_only_when_all_members_are_hidden(self):
+        # A half-pixel difference still belongs to the same near-duplicate cluster.
+        self.second.move_by(QPointF(0.5, 0))
+        self.canvas.set_auto_hide_overlapping(True)
+        self.canvas.set_mode(Canvas.CREATE)
+        self.canvas.handle_drawing(QPointF(10, 30))
+        self.canvas.line[1] = QPointF(20.25, 50)
+        self.canvas.grab()
+        self.assertEqual(len(self.canvas._near_duplicate_marker_hits), 1)
+        marker = self.canvas._near_duplicate_marker_hits[0][0].center()
+        self.assertEqual(self.canvas._near_duplicate_marker_text(self.cluster), "2")
+        self.canvas.line[1] = QPointF(30, 50)
+        # Hit testing must not reuse the previously visible marker before repaint.
+        self.assertIsNone(self.canvas._near_duplicate_marker_at(marker))
+        self.canvas.grab()
+        self.assertEqual(self.canvas._near_duplicate_marker_hits, ())
+        self.assertTrue(all(self.canvas.isVisible(s) for s in self.cluster.members))
+        self.canvas.cancel_current_drawing()
+        self.canvas.grab()
+        self.assertEqual(len(self.canvas._near_duplicate_marker_hits), 1)
+
+    def test_predraw_pointer_hiding_and_control_also_refresh_cluster_marker(self):
+        self.canvas.set_auto_hide_overlapping(True)
+        self.canvas.set_mode(Canvas.CREATE)
+        self.canvas.refresh_pointer_coordinates(
+            self.canvas.image_to_widget(QPointF(50, 50)),
+        )
+        self.canvas.grab()
+        self.assertEqual(self.canvas._near_duplicate_marker_hits, ())
+        self.canvas.set_multi_selection_mode(True)
+        self.canvas.grab()
+        self.assertEqual(len(self.canvas._near_duplicate_marker_hits), 1)
+        self.canvas.set_multi_selection_mode(False)
+        self.canvas.grab()
+        self.assertEqual(self.canvas._near_duplicate_marker_hits, ())
+        QApplication.sendEvent(self.canvas, QEvent(QEvent.Leave))
+        self.canvas.grab()
+        self.assertEqual(len(self.canvas._near_duplicate_marker_hits), 1)
+
     def test_canvas_conflict_icon_uses_not_equal_strokes(self):
         different_label = rectangle("dog")
         self.canvas.shapes.append(different_label)
