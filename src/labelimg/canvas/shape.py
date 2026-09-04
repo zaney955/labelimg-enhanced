@@ -167,6 +167,9 @@ class Shape(object):
         min_y = min(point.y() for point in self.points)
 
         font = QFont()
+        # Labels must render identically on the transparent Draw-mode cache
+        # and the opaque Canvas; LCD subpixel AA depends on the background.
+        font.setStyleStrategy(QFont.NoSubpixelAntialias)
         font.setPointSize(
             self.label_font_size if font_size is None else font_size
         )

@@ -6,7 +6,7 @@ from xml.etree import ElementTree
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt5.QtCore import QPointF
+from PyQt5.QtCore import QEvent, QPointF
 from PyQt5.QtGui import QColor, QImage
 from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication, QMessageBox
@@ -74,6 +74,7 @@ class ExternalAnnotationSyncTest(unittest.TestCase):
 
     def tearDown(self):
         self.window.deleteLater()
+        QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
         self.app.processEvents()
         self.settings_environment.stop()
         self.temporary.cleanup()
@@ -263,6 +264,7 @@ class ImageDirectoryAutosaveTest(unittest.TestCase):
             self.assertTrue(os.path.isfile(os.path.join(directory, "sample.xml")))
             self.assertFalse(window.annotation_editing.view.dirty)
             window.deleteLater()
+            QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
 
 if __name__ == "__main__":

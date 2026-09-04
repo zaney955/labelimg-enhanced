@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.3.0
+## 2.4.0
 
 - Added persistent image-directory search by file name or relative path, with global `Ctrl+F`, first-result opening, and search-aware filtering and navigation.
 - Distinguished label filtering from image search with aligned query fields, concise bilingual descriptions, and dedicated leading filter and search icons.
@@ -8,12 +8,20 @@
 - Stabilized the zoom slider while dragging across changing percentage widths, kept outside-image wheel zoom anchored to the pointer, and refreshed pointer coordinates after every wheel zoom.
 - Moved coordinates, annotation dimensions, and zoom into a responsive Canvas-local status strip; cleared out-of-image pixel coordinates and derived W/H from the actual constrained rectangle rather than outside pointer displacement, while preserving the view center across status-strip reflows.
 - Simplified the Canvas status strip to one grid layout and removed idle W/H labels without moving the zoom slider when annotation dimensions appear or disappear.
-- Added a compact lower-left Canvas display-adjustment button with floating workspace-wide and current-image brightness and contrast controls.
-- Added session-scoped label color customization and synchronized annotation styling across the Canvas and annotation workflow.
-- Replaced the brightness, contrast, and Gamma number fields in Adjust Image with compact sliders and live value badges, and added one-shot automatic adjustment plus a control reset.
-- Accelerated Canvas and Image-menu adjustments with bounded logical-size previews, a latest-only render queue, decoded-image reuse, adjacent-image prefetch, and cached single-pass lookup tables.
+- Added a reverse-screen pending-box outline, alignment guides, and subtle interior highlight that remain visible through initial label confirmation.
+- Added an optional, persisted View setting to temporarily hide overlapping annotations while drawing and choosing the initial label, restoring their visibility afterward.
+- Refined annotation command surfaces and bilingual help, and simplified application structure and drawing presentation ownership.
+- Fixed Linux label-color differences between cached and direct Canvas drawing, and made UI regression fixtures independent of platform layout metrics with explicit window cleanup.
+- Added one-shot automatic image adjustment and control reset.
 - Fixed file-list annotation indicators remaining stale after valid label files were copied into the active annotation directory.
 - Made the current-image review shortcuts clear their corresponding state back to Unreviewed when pressed again.
+
+## 2.3.0
+
+- Added a compact lower-left Canvas display-adjustment button with floating workspace-wide and current-image brightness and contrast controls.
+- Added session-scoped label color customization and synchronized annotation styling across the Canvas and annotation workflow.
+- Replaced the brightness, contrast, and Gamma number fields in Adjust Image with compact sliders, live value badges, and gesture-coalesced Undo.
+- Accelerated Canvas and Image-menu adjustments with bounded logical-size previews, a latest-only render queue, decoded-image reuse, adjacent-image prefetch, and cached single-pass lookup tables.
 - Refined image-tool previews, geometry controls, colored-frame removal, crop overlays, localization, and command-surface consistency.
 
 ## 2.1.0
