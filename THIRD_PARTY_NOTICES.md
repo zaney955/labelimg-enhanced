@@ -12,7 +12,7 @@ under other licenses. In particular:
 - Qt is copyright The Qt Company Ltd. and other contributors. The applicable
   license files from the PyQt5-Qt5 wheel are bundled under
   `third_party_licenses/PyQt5-Qt5`.
-- PyQt5-sip, lxml, NumPy, OpenCV, Pillow, comtypes, and their transitive
+- PyQt5-sip, lxml, PyYAML, NumPy, OpenCV, Pillow, comtypes, and their transitive
   components retain their respective upstream copyrights and licenses. The
   license metadata supplied by each direct runtime wheel is bundled under
   `third_party_licenses`.

@@ -240,6 +240,7 @@ class WorkbenchComposer:
         self.load_predefined_classes(default_prefdef_class_file)
         self.annotation_workspace = AnnotationWorkspace(
             save_dir=default_save_dir,
+            confirm_yolo_mapping=self._confirm_yolo_class_mapping,
         )
         self.label_color_palette = LabelColorPalette()
         self.candidate_labels = list(

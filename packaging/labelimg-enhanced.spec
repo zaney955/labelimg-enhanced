@@ -34,6 +34,7 @@ for dependency in (
     "PyQt5-Qt5",
     "PyQt5-sip",
     "lxml",
+    "PyYAML",
     "numpy",
     "opencv-python-headless",
     "Pillow",

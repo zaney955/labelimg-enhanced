@@ -118,6 +118,7 @@ class FileOperationTransaction:
     def _file_service(self):
         return AnnotationFileService(
             save_dir=self._workspace.save_dir,
+            image_dir=self._workspace.image_dir,
             trash=self._trash,
             storage_coordinator=self._workspace.storage_coordinator,
         )
@@ -189,6 +190,7 @@ class FileOperationTransaction:
     def _renamer(self):
         return SynchronizedRenamer(
             save_dir=self._workspace.save_dir,
+            image_dir=self._workspace.image_dir,
             storage_coordinator=self._workspace.storage_coordinator,
         )
 

@@ -11,6 +11,7 @@ import webbrowser as wb
 
 from dataclasses import replace
 from functools import cmp_to_key, partial
+from html import escape
 from types import SimpleNamespace
 
 from PyQt5.QtCore import QByteArray, QDateTime, QEvent, QFileInfo, QItemSelectionModel, QModelIndex, QPersistentModelIndex, QPoint, QPointF, QProcess, QRect, QRectF, QSignalBlocker, QSize, QThread, QTimer, Qt, pyqtSignal
@@ -74,9 +75,11 @@ from labelimg.annotations.ui.label_list import (
     LabelListWidget,
 )
 from labelimg.ui.color_dialog import ColorDialog
+from labelimg.annotations.ui.errors import annotation_error_html, annotation_error_text
 from labelimg.annotations.domain.model import (
     AnnotationDocument,
     AnnotationDocumentError,
+    YoloClassMappingDeclined,
     AnnotationFormat,
 )
 from labelimg.annotations.infrastructure.document import image_path_hint
@@ -675,7 +678,7 @@ class MainWindow(
             except AnnotationDocumentError as error:
                 self.error_message(
                     tr('open.annotationTitle'),
-                    u'<b>%s</b>' % error,
+                    annotation_error_html(error),
                 )
                 return False
         if (
@@ -762,10 +765,12 @@ class MainWindow(
                     prepared_image_data,
                 )
             )
+        except YoloClassMappingDeclined:
+            return False
         except AnnotationDocumentError as error:
             self.error_message(
                 tr('open.annotationTitle'),
-                u'<b>%s</b>' % error,
+                annotation_error_html(error),
             )
             return False
         transition_ticket = getattr(
@@ -851,13 +856,29 @@ class MainWindow(
             return True
         return False
 
-    def _ensure_active_annotation_choice(self, image_path, force=False):
-        choices = self.annotation_workspace.document_choices(image_path)
+    def _confirm_yolo_class_mapping(self, mapping):
+        message = tr(
+            'annotation.confirmMappingPrompt',
+            dataset_root=mapping.dataset_root,
+            class_list_path=mapping.source,
+            classes='\n'.join('%s: %s' % (index, name) for index, name in enumerate(mapping.names)),
+        )
+        return localized_question(
+            self,
+            tr('annotation.confirmMappingTitle'),
+            escape(message).replace('\n', '<br>'),
+            QMessageBox.Yes | QMessageBox.Cancel,
+            QMessageBox.Cancel,
+        ) == QMessageBox.Yes
+
+    def _ensure_active_annotation_choice(self, image_path, force=False, workspace=None):
+        workspace = workspace or self.annotation_workspace
+        choices = workspace.document_choices(image_path)
         if (
             len(choices) < 2
             or (
                 not force
-                and self.annotation_workspace.active_document_path(image_path)
+                and workspace.active_document_path(image_path)
             )
         ):
             return True
@@ -883,7 +904,7 @@ class MainWindow(
         if not accepted:
             return False
         index = labels.index(selected)
-        self.annotation_workspace.select_active_document(
+        workspace.select_active_document(
             image_path,
             choices[index].annotation_path,
         )
@@ -901,8 +922,10 @@ class MainWindow(
                 file_path,
                 self.image_data,
             )
+        except YoloClassMappingDeclined:
+            return False
         except AnnotationDocumentError as error:
-            self.status(tr('status.errorReading', detail=error))
+            self.status(tr('status.errorReading', detail=annotation_error_text(error)))
             return False
         if loaded is None:
             return False
@@ -1219,7 +1242,7 @@ class MainWindow(
         except Exception as error:
             self.error_message(
                 tr('conflict.resolveFailed'),
-                '<p>%s</p>' % error,
+                annotation_error_html(error),
             )
             return False
         self.annotation_persistence.clear_conflicts((conflict.resource,))
@@ -1332,7 +1355,42 @@ class MainWindow(
             self.actions.annotationDirectoryCurrent.setText(current_text)
             self.actions.useImageDirectory.setEnabled(bool(custom_dir))
 
+    def _annotation_directory_is_current(self, directory):
+        selected = os.path.normcase(os.path.abspath(directory)) if directory else None
+        current = os.path.normcase(os.path.abspath(self.default_save_dir)) if self.default_save_dir else None
+        return selected == current
+
+    def _refresh_annotation_directory_index(self, indexed=None):
+        """Refresh stored statuses without replacing the workspace editing session."""
+        try:
+            if indexed is None:
+                indexed = AnnotationWorkspace(
+                    save_dir=self.default_save_dir, image_dir=self.dir_name,
+                )
+                directory = self.default_save_dir or self.dir_name
+                if directory and os.path.isdir(directory):
+                    indexed.scan(directory)
+            self.annotation_workspace.adopt_index(indexed)
+        except YoloClassMappingDeclined:
+            return False
+        except AnnotationDocumentError as error:
+            self.error_message(tr('error.changeAnnotationDir'), annotation_error_html(error))
+            return False
+        if self.file_path:
+            self._process_external_annotation_change()
+        elif self.m_img_list:
+            index = min(max(self.cur_img_idx, 0), len(self.m_img_list) - 1)
+            if not self.load_file(self.m_img_list[index]):
+                self.refresh_file_list_statuses()
+                return False
+        self.refresh_candidate_labels()
+        self.refresh_file_list_statuses()
+        self._sync_annotation_directory_ui()
+        return True
+
     def _switch_annotation_directory(self, directory):
+        if self._annotation_directory_is_current(directory):
+            return self._refresh_annotation_directory_index()
         if not self.may_continue():
             return False
         directory = os.path.abspath(directory) if directory else None
@@ -1341,10 +1399,18 @@ class MainWindow(
             or self.dir_name
             or (os.path.dirname(self.file_path) if self.file_path else None)
         )
-        replacement = AnnotationWorkspace(save_dir=directory)
+        replacement = AnnotationWorkspace(
+            save_dir=directory, image_dir=self.dir_name,
+            confirm_yolo_mapping=self._confirm_yolo_class_mapping,
+        )
         try:
             if scan_directory and os.path.isdir(scan_directory):
                 replacement.scan(scan_directory)
+                replacement.confirm_index_mappings()
+            if self.file_path and not self._ensure_active_annotation_choice(
+                self.file_path, workspace=replacement
+            ):
+                return False
             loaded = (
                 replacement.load_for_image(
                     self.file_path,
@@ -1353,10 +1419,12 @@ class MainWindow(
                 if self.file_path
                 else None
             )
+        except YoloClassMappingDeclined:
+            return False
         except Exception as error:
             self.error_message(
                 tr('error.changeAnnotationDir'),
-                '<p>%s</p>' % error,
+                annotation_error_html(error),
             )
             return False
         self.annotation_persistence.clear_conflicts(
@@ -1395,16 +1463,26 @@ class MainWindow(
 
     def commit_indexed_annotation_directory(self, directory, replacement):
         """Atomically install an annotation workspace built off the UI thread."""
+        if self._annotation_directory_is_current(directory):
+            return self._refresh_annotation_directory_index(replacement)
         if not self.may_continue():
             return False
+        replacement.confirm_yolo_mapping = self._confirm_yolo_class_mapping
         try:
+            replacement.confirm_index_mappings()
+            if self.file_path and not self._ensure_active_annotation_choice(
+                self.file_path, workspace=replacement
+            ):
+                return False
             loaded = (
                 replacement.load_for_image(self.file_path, self.image_data)
                 if self.file_path else None
             )
+        except YoloClassMappingDeclined:
+            return False
         except Exception as error:
             self.error_message(
-                tr('error.changeAnnotationDir'), '<p>%s</p>' % error
+                tr('error.changeAnnotationDir'), annotation_error_html(error)
             )
             return False
         self.annotation_persistence.clear_conflicts(
@@ -1451,11 +1529,6 @@ class MainWindow(
 
         if dir_path is not None and len(dir_path) > 1:
             dir_path = os.path.abspath(dir_path)
-            if (
-                self.default_save_dir
-                and os.path.abspath(self.default_save_dir) == dir_path
-            ):
-                return
             switched = (
                 self.start_annotation_directory_load(dir_path)
                 if self.isVisible()
@@ -1530,17 +1603,46 @@ class MainWindow(
         else:
             self.import_dir_images(target_dir_path)
 
+    def _confirm_directory_class_mappings(self, workspace, image_paths, initial_index):
+        try:
+            workspace.confirm_index_mappings()
+            if image_paths:
+                index = min(max(initial_index, 0), len(image_paths) - 1)
+                path = image_paths[index]
+                workspace.refresh_document_choices(path)
+                if not self._ensure_active_annotation_choice(path, workspace=workspace):
+                    return False
+                workspace.confirm_image_class_mapping(path)
+        except YoloClassMappingDeclined:
+            return False
+        except AnnotationDocumentError as error:
+            self.error_message(tr('open.annotationTitle'), annotation_error_html(error))
+            return False
+        return True
+
     def import_dir_images(self, dir_path, initial_index=0):
         if not self.may_continue() or not dir_path:
             return
-        self.workbench_session.commit_transition(
-            self._workbench_transition_ticket
-        )
 
         changing_workspace = (
             self.dir_name is None
             or os.path.abspath(self.dir_name)
             != os.path.abspath(dir_path)
+        )
+        image_paths = self.scan_all_images(dir_path)
+        staged = AnnotationWorkspace(
+            save_dir=self.default_save_dir, image_dir=dir_path,
+            confirm_yolo_mapping=self._confirm_yolo_class_mapping,
+        )
+        if not changing_workspace:
+            staged.inherit_mapping_approvals(self.annotation_workspace)
+        annotation_directory = self.default_save_dir or dir_path
+        if annotation_directory and os.path.isdir(annotation_directory):
+            staged.scan(annotation_directory)
+        if not self._confirm_directory_class_mappings(staged, image_paths, initial_index):
+            return False
+        self.workbench_session.commit_transition(
+            self._workbench_transition_ticket
         )
         if changing_workspace:
             self.display_adjustment_controller.replace_workspace(
@@ -1556,14 +1658,20 @@ class MainWindow(
             self.image_processing.clear_recovery()
             self.file_list_controls.clear_all_conditions(emit=False)
             self._begin_workspace_editing_session()
+        if changing_workspace:
+            self.annotation_persistence.replace_workspace(staged)
+            self.annotation_workspace = staged
+            self.review_state_transaction.replace_workspace(staged)
+            self.file_operations.replace_workspace(staged)
+            self.image_processing.replace_workspace(staged)
+        else:
+            self.annotation_workspace.inherit_mapping_approvals(staged)
+            self.annotation_workspace.adopt_index(staged)
         self.last_open_dir = dir_path
         self.dir_name = dir_path
+        self.annotation_workspace.set_image_dir(dir_path)
         self._sync_annotation_directory_ui()
-        image_paths = self.scan_all_images(dir_path)
-        annotation_directory = self.default_save_dir or dir_path
-        if annotation_directory and os.path.isdir(annotation_directory):
-            self.annotation_workspace.scan(annotation_directory, force=False)
-            self.refresh_candidate_labels()
+        self.refresh_candidate_labels()
         from labelimg.image_tools.domain.quality import ImageQualityPolicy
         self.image_quality_results.update(
             self.image_quality_cache.summaries(
@@ -1589,12 +1697,18 @@ class MainWindow(
         """Commit directory-ready state without waiting for annotation index."""
         if not self.may_continue() or not dir_path:
             return False
-        self.workbench_session.commit_transition(
-            self._workbench_transition_ticket
-        )
         changing_workspace = (
             self.dir_name is None
             or os.path.abspath(self.dir_name) != os.path.abspath(dir_path)
+        )
+        replacement = AnnotationWorkspace(
+            save_dir=self.default_save_dir, image_dir=dir_path,
+            confirm_yolo_mapping=self._confirm_yolo_class_mapping,
+        ) if changing_workspace else self.annotation_workspace
+        if not self._confirm_directory_class_mappings(replacement, image_paths, initial_index):
+            return False
+        self.workbench_session.commit_transition(
+            self._workbench_transition_ticket
         )
         if changing_workspace:
             self.display_adjustment_controller.replace_workspace(
@@ -1603,7 +1717,6 @@ class MainWindow(
             self.annotation_persistence.clear_conflicts(
                 tuple(self.annotation_persistence.conflicts)
             )
-            replacement = AnnotationWorkspace(save_dir=self.default_save_dir)
             self.annotation_persistence.replace_workspace(replacement)
             self.annotation_workspace = replacement
             self.review_state_transaction.replace_workspace(replacement)
@@ -1618,6 +1731,7 @@ class MainWindow(
             self._begin_workspace_editing_session()
         self.last_open_dir = dir_path
         self.dir_name = dir_path
+        self.annotation_workspace.set_image_dir(dir_path)
         self._sync_annotation_directory_ui()
         from labelimg.image_tools.domain.quality import ImageQualityPolicy
         self.image_quality_results.update(

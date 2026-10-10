@@ -13,6 +13,9 @@ from xml.etree import ElementTree
 
 from labelimg.annotations import (
     MISSING_FINGERPRINT,
+    AnnotationFormat,
+    annotation_resources,
+    annotation_stems_for_image,
     fingerprint_path,
 )
 from labelimg.files.application.recovery import TrashIdentity, TrashedResource
@@ -259,10 +262,14 @@ class SystemTrashAdapter:
         )
 
 
-def annotation_directories(image_path, save_dir=None):
+def annotation_directories(image_path, save_dir=None, image_dir=None):
     directories = [os.path.dirname(os.path.abspath(image_path))]
     if save_dir:
         directories.append(os.path.abspath(os.fspath(save_dir)))
+    directories.extend(
+        os.path.dirname(stem)
+        for stem in annotation_stems_for_image(image_path, save_dir, image_dir)
+    )
     result = []
     seen = set()
     for directory in directories:
@@ -274,11 +281,11 @@ def annotation_directories(image_path, save_dir=None):
     return tuple(result)
 
 
-def exact_annotation_paths(image_path, save_dir=None):
+def exact_annotation_paths(image_path, save_dir=None, image_dir=None):
     image_path = os.path.abspath(os.fspath(image_path))
     image_stem = os.path.splitext(os.path.basename(image_path))[0]
     paths = []
-    for directory in annotation_directories(image_path, save_dir):
+    for directory in annotation_directories(image_path, save_dir, image_dir):
         stem = os.path.join(directory, image_stem)
         paths.extend(stem + extension for extension in ANNOTATION_EXTENSIONS)
     return tuple(paths)
@@ -290,6 +297,7 @@ class AnnotationFileService:
         save_dir=None,
         trash=move_to_recycle_bin,
         storage_coordinator=None,
+        image_dir=None,
     ):
         self.save_dir = (
             os.path.abspath(os.fspath(save_dir))
@@ -297,6 +305,7 @@ class AnnotationFileService:
             else None
         )
         self.trash = trash
+        self.image_dir = image_dir
         self.storage_coordinator = storage_coordinator
 
     def clear_annotations(self, image_paths, should_continue=None):
@@ -472,7 +481,7 @@ class AnnotationFileService:
 
     def _operation_resources(self, image_path, candidates):
         resources = list(
-            exact_annotation_paths(image_path, self.save_dir)
+            exact_annotation_paths(image_path, self.save_dir, self.image_dir)
         )
         resources.extend(candidates)
         resources.append(image_path)
@@ -481,6 +490,7 @@ class AnnotationFileService:
             for directory in annotation_directories(
                 image_path,
                 self.save_dir,
+                self.image_dir,
             )
         )
         return tuple(dict.fromkeys(resources))
@@ -543,6 +553,7 @@ class AnnotationFileService:
                 for path in exact_annotation_paths(
                     image_path,
                     self.save_dir,
+                    self.image_dir,
                 )
             }
             for path in self._annotation_candidates(image_path):
@@ -582,6 +593,7 @@ class AnnotationFileService:
             exact_paths = exact_annotation_paths(
                 image_path,
                 self.save_dir,
+                self.image_dir,
             )
             exact_keys = {
                 os.path.normcase(os.path.abspath(path))
@@ -618,6 +630,7 @@ class AnnotationFileService:
             for directory in annotation_directories(
                 image_path,
                 self.save_dir,
+                self.image_dir,
             ):
                 image_stem = os.path.splitext(
                     os.path.basename(image_path)
@@ -625,8 +638,8 @@ class AnnotationFileService:
                 yolo_path = os.path.join(directory, image_stem + ".txt")
                 if not os.path.isfile(yolo_path):
                     continue
-                classes_path = os.path.join(directory, "classes.txt")
-                add_image_resource(classes_path)
+                for resource in annotation_resources(AnnotationFormat.YOLO, yolo_path):
+                    add_image_resource(resource)
 
             if not image_resources:
                 images_without_resources.append(image_path)
@@ -648,7 +661,7 @@ class AnnotationFileService:
         trashed = []
         exact = {
             os.path.normcase(os.path.abspath(path))
-            for path in exact_annotation_paths(image_path, self.save_dir)
+            for path in exact_annotation_paths(image_path, self.save_dir, self.image_dir)
         }
         seen = set()
         for path in self._annotation_candidates(image_path):
@@ -750,11 +763,12 @@ class AnnotationFileService:
 
     def _annotation_candidates(self, image_path):
         candidates = list(
-            exact_annotation_paths(image_path, self.save_dir)
+            exact_annotation_paths(image_path, self.save_dir, self.image_dir)
         )
         for directory in annotation_directories(
             image_path,
             self.save_dir,
+            self.image_dir,
         ):
             try:
                 names = os.listdir(directory)
@@ -769,12 +783,13 @@ class AnnotationFileService:
 
 
 class SynchronizedRenamer:
-    def __init__(self, save_dir=None, storage_coordinator=None):
+    def __init__(self, save_dir=None, storage_coordinator=None, image_dir=None):
         self.save_dir = (
             os.path.abspath(os.fspath(save_dir))
             if save_dir
             else None
         )
+        self.image_dir = image_dir
         self.storage_coordinator = storage_coordinator
         self.last_fingerprints = {}
         self.last_resource_bytes = {}
@@ -848,16 +863,17 @@ class SynchronizedRenamer:
         for source, target in mapping.items():
             resources.extend((source, target))
             resources.extend(
-                exact_annotation_paths(source, self.save_dir)
+                exact_annotation_paths(source, self.save_dir, self.image_dir)
             )
             resources.extend(
-                exact_annotation_paths(target, self.save_dir)
+                exact_annotation_paths(target, self.save_dir, self.image_dir)
             )
             resources.extend(
                 os.path.join(directory, "classes.txt")
                 for directory in annotation_directories(
                     source,
                     self.save_dir,
+                    self.image_dir,
                 )
             )
         return resources
@@ -908,6 +924,7 @@ class SynchronizedRenamer:
             for directory in annotation_directories(
                 source,
                 self.save_dir,
+                self.image_dir,
             ):
                 for extension in (".xml", ".txt"):
                     annotation_source = os.path.join(
@@ -1103,6 +1120,7 @@ class SynchronizedRenamer:
             for directory in annotation_directories(
                 source,
                 self.save_dir,
+                self.image_dir,
             ):
                 paths.add(os.path.join(directory, old_stem + ".json"))
                 try:
@@ -1123,6 +1141,7 @@ class SynchronizedRenamer:
             for directory in annotation_directories(
                 source,
                 self.save_dir,
+                self.image_dir,
             ):
                 path = os.path.normcase(
                     os.path.join(directory, old_stem + ".json")

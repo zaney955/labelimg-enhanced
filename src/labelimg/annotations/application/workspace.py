@@ -7,6 +7,7 @@ from xml.etree import ElementTree
 
 from labelimg.annotations.domain.model import (
     AnnotationDocumentError,
+    YoloClassMappingDeclined,
     AnnotationFormat,
     AnnotationStatus,
 )
@@ -18,6 +19,11 @@ from labelimg.annotations.infrastructure.formats.create_ml_collection import (
     CreateMLRecordIdentity,
     is_absolute_image_reference,
     normalize_image_reference,
+)
+from labelimg.annotations.infrastructure.formats.yolo_classes import (
+    resolve_yolo_classes,
+    yolo_class_candidates,
+    yolo_dataset_root,
 )
 from labelimg.annotations.infrastructure.formats.yolo import (
     decode_yolo_classes,
@@ -83,12 +89,18 @@ class AnnotationWorkspace:
         save_dir=None,
         writer=None,
         storage_coordinator=None,
+        image_dir=None,
+        confirm_yolo_mapping=None,
     ):
         self._save_dir = (
             os.path.abspath(os.fspath(save_dir))
             if save_dir
             else None
         )
+        self._image_dir = os.path.abspath(os.fspath(image_dir)) if image_dir else None
+        self.confirm_yolo_mapping = confirm_yolo_mapping
+        self._approved_yolo_mappings = set()
+        self._indexed_yolo_mappings = {}
         self._labels_by_path = {}
         self._status_by_path = {}
         self._modified_ns_by_path = {}
@@ -110,6 +122,10 @@ class AnnotationWorkspace:
         self._in_memory_labels_by_image = {}
         self._yolo_vocabulary = []
         self._scanned_directory = None
+
+    @property
+    def image_dir(self):
+        return self._image_dir
 
     @property
     def save_dir(self):
@@ -210,6 +226,12 @@ class AnnotationWorkspace:
             )
         )
 
+    def set_image_dir(self, image_dir):
+        new_value = os.path.abspath(os.fspath(image_dir)) if image_dir else None
+        if new_value != self._image_dir:
+            self._approved_yolo_mappings.clear()
+        self._image_dir = new_value
+
     def set_save_dir(self, save_dir):
         new_value = (
             os.path.abspath(os.fspath(save_dir))
@@ -217,6 +239,7 @@ class AnnotationWorkspace:
             else None
         )
         if new_value != self._save_dir:
+            self._approved_yolo_mappings.clear()
             self._active_paths.clear()
             self._ambiguous_annotation_paths.clear()
             self._ambiguous_create_ml_records.clear()
@@ -259,15 +282,56 @@ class AnnotationWorkspace:
         status = _merge_statuses(statuses)
         return WorkspaceEntry(image_path, paths, status)
 
+    def inherit_mapping_approvals(self, workspace):
+        """Retain approved sources when refreshing the same workspace session."""
+        self._approved_yolo_mappings.update(workspace._approved_yolo_mappings)
+
+    def confirm_class_mapping(self, mapping):
+        """UI-owned approval; workers only collect potential mapping sources."""
+        token = (mapping.source, mapping.content_digest)
+        if (
+            mapping.requires_confirmation
+            and self.confirm_yolo_mapping is not None
+            and token not in self._approved_yolo_mappings
+        ):
+            if not self.confirm_yolo_mapping(mapping):
+                raise YoloClassMappingDeclined(mapping.source)
+            self._approved_yolo_mappings.add(token)
+
+    def confirm_image_class_mapping(self, image_path):
+        choices = self.document_choices(image_path)
+        path = self.active_document_path(image_path)
+        if path is None and len(choices) == 1:
+            path = choices[0].annotation_path
+        if path is not None and AnnotationFormat.from_path(path) is AnnotationFormat.YOLO:
+            self.confirm_class_mapping(resolve_yolo_classes(
+                path, allow_missing=True,
+                dataset_root=yolo_dataset_root(path, self._save_dir or self._image_dir),
+            ))
+
+    def confirm_index_mappings(self):
+        for mapping in self._indexed_yolo_mappings.values():
+            self.confirm_class_mapping(mapping)
+
     def load(self, annotation_path, image_path, image_data):
         annotation_path = os.path.abspath(os.fspath(annotation_path))
         annotation_format = AnnotationFormat.from_path(annotation_path)
         self.validate_annotation_resource(annotation_path)
+        mapping = None
+        if annotation_format is AnnotationFormat.YOLO:
+            mapping = resolve_yolo_classes(
+                annotation_path, allow_missing=True,
+                dataset_root=yolo_dataset_root(annotation_path, self._save_dir or self._image_dir),
+            )
+            self.confirm_class_mapping(mapping)
         document = AnnotationDocument.load(
             annotation_path,
             image_path,
             image_data,
+            yolo_classes=mapping,
         )
+        if annotation_format is AnnotationFormat.YOLO:
+            self.reserve_yolo_labels(document.class_names)
         for resource in annotation_resources(
             annotation_format,
             annotation_path,
@@ -340,6 +404,8 @@ class AnnotationWorkspace:
             return self.load_for_image(image_path, image_data)
         try:
             return self.load(active, image_path, image_data)
+        except YoloClassMappingDeclined:
+            raise
         except AnnotationDocumentError as error:
             raise AnnotationDocumentError(
                 "%s: %s" % (active, error)
@@ -368,7 +434,7 @@ class AnnotationWorkspace:
     def refresh_document_choices(self, image_path):
         """Refresh only the document paths relevant to one image."""
         image_path = os.path.abspath(os.fspath(image_path))
-        paths = set(self._paths_for_image(image_path))
+        paths = set(self._document_paths_for_image(image_path))
         active = self._active_paths.get(_cache_key(image_path))
         if active:
             paths.add(active)
@@ -663,6 +729,7 @@ class AnnotationWorkspace:
             if key in self._held_resources
         }
         self._labels_by_path.clear()
+        self._indexed_yolo_mappings.clear()
         self._status_by_path.clear()
         self._modified_ns_by_path.clear()
         self._resource_fingerprints.clear()
@@ -680,6 +747,7 @@ class AnnotationWorkspace:
         annotation_paths_by_filename_stem = {}
         annotation_paths = []
         resource_paths = set()
+        class_candidates_by_directory = {}
         for root, _directories, filenames in os.walk(directory):
             for filename in filenames:
                 path = os.path.abspath(os.path.join(root, filename))
@@ -691,7 +759,15 @@ class AnnotationWorkspace:
                 except AnnotationDocumentError:
                     continue
                 annotation_paths.append((path, annotation_format))
-                resource_paths.update(annotation_resources(annotation_format, path))
+                if annotation_format is AnnotationFormat.YOLO:
+                    resource_paths.add(path)
+                    if root not in class_candidates_by_directory:
+                        class_candidates_by_directory[root] = yolo_class_candidates(
+                            path, yolo_dataset_root(path, self._save_dir or self._image_dir)
+                        )
+                    resource_paths.update(class_candidates_by_directory[root])
+                else:
+                    resource_paths.update(annotation_resources(annotation_format, path))
 
         contents = {}
         for resource in resource_paths:
@@ -729,6 +805,7 @@ class AnnotationWorkspace:
                 except UnicodeError:
                     pass
 
+        classes_by_directory = {}
         for annotation_path, annotation_format in annotation_paths:
                 path_key = _cache_key(annotation_path)
                 content = contents.get(path_key)
@@ -736,12 +813,24 @@ class AnnotationWorkspace:
                     continue
                 related = {}
                 if annotation_format is AnnotationFormat.YOLO:
-                    class_path = os.path.join(
-                        os.path.dirname(annotation_path), "classes.txt"
-                    )
-                    related["classes.txt"] = contents.get(
-                        _cache_key(class_path)
-                    ) or b""
+                    try:
+                        directory = os.path.dirname(annotation_path)
+                        if directory not in classes_by_directory:
+                            mapping = resolve_yolo_classes(
+                                annotation_path,
+                                candidates=class_candidates_by_directory[directory],
+                                dataset_root=yolo_dataset_root(annotation_path, self._save_dir or self._image_dir),
+                                read_content=lambda path: contents.get(_cache_key(path)),
+                                allow_missing=True,
+                            )
+                            classes_by_directory[directory] = mapping.names
+                            if mapping.requires_confirmation:
+                                self._indexed_yolo_mappings[(mapping.source, mapping.content_digest)] = mapping
+                        classes = classes_by_directory[directory]
+                        self.reserve_yolo_labels(classes)
+                        related["classes.txt"] = "\n".join(classes).encode("utf8")
+                    except AnnotationDocumentError:
+                        related["classes.txt"] = b""
                 status = AnnotationDocument.inspect_content(
                     annotation_path,
                     content,
@@ -792,6 +881,9 @@ class AnnotationWorkspace:
 
     def adopt_index(self, indexed_workspace):
         """Adopt a completed session index without replacing live edit state."""
+        for mapping in indexed_workspace._indexed_yolo_mappings.values():
+            self.confirm_class_mapping(mapping)
+
         held_fingerprints = {
             key: self._resource_fingerprints.get(key)
             for key in self._held_resources
@@ -976,6 +1068,11 @@ class AnnotationWorkspace:
 
     def _document_paths_for_image(self, image_path):
         paths = list(self._paths_for_image(image_path))
+        for stem in self._annotation_stems_for_image(image_path):
+            for annotation_format in AnnotationFormat:
+                path = stem + annotation_format.extension
+                if path not in paths and os.path.isfile(path):
+                    paths.append(path)
         matched = set()
         for key in _image_match_keys(image_path):
             matched.update(self._create_ml_paths_by_match_key.get(key, ()))
@@ -1113,17 +1210,49 @@ class AnnotationWorkspace:
         return tuple(removed)
 
     def _paths_for_image(self, image_path):
-        image_path = os.path.abspath(os.fspath(image_path))
-        stem = os.path.splitext(image_path)[0]
-        if self._save_dir:
-            stem = os.path.join(
-                self._save_dir,
-                os.path.basename(stem),
-            )
+        stems = self._annotation_stems_for_image(image_path)
         return tuple(
-            stem + annotation_format.extension
+            next(
+                (stem + annotation_format.extension for stem in stems
+                 if os.path.isfile(stem + annotation_format.extension)),
+                stems[0] + annotation_format.extension,
+            )
             for annotation_format in AnnotationFormat
         )
+
+    def _annotation_stems_for_image(self, image_path):
+        return annotation_stems_for_image(image_path, self._save_dir, self._image_dir)
+
+
+def annotation_stems_for_image(image_path, save_dir=None, image_dir=None):
+    image_path = os.path.abspath(os.fspath(image_path))
+    stem = os.path.splitext(image_path)[0]
+    if not save_dir:
+        return (stem,)
+    save_dir = os.path.abspath(os.fspath(save_dir))
+    flat = os.path.join(save_dir, os.path.basename(stem))
+    # When a split image folder is paired with the labels root, preserve
+    # the split relative to the conventional images root.
+    if os.path.basename(save_dir).casefold() == "labels":
+        parent = os.path.dirname(image_path)
+        while True:
+            if os.path.basename(parent).casefold() == "images":
+                image_dir = parent
+                break
+            previous = parent
+            parent = os.path.dirname(parent)
+            if parent == previous:
+                break
+    if image_dir:
+        try:
+            relative = os.path.relpath(stem, image_dir)
+        except ValueError:
+            relative = os.pardir
+        if relative != os.pardir and not relative.startswith(os.pardir + os.sep):
+            mapped = os.path.join(save_dir, relative)
+            if _cache_key(mapped) != _cache_key(flat):
+                return (mapped, flat)
+    return (flat,)
 
 
 def _cache_key(path):
@@ -1181,11 +1310,11 @@ def _merge_statuses(statuses):
 def annotation_resources(annotation_format, annotation_path):
     annotation_path = os.path.abspath(os.fspath(annotation_path))
     if annotation_format is AnnotationFormat.YOLO:
-        return (
-            annotation_path,
-            os.path.join(
-                os.path.dirname(annotation_path),
-                "classes.txt",
-            ),
-        )
+        try:
+            resources = resolve_yolo_classes(
+                annotation_path, allow_missing=True
+            ).resources
+        except AnnotationDocumentError:
+            resources = yolo_class_candidates(annotation_path)
+        return (annotation_path, *resources)
     return (annotation_path,)

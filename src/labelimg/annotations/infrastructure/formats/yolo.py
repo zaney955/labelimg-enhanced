@@ -1,7 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf8 -*-
-import codecs
-import locale
 import os
 import sys
 from xml.etree import ElementTree
@@ -12,30 +10,10 @@ TXT_EXT = '.txt'
 ENCODE_METHOD = "utf-8"
 
 
-def decode_yolo_classes(content):
-    """Decode UTF-8 classes, including files written by legacy locale I/O."""
-    if isinstance(content, str):
-        text = content
-    else:
-        try:
-            text = content.decode("utf-8-sig")
-        except UnicodeDecodeError as utf8_error:
-            legacy_encoding = locale.getpreferredencoding(False)
-            try:
-                is_utf8 = (
-                    codecs.lookup(legacy_encoding).name
-                    == codecs.lookup(ENCODE_METHOD).name
-                )
-            except LookupError:
-                raise utf8_error
-            if is_utf8:
-                raise utf8_error
-            try:
-                text = content.decode(legacy_encoding)
-            except (LookupError, UnicodeDecodeError):
-                raise utf8_error
-    return [line.strip() for line in text.splitlines() if line.strip()]
-
+from labelimg.annotations.domain.model import YoloClassMappingError
+from labelimg.annotations.infrastructure.formats.yolo_classes import (
+    decode_yolo_classes, missing_yolo_classes, read_class_content, resolve_yolo_classes,
+)
 
 class YOLOWriter:
 
@@ -129,7 +107,7 @@ class YOLOWriter:
 
 class YoloReader:
 
-    def __init__(self, file_path, image, class_list_path=None):
+    def __init__(self, file_path, image, class_list_path=None, *, class_mapping=None):
         # shapes type:
         # [label, [(x1,y1), (x2,y2), (x3,y3), (x4,y4)], difficult]
         self.shapes = []
@@ -143,8 +121,15 @@ class YoloReader:
 
         # print (file_path, self.class_list_path)
 
-        with open(self.class_list_path, 'rb') as classes_file:
-            self.classes = decode_yolo_classes(classes_file.read())
+        if class_list_path is None:
+            resolved = class_mapping or resolve_yolo_classes(file_path, allow_missing=True)
+            self.class_list_path = resolved.source
+            self.classes = list(resolved.names)
+            self._class_mapping_paths = resolved.resources
+        else:
+            content = read_class_content(self.class_list_path)
+            self.classes = decode_yolo_classes(content) if content is not None else []
+            self._class_mapping_paths = (self.class_list_path,)
 
         # print (self.classes)
 
@@ -168,8 +153,19 @@ class YoloReader:
         points = [(x_min, y_min), (x_max, y_min), (x_max, y_max), (x_min, y_max)]
         self.shapes.append((label, points, difficult))
 
-    def yolo_line_to_shape(self, class_index, x_center, y_center, w, h):
-        label = self.classes[int(class_index)]
+    def yolo_line_to_shape(self, class_index, x_center, y_center, w, h, *, line_number=None):
+        index = int(class_index)
+        if not self.classes:
+            raise missing_yolo_classes(
+                self.file_path, self._class_mapping_paths, line_number=line_number
+            )
+        if index < 0 or index >= len(self.classes):
+            raise YoloClassMappingError(
+                "out_of_range", self.file_path, line_number=line_number,
+                class_index=index, class_count=len(self.classes),
+                class_list_path=self.class_list_path,
+            )
+        label = self.classes[index]
 
         x_min = max(float(x_center) - float(w) / 2, 0)
         x_max = min(float(x_center) + float(w) / 2, 1)
@@ -185,7 +181,7 @@ class YoloReader:
 
     def parse_yolo_format(self):
         with open(self.file_path, 'r', encoding=ENCODE_METHOD) as bnd_box_file:
-            for bndBox in bnd_box_file:
+            for line_number, bndBox in enumerate(bnd_box_file, 1):
                 line = bndBox.strip()
                 if not line:
                     continue
@@ -197,7 +193,9 @@ class YoloReader:
                 if line.startswith("#"):
                     continue
                 class_index, x_center, y_center, w, h = line.split()
-                label, x_min, y_min, x_max, y_max = self.yolo_line_to_shape(class_index, x_center, y_center, w, h)
+                label, x_min, y_min, x_max, y_max = self.yolo_line_to_shape(
+                    class_index, x_center, y_center, w, h, line_number=line_number
+                )
 
                 # Caveat: difficult flag is discarded when saved as yolo format.
                 self.add_shape(label, x_min, y_min, x_max, y_max, False)

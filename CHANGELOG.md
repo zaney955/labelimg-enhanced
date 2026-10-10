@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.5.0
+
+- Added dataset-aware YOLO class resolution from nearby `classes.txt` files and dataset-root `data.yaml`, preserving stable class IDs including unused classes.
+- Added support for split `images/` and `labels/` trees and relative annotation subdirectories across loading, saving, renaming, deleting, and file-list status indexing.
+- Added explicit confirmation for unusually located YOLO class mappings and ambiguity selection when both flat and relative annotation documents exist.
+- Added localized, structured diagnostics for missing mappings, out-of-range class IDs, invalid YAML class definitions, and annotation-directory transitions.
+- Kept workspace and annotation-directory transitions atomic when class mapping confirmation, document selection, or validation is cancelled or fails.
+- Added PyYAML to runtime and frozen-application dependencies, with corresponding third-party notices and regression coverage.
+
 ## 2.4.0
 
 - Added persistent image-directory search by file name or relative path, with global `Ctrl+F`, first-result opening, and search-aware filtering and navigation.

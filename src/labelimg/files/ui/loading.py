@@ -8,7 +8,7 @@ import time
 from PyQt5.QtCore import QObject, QThread, QTimer, pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import QPushButton
 
-from labelimg.annotations import AnnotationWorkspace
+from labelimg.annotations import AnnotationWorkspace, YoloClassMappingDeclined
 from labelimg.files import discover_images
 from labelimg.localization.runtime import tr
 
@@ -34,7 +34,9 @@ class _DirectoryLoadWorker(QObject):
         try:
             paths = discover_images(self.image_directory, self.extensions)
             self.discovered.emit(self.generation, paths)
-            workspace = AnnotationWorkspace(save_dir=self.annotation_directory)
+            workspace = AnnotationWorkspace(
+                save_dir=self.annotation_directory, image_dir=self.image_directory
+            )
             scan_directory = self.annotation_directory or self.image_directory
             if scan_directory and os.path.isdir(scan_directory):
                 workspace.scan(scan_directory)
@@ -50,15 +52,18 @@ class _AnnotationDirectoryWorker(QObject):
     failed = pyqtSignal(int, object)
     finished = pyqtSignal(int)
 
-    def __init__(self, generation, directory):
+    def __init__(self, generation, directory, image_directory=None):
         super().__init__()
         self.generation = generation
         self.directory = directory
+        self.image_directory = image_directory
 
     @pyqtSlot()
     def run(self):
         try:
-            workspace = AnnotationWorkspace(save_dir=self.directory)
+            workspace = AnnotationWorkspace(
+                save_dir=self.directory, image_dir=self.image_directory
+            )
             if self.directory and os.path.isdir(self.directory):
                 workspace.scan(self.directory)
             self.indexed.emit(self.generation, self.directory, workspace)
@@ -128,14 +133,14 @@ class DirectoryLoadingMixin:
         return True
 
     def start_annotation_directory_load(self, directory):
-        if not self.may_continue():
+        if not self._annotation_directory_is_current(directory) and not self.may_continue():
             return False
         self._ensure_directory_loading()
         self._directory_load_generation += 1
         generation = self._directory_load_generation
         directory = os.path.abspath(os.fspath(directory)) if directory else None
         thread = QThread(self)
-        worker = _AnnotationDirectoryWorker(generation, directory)
+        worker = _AnnotationDirectoryWorker(generation, directory, self.dir_name)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.indexed.connect(self._annotation_directory_index_completed)
@@ -219,7 +224,11 @@ class DirectoryLoadingMixin:
     def _directory_index_completed(self, generation, workspace):
         if generation != self._directory_load_generation:
             return
-        self.annotation_workspace.adopt_index(workspace)
+        try:
+            self.annotation_workspace.adopt_index(workspace)
+        except YoloClassMappingDeclined:
+            self.stop_directory_load()
+            return
         for label in self.annotation_workspace.candidate_labels:
             if label not in self.label_hist:
                 self.label_hist.append(label)

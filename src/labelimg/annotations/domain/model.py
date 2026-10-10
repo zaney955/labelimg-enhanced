@@ -9,6 +9,51 @@ class AnnotationDocumentError(Exception):
     """An annotation document is invalid or cannot be interpreted."""
 
 
+class YoloClassMappingDeclined(AnnotationDocumentError):
+    """The user cancelled loading an unusually located class mapping."""
+
+
+class YoloClassMappingError(AnnotationDocumentError):
+    """Structured class diagnostics, localized by the workbench UI."""
+
+    def __init__(
+        self,
+        reason,
+        annotation_path,
+        *,
+        line_number=None,
+        checked_paths=(),
+        class_index=None,
+        class_count=0,
+        class_list_path=None,
+    ):
+        self.reason = reason
+        self.annotation_path = os.fspath(annotation_path)
+        self.line_number = line_number
+        self.checked_paths = tuple(os.fspath(path) for path in checked_paths)
+        self.class_index = class_index
+        self.class_count = class_count
+        self.class_list_path = class_list_path
+        if reason == "missing":
+            message = "Missing YOLO class mapping for %s. Checked: %s" % (
+                self.annotation_path,
+                ", ".join(self.checked_paths),
+            )
+        else:
+            message = (
+                "YOLO class ID %s at line %s is outside 0-%s. "
+                "Mapping: %s (%s classes). Annotation: %s"
+            ) % (
+                class_index,
+                line_number if line_number is not None else "?",
+                class_count - 1,
+                class_list_path,
+                class_count,
+                self.annotation_path,
+            )
+        super().__init__(message)
+
+
 class AnnotationFormat(Enum):
     # Preserve values stored by historical LabelFileFormat settings.
     PASCAL_VOC = 1
