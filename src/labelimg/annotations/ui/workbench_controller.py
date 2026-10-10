@@ -13,9 +13,11 @@ import labelimg.ui.generated_resources  # noqa: F401 - registers Qt resources
 from labelimg.ui.actions import set_action_copy
 from labelimg.canvas import Shape
 from labelimg.localization.runtime import localize_message_box_buttons, question as localized_question, tr, translate_history_description
+from labelimg.annotations.ui.errors import annotation_error_html, annotation_error_text
 from labelimg.annotations.domain.model import (
     AnnotationDocument,
     AnnotationDocumentError,
+    YoloClassMappingDeclined,
     AnnotationFormat,
 )
 from labelimg.annotations.ui.canvas_adapter import (
@@ -25,7 +27,11 @@ from labelimg.annotations.ui.canvas_adapter import (
 from labelimg.annotations.ui.label_color_palette_dialog import (
     LabelColorPaletteDialog,
 )
-from labelimg.annotations.application.workspace import annotation_resources
+from labelimg.annotations.application.workspace import (
+    AnnotationWorkspace,
+    annotation_resources,
+    annotation_stems_for_image,
+)
 from labelimg.annotations.application.editing import ProjectionFailed
 from labelimg.annotations.domain.history import UnknownImageHistory
 from labelimg.canvas import detect_near_duplicate_clusters
@@ -86,26 +92,40 @@ class AnnotationActionsMixin:
         )
         directory = os.path.dirname(target)
         directory = os.path.abspath(directory)
+        annotation_format = AnnotationFormat.from_path(target)
+        resources = annotation_resources(annotation_format, target)
         if directory != self._annotation_watch_directory:
             self._annotation_watch_directory = directory
             self._annotation_directory_snapshot = (
-                self._snapshot_annotation_directory(directory)
+                self._snapshot_annotation_directory(directory, resources)
             )
         paths = []
         if os.path.isdir(directory):
             paths.append(directory)
         if os.path.isfile(target):
             paths.append(target)
+        for resource in resources:
+            parent = os.path.dirname(resource)
+            if os.path.isdir(parent) and parent not in paths:
+                paths.append(parent)
+            if os.path.isfile(resource) and resource not in paths:
+                paths.append(resource)
         if paths:
             watcher.addPaths(paths)
 
     @staticmethod
-    def _snapshot_annotation_directory(directory):
+    def _snapshot_annotation_directory(directory, related_paths=()):
         extensions = {
             annotation_format.extension.casefold()
             for annotation_format in AnnotationFormat
         }
         snapshot = {}
+        for resource in related_paths:
+            try:
+                stat = os.stat(resource)
+            except OSError:
+                continue
+            snapshot[os.path.abspath(resource)] = (stat.st_size, stat.st_mtime_ns)
         try:
             entries = os.scandir(directory)
         except OSError:
@@ -133,7 +153,12 @@ class AnnotationActionsMixin:
         if not directory:
             return ()
         previous = self._annotation_directory_snapshot
-        current = self._snapshot_annotation_directory(directory)
+        target = self._annotation_watch_target
+        resources = (
+            annotation_resources(AnnotationFormat.from_path(target), target)
+            if target else ()
+        )
+        current = self._snapshot_annotation_directory(directory, resources)
         self._annotation_directory_snapshot = current
         return tuple(sorted(
             path
@@ -145,18 +170,12 @@ class AnnotationActionsMixin:
         if not changed_paths:
             return
         shared_change = any(
-            os.path.basename(path).casefold() == "classes.txt"
+            os.path.basename(path).casefold() in {"classes.txt", "data.yaml"}
             or os.path.splitext(path)[1].casefold()
             == AnnotationFormat.CREATE_ML.extension.casefold()
             for path in changed_paths
         )
-        changed_stems = {
-            os.path.splitext(os.path.basename(path))[0].casefold()
-            for path in changed_paths
-        }
-        watched_directory = os.path.normcase(
-            self._annotation_watch_directory
-        )
+        changed_keys = {os.path.normcase(os.path.abspath(path)) for path in changed_paths}
         current_image = (
             os.path.normcase(os.path.abspath(self.file_path))
             if self.file_path
@@ -167,18 +186,32 @@ class AnnotationActionsMixin:
             image_path = os.path.abspath(image_path)
             if os.path.normcase(image_path) == current_image:
                 continue
-            annotation_directory = os.path.abspath(
-                self.default_save_dir or os.path.dirname(image_path)
-            )
-            if os.path.normcase(annotation_directory) != watched_directory:
-                continue
-            image_stem = os.path.splitext(
-                os.path.basename(image_path)
-            )[0].casefold()
-            if not shared_change and image_stem not in changed_stems:
+            candidates = {
+                stem + annotation_format.extension
+                for stem in annotation_stems_for_image(
+                    image_path, self.default_save_dir, self.dir_name
+                )
+                for annotation_format in AnnotationFormat
+            }
+            choices = self.annotation_workspace.document_choices(image_path)
+            candidates.update(choice.annotation_path for choice in choices)
+            if shared_change:
+                candidates.update(
+                    resource
+                    for choice in choices
+                    for resource in annotation_resources(
+                        choice.annotation_format, choice.annotation_path
+                    )
+                )
+            if not changed_keys.intersection(
+                os.path.normcase(path) for path in candidates
+            ):
                 continue
             try:
+                self.annotation_workspace.confirm_image_class_mapping(image_path)
                 self.annotation_workspace.refresh_document_choices(image_path)
+            except YoloClassMappingDeclined:
+                raise
             except AnnotationDocumentError:
                 continue
             self.update_file_list_item_status(
@@ -236,10 +269,19 @@ class AnnotationActionsMixin:
         if self.annotation_editing.pending or self.annotation_editing.edit_open:
             self._annotation_live_sync_timer.start()
             return
-        self._refresh_inactive_annotation_statuses(
-            self._changed_annotation_directory_paths()
-        )
         image_key = os.path.abspath(self.file_path)
+        try:
+            self.annotation_workspace.confirm_image_class_mapping(image_key)
+            self._refresh_inactive_annotation_statuses(
+                self._changed_annotation_directory_paths()
+            )
+        except YoloClassMappingDeclined:
+            self._watch_current_annotation_document()
+            return
+        except AnnotationDocumentError as error:
+            self.status(tr('external.invalid', path=self._annotation_watch_target or '', error=annotation_error_text(error)), 0)
+            self._watch_current_annotation_document()
+            return
         view = self.annotation_editing.view
         if view is None:
             return
@@ -252,7 +294,7 @@ class AnnotationActionsMixin:
                 tr(
                     'external.invalid',
                     path=self._annotation_watch_target or '',
-                    error=error,
+                    error=annotation_error_text(error),
                 ),
                 0,
             )
@@ -299,9 +341,12 @@ class AnnotationActionsMixin:
                     image_path=image_key,
                     image_data=self.image_data,
                 )
+        except YoloClassMappingDeclined:
+            self._watch_current_annotation_document()
+            return
         except AnnotationDocumentError as error:
             self.status(
-                tr('external.invalid', path=target, error=error),
+                tr('external.invalid', path=target, error=annotation_error_text(error)),
                 0,
             )
             self._watch_current_annotation_document()
@@ -857,7 +902,7 @@ class AnnotationActionsMixin:
         except ProjectionFailed as error:
             self.error_message(
                 tr('history.undoFailed'),
-                '<p>%s</p>' % error,
+                annotation_error_html(error),
             )
             return
         self._after_annotation_edit()
@@ -875,7 +920,7 @@ class AnnotationActionsMixin:
         except ProjectionFailed as error:
             self.error_message(
                 tr('history.redoFailed'),
-                '<p>%s</p>' % error,
+                annotation_error_html(error),
             )
             return
         self._after_annotation_edit()
@@ -1293,7 +1338,7 @@ class AnnotationActionsMixin:
         except Exception as error:
             self.error_message(
                 tr('error.saveLabelData'),
-                u'<p>%s</p>' % error,
+                annotation_error_html(error),
             )
             return False
 
@@ -1802,7 +1847,7 @@ class AnnotationActionsMixin:
             if isinstance(error, AnnotationStorageConflict):
                 return self._handle_annotation_storage_conflict(error)
             self.error_message(
-                tr('error.saveLabelData'), u'<b>%s</b>' % error
+                tr('error.saveLabelData'), annotation_error_html(error)
             )
             return None
         saved = outcome.saved_by_image[self.file_path]
@@ -1987,7 +2032,15 @@ class AnnotationActionsMixin:
 
 
     def load_candidate_labels_from_dir(self, dir_path):
-        candidate_labels = self.annotation_workspace.scan(dir_path)
+        indexed = AnnotationWorkspace(
+            save_dir=self.annotation_workspace.save_dir,
+            image_dir=self.annotation_workspace.image_dir,
+        )
+        indexed.scan(dir_path)
+        try:
+            candidate_labels = self.annotation_workspace.adopt_index(indexed)
+        except YoloClassMappingDeclined:
+            return 0
         for label in candidate_labels:
             if label in self.label_hist:
                 continue
@@ -2041,7 +2094,7 @@ class AnnotationActionsMixin:
         except Exception as error:
             self.error_message(
                 tr('error.saveLabelData'),
-                u'<p>%s</p>' % error,
+                annotation_error_html(error),
             )
             return
         self.annotation_document = saved.document
@@ -2083,10 +2136,12 @@ class AnnotationActionsMixin:
                 self.file_path,
                 self.image_data,
             )
+        except YoloClassMappingDeclined:
+            return False
         except AnnotationDocumentError as error:
             self.error_message(
                 tr('open.annotationTitle'),
-                u'<b>%s</b>' % error,
+                annotation_error_html(error),
             )
             return False
 

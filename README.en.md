@@ -30,6 +30,8 @@ labelImg
 
 You can also run `python -m labelimg`. Use the interface to open an image directory, choose an annotation directory, and select the save format.
 
+For split YOLO datasets, select `images` as the image directory and `labels` as the annotation directory. Relative paths match `images/train/a.jpg` to `labels/train/a.txt`, with support for flat annotation directories. When both locations contain annotations, choose the active document. Class names come from the annotation directory's `classes.txt`, then the `labels` root's `classes.txt`, then `names` in the dataset root's `data.yaml`. Missing or empty mappings fall back to other ancestor locations within that dataset only. Non-recommended locations require confirmation showing the configuration path and ordered class IDs before use in the workspace. Cancelling preserves current annotations; changed configuration content requires confirmation again. Saving preserves all existing class IDs and appends new classes.
+
 ## Updates
 
 By default, the application checks asynchronously for the latest stable release after launch, at most once every 24 hours. Disable this under Settings → Automatically Check for Updates, or check immediately with Help → Check for Updates. Python environments can copy an upgrade command, managed Windows installations can explicitly download and verify an update installer, and portable builds can only open the Release. The application never runs `pip`, installs silently, or bypasses unsaved-work guards.

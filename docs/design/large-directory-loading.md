@@ -30,7 +30,7 @@ A corrupt or disappearing non-current file contributes to an aggregated warning 
 
 Application-owned file operations update the index immediately. Debounced metadata differences in the watched annotation directory update only affected image statuses and candidate-label contributions. Other external changes appear through refresh, reopening, or access to the affected file; directory events never trigger a full synchronous rescan.
 
-Refresh preserves current image, selection, filters, Canvas view, history, and unsaved edits. A dirty current document is not replaced; its external changes use the [synchronization and conflict contract](undo-redo-and-file-recovery.md#external-conflicts).
+Selecting the current annotation directory again explicitly rebuilds its index, including YOLO statuses previously inspected without a class mapping. Both synchronous and background entry points publish refreshed annotation badges for every image without requiring image navigation. Refresh preserves current image, selection, filters, Canvas view, history, and unsaved edits. A dirty current document is not replaced; its external changes use the [synchronization and conflict contract](undo-redo-and-file-recovery.md#external-conflicts).
 
 ## Architecture
 

@@ -8,9 +8,11 @@ import tempfile
 import threading
 import uuid
 
+from labelimg.annotations.domain.model import AnnotationDocumentError
 from labelimg.annotations.infrastructure.document import save_document
-from labelimg.annotations.infrastructure.formats.yolo import (
-    decode_yolo_classes,
+from labelimg.annotations.infrastructure.formats.yolo_classes import (
+    read_class_content,
+    resolve_yolo_classes,
 )
 from labelimg.platform.recovery import MISSING_FINGERPRINT, ResourceFingerprint
 
@@ -275,12 +277,16 @@ class AtomicAnnotationWriter:
                     os.path.dirname(target),
                     "classes.txt",
                 )
-                if classes_target in base_resources:
-                    existing_classes = decode_yolo_classes(
-                        base_resources[classes_target]
-                    )
-                else:
-                    existing_classes = _read_classes(classes_target)
+                existing_classes = list(
+                    resolve_yolo_classes(
+                        target,
+                        read_content=lambda path: (
+                            base_resources[path]
+                            if path in base_resources else read_class_content(path)
+                        ),
+                        allow_missing=True,
+                    ).names
+                )
                 stable_classes = _stable_labels(
                     existing_classes
                     + list(document.class_names)
@@ -290,14 +296,19 @@ class AtomicAnnotationWriter:
                     document,
                     class_names=tuple(stable_classes),
                 )
+                staged_classes = os.path.join(staging_dir, "classes.txt")
+                # Seed the staged pair with the target's authoritative mapping.
+                # Otherwise a split-local vocabulary could fall back to a
+                # different labels-root mapping while writing the temp file.
+                try:
+                    with open(staged_classes, "w", encoding="utf8") as classes_file:
+                        classes_file.write("\n".join(stable_classes))
+                except (OSError, UnicodeError) as error:
+                    raise AnnotationDocumentError(str(error)) from error
                 save_document(
                     staged_document,
                     staged_target,
                     annotation_format,
-                )
-                staged_classes = os.path.join(
-                    staging_dir,
-                    "classes.txt",
                 )
                 if precommit is not None:
                     precommit()
@@ -442,13 +453,6 @@ def _atomic_commit_staged(staged_pairs, replace=os.replace):
                 # The new resources are already committed. A locked backup
                 # must not make callers retain a stale saved baseline.
                 pass
-
-
-def _read_classes(path):
-    if not os.path.isfile(path):
-        return []
-    with open(path, "rb") as class_file:
-        return decode_yolo_classes(class_file.read())
 
 
 def _stable_labels(labels):

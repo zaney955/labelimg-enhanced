@@ -20,6 +20,7 @@ from labelimg.annotations.domain.model import (
     AnnotationFormat,
     AnnotationStatus,
 )
+from labelimg.annotations.infrastructure.formats.yolo_classes import resolve_yolo_classes
 from labelimg.annotations.infrastructure.formats.yolo import (
     TXT_EXT,
     YOLOWriter,
@@ -42,18 +43,20 @@ class _LoadedAnnotation:
     verified: bool
     questioned: bool
     record_name: str | None = None
+    class_names: tuple = ()
 
 
 class AnnotationDocument(DomainAnnotationDocument):
 
     @classmethod
-    def load(cls, annotation_path, image_path, image_data):
+    def load(cls, annotation_path, image_path, image_data, *, yolo_classes=None):
         annotation_format = AnnotationFormat.from_path(annotation_path)
         try:
             loaded = _adapter_for(annotation_format).load(
                 os.fspath(annotation_path),
                 image_path,
                 image_data,
+                **({"class_mapping": yolo_classes} if annotation_format is AnnotationFormat.YOLO else {}),
             )
         except Exception as error:
             if isinstance(error, AnnotationDocumentError):
@@ -64,7 +67,7 @@ class AnnotationDocument(DomainAnnotationDocument):
             image_path=os.fspath(image_path),
             image_data=image_data,
             boxes=loaded.boxes,
-            class_names=tuple(
+            class_names=loaded.class_names or tuple(
                 _labels_in_order(
                     box.label for box in loaded.boxes
                 )
@@ -243,10 +246,11 @@ class _PascalVocAdapter(_AnnotationFormatAdapter):
 
 
 class _YoloAdapter(_AnnotationFormatAdapter):
-    def load(self, annotation_path, image_path, image_data):
+    def load(self, annotation_path, image_path, image_data, *, class_mapping=None):
         reader = YoloReader(
             annotation_path,
             _as_qimage(image_path, image_data),
+            class_mapping=class_mapping,
         )
         return _loaded_from_reader(reader)
 
@@ -287,7 +291,8 @@ class _YoloAdapter(_AnnotationFormatAdapter):
             target_file=target_path,
             class_list=list(
                 _labels_in_order(
-                    list(document.class_names)
+                    list(resolve_yolo_classes(target_path, allow_missing=True).names)
+                    + list(document.class_names)
                     + [box.label for box in document.boxes]
                 )
             ),
@@ -376,6 +381,7 @@ def _loaded_from_reader(reader):
         verified=bool(reader.verified),
         questioned=bool(reader.questioned),
         record_name=getattr(reader, "record_name", None),
+        class_names=tuple(getattr(reader, "classes", ())),
     )
 
 
@@ -466,10 +472,7 @@ def _labels_in_order(labels):
 
 
 def _inspect_yolo(annotation_path):
-    directory = os.path.dirname(os.path.abspath(annotation_path))
-    class_path = os.path.join(directory, "classes.txt")
-    with open(class_path, "rb") as class_file:
-        classes = decode_yolo_classes(class_file.read())
+    classes = resolve_yolo_classes(annotation_path, allow_missing=True).names
     used_indexes = set()
     has_annotations = False
     verified = False

@@ -2,6 +2,32 @@
 
 
 ENGLISH_MESSAGES = {
+    "annotation.confirmMappingTitle": "Confirm class mapping",
+    "annotation.confirmMappingPrompt": (
+        "This class configuration is in a non-recommended location.\n"
+        "Dataset root: {dataset_root}\n"
+        "Configuration: {class_list_path}\n"
+        "Class ID mapping:\n{classes}\n"
+        "Recommended locations: classes.txt beside the annotation files or at the labels root; data.yaml at the dataset root.\n"
+        "Use this configuration as the class mapping?\n"
+        "Yes uses it in this workspace; Cancel keeps the current annotations."
+    ),
+    "annotation.yoloMissingClasses": (
+        "Missing YOLO class mapping.\n"
+        "Annotation: {annotation_path}\n"
+        "Line: {line_number}\n"
+        "The following configurations are missing or contain no class names:\n"
+        "{checked_paths}\n"
+        "Add classes.txt with one class name per line, in training class-ID order starting at 0, or provide names in data.yaml."
+    ),
+    "annotation.yoloClassOutOfRange": (
+        "YOLO class ID is out of range.\n"
+        "Annotation: {annotation_path}\n"
+        "Class ID on line {line_number}: {class_index}\n"
+        "Class mapping: {class_list_path}\n"
+        "This mapping contains {class_count} classes; valid IDs are 0-{max_index}.\n"
+        "Check that the annotation and class mapping belong to the same dataset."
+    ),
     "openFile": "Open File…",
     "openFileDetail": "Open one image or annotation document",
     "quit": "Quit",
@@ -787,6 +813,32 @@ ENGLISH_MESSAGES = {
 
 
 CHINESE_MESSAGES = {
+    "annotation.confirmMappingTitle": "确认类别映射",
+    "annotation.confirmMappingPrompt": (
+        "发现位于非推荐位置的类别配置。\n"
+        "当前数据集根目录：{dataset_root}\n"
+        "配置文件：{class_list_path}\n"
+        "类别编号对应关系：\n{classes}\n"
+        "推荐位置：classes.txt 放在标注同目录或 labels 根目录；data.yaml 放在数据集根目录。\n"
+        "是否读取此配置作为类别映射？\n"
+        "选择“是”将在当前工作区使用；选择“取消”将保留当前标注。"
+    ),
+    "annotation.yoloMissingClasses": (
+        "缺少 YOLO 类别映射。\n"
+        "标注文件：{annotation_path}\n"
+        "行号：{line_number}\n"
+        "以下配置不存在或类别表为空：\n"
+        "{checked_paths}\n"
+        "请补充 classes.txt，每行一个类名，顺序对应训练时从 0 开始的类别编号；也可在 data.yaml 中提供 names。"
+    ),
+    "annotation.yoloClassOutOfRange": (
+        "YOLO 类别编号超出范围。\n"
+        "标注文件：{annotation_path}\n"
+        "第 {line_number} 行的类别编号为 {class_index}。\n"
+        "当前使用的类别表：{class_list_path}\n"
+        "该表包含 {class_count} 个类别，合法编号为 0-{max_index}。\n"
+        "请检查标注文件与类别表是否属于同一套数据集。"
+    ),
     "openFile": "打开文件…",
     "openFileDetail": "打开单个图像或标注文档",
     "quit": "退出",
