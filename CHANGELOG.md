@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Changed automatic overlap hiding to clip only portions obscuring target boxes and their visible labels while drawing, choosing an initial label, hovering, selecting, dragging, or resizing. Selected and hovered groups protect all visible members, and protection persists while selection or hover remains active.
+- Updated the bilingual View option and description for target protection, kept uncovered annotations visible, and cached the unclipped drawing background separately from protected targets.
+
 ## 2.5.0
 
 - Added dataset-aware YOLO class resolution from nearby `classes.txt` files and dataset-root `data.yaml`, preserving stable class IDs including unused classes.

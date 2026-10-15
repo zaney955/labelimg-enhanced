@@ -120,6 +120,8 @@ class DrawingSceneTest(unittest.TestCase):
         self.assert_matches_reference()
 
     def test_small_budget_falls_back_and_mode_exit_releases_layer(self):
+        self.canvas.handle_drawing(QPointF(45, 60))
+        self.move((90, 125))
         self.assert_matches_reference()
         self.assertFalse(self.canvas._drawing_scene_cache._layer.isNull())
         with patch.object(self.canvas._drawing_scene_cache, 'MAX_PIXELS', 1):
@@ -141,7 +143,8 @@ class DrawingSceneTest(unittest.TestCase):
             rect = self.canvas.visibleRegion().boundingRect()
             self.assertGreater(rect.x(), 0)
             self.assertGreater(rect.y(), 0)
-            for point in ((10, 20), (40, 60), (80, 90), (10, 20)):
+            self.canvas.handle_drawing(QPointF(15, 25))
+            for point in ((100, 110), (150, 175), (45, 60), (15, 25)):
                 self.move(point)
                 self.assert_matches_reference(rect)
         finally:

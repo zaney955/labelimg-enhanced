@@ -166,13 +166,13 @@ class NearDuplicateCanvasTest(unittest.TestCase):
         self.second.move_by(QPointF(0.5, 0))
         self.canvas.set_auto_hide_overlapping(True)
         self.canvas.set_mode(Canvas.CREATE)
-        self.canvas.handle_drawing(QPointF(10, 30))
+        self.canvas.handle_drawing(QPointF(10, 10))
         self.canvas.line[1] = QPointF(20.25, 50)
         self.canvas.grab()
         self.assertEqual(len(self.canvas._near_duplicate_marker_hits), 1)
         marker = self.canvas._near_duplicate_marker_hits[0][0].center()
         self.assertEqual(self.canvas._near_duplicate_marker_text(self.cluster), "2")
-        self.canvas.line[1] = QPointF(30, 50)
+        self.canvas.line[1] = QPointF(90, 90)
         # Hit testing must not reuse the previously visible marker before repaint.
         self.assertIsNone(self.canvas._near_duplicate_marker_at(marker))
         self.canvas.grab()
@@ -182,20 +182,29 @@ class NearDuplicateCanvasTest(unittest.TestCase):
         self.canvas.grab()
         self.assertEqual(len(self.canvas._near_duplicate_marker_hits), 1)
 
-    def test_predraw_pointer_hiding_and_control_also_refresh_cluster_marker(self):
+    def test_marker_survives_when_only_member_labels_remain_uncovered(self):
+        for shape in (self.first, self.second):
+            shape.paint_label = True
+        self.canvas.set_auto_hide_overlapping(True)
+        self.canvas.set_mode(Canvas.CREATE)
+        self.canvas.handle_drawing(QPointF(10, 15))
+        self.canvas.line[1] = QPointF(90, 90)
+        self.canvas.grab()
+        self.assertEqual(len(self.canvas._near_duplicate_marker_hits), 1)
+        self.canvas.line[0] = QPointF(0, 0)
+        self.canvas.grab()
+        self.assertEqual(self.canvas._near_duplicate_marker_hits, ())
+
+    def test_predraw_pointer_and_control_leave_cluster_marker_visible(self):
         self.canvas.set_auto_hide_overlapping(True)
         self.canvas.set_mode(Canvas.CREATE)
         self.canvas.refresh_pointer_coordinates(
             self.canvas.image_to_widget(QPointF(50, 50)),
         )
-        self.canvas.grab()
-        self.assertEqual(self.canvas._near_duplicate_marker_hits, ())
-        self.canvas.set_multi_selection_mode(True)
-        self.canvas.grab()
-        self.assertEqual(len(self.canvas._near_duplicate_marker_hits), 1)
-        self.canvas.set_multi_selection_mode(False)
-        self.canvas.grab()
-        self.assertEqual(self.canvas._near_duplicate_marker_hits, ())
+        for control in (False, True, False):
+            self.canvas.set_multi_selection_mode(control)
+            self.canvas.grab()
+            self.assertEqual(len(self.canvas._near_duplicate_marker_hits), 1)
         QApplication.sendEvent(self.canvas, QEvent(QEvent.Leave))
         self.canvas.grab()
         self.assertEqual(len(self.canvas._near_duplicate_marker_hits), 1)
