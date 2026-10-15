@@ -13,6 +13,8 @@ class _Entry:
     bounds: QRectF
     paint_bounds: QRect
     visible: bool
+    paint_box: bool
+    paint_label: bool
 
 
 class DrawingSceneCache:
@@ -27,12 +29,14 @@ class DrawingSceneCache:
         self._entries = {}
         self._layer = QPixmap()
 
-    def paint(self, painter, shapes, viewport, is_visible, clip_region=None):
+    def paint(self, painter, shapes, viewport, is_visible, clip_region=None, presentation=None):
         """Update damaged annotations, then composite the layer in widget space.
 
         is_visible receives the shape and its cached geometric bounds; clip_region
-        is an optional widget-space visible region applied only during composition. This method
-        returns False to request ordinary rendering when the viewport exceeds the budget.
+        is an optional widget-space visible region applied only during composition.
+        presentation optionally returns separate box/label visibility. Component changes
+        damage only affected entries and their intersecting peers. This method returns
+        False to request ordinary rendering when the viewport exceeds the budget.
         """
         density = painter.device().devicePixelRatioF()
         width, height = ceil(viewport.width() * density), ceil(viewport.height() * density)
@@ -75,9 +79,14 @@ class DrawingSceneCache:
             else:
                 bounds, paint_bounds = old.bounds, old.paint_bounds
             visible = is_visible(shape, bounds)
-            entry = _Entry(signature, bounds, paint_bounds, visible)
+            paint_box, paint_label = (
+                presentation(shape, bounds) if presentation is not None
+                else (True, shape.paint_label)
+            )
+            entry = _Entry(signature, bounds, paint_bounds, visible, paint_box, paint_label)
             entries[shape] = entry
-            if not rebuild and (changed or visible != old.visible):
+            display_changed = old is None or (paint_box, paint_label) != (old.paint_box, old.paint_label)
+            if not rebuild and (changed or display_changed or visible != old.visible):
                 if old.visible:
                     damage |= QRegion(old.paint_bounds)
                 if visible:
@@ -97,7 +106,13 @@ class DrawingSceneCache:
             for shape, entry in entries.items():
                 if entry.visible and damage.intersects(entry.paint_bounds):
                     shape.fill = shape.selected
-                    shape.paint(recorder)
+                    options = {}
+                    if not entry.paint_box:
+                        options["paint_box"] = False
+                    if entry.paint_label != shape.paint_label:
+                        options["paint_label"] = entry.paint_label
+                    if entry.paint_box or entry.paint_label:
+                        shape.paint(recorder, **options)
             recorder.end()
 
         painter.save()

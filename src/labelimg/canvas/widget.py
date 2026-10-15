@@ -20,7 +20,7 @@ from labelimg.ui.risk_glyphs import draw_not_equal_glyph
 
 
 from labelimg.canvas.shape import Shape
-from labelimg.canvas.drawing_preview import paint_pending_box
+from labelimg.canvas.drawing_preview import paint_drawing_crosshair, paint_pending_box
 from labelimg.canvas.drawing_scene import DrawingSceneCache
 from labelimg.canvas.interaction import (
     CanvasContextRequest,
@@ -36,7 +36,7 @@ from labelimg.canvas.near_duplicates import (
 
 CURSOR_DEFAULT = Qt.ArrowCursor
 CURSOR_POINT = Qt.PointingHandCursor
-CURSOR_DRAW = Qt.CrossCursor
+CURSOR_DRAW = Qt.BlankCursor
 CURSOR_SELECT = Qt.CrossCursor
 CURSOR_MOVE = Qt.ClosedHandCursor
 CURSOR_GRAB = Qt.OpenHandCursor
@@ -136,6 +136,7 @@ class Canvas(QWidget):
         self.override_cursor(
             CURSOR_SELECT
             if self.multi_selection_mode and self.current is None
+            else CURSOR_DRAW if self.drawing()
             else self._cursor
         )
 
@@ -177,18 +178,34 @@ class Canvas(QWidget):
         self._near_duplicate_marker_hits = tuple()
         self.update()
 
+    def _drawing_crosshair_position(self):
+        """The scene-space center used by the crosshair and drawing visibility."""
+        if not self.drawing() or self._pending_label_shape is not None or self._pan_dragging:
+            return None
+        if self.current is not None and len(self.line) == 2:
+            return QPointF(self.line[1])
+        point = self._last_pointer_pos
+        if (
+            self.multi_selection_mode
+            or QApplication.keyboardModifiers() & Qt.ControlModifier
+            or self.selection_press_pos is not None
+            or self._pointer_global_pos is None or point is None
+            or not self.rect().contains(self.image_to_widget(point).toPoint())
+        ):
+            return None
+        return QPointF(point)
+
     def _overlap_protected_shapes(self):
-        """Visible interaction targets; a new drawing owns its own mask."""
+        """Visible selected/manipulated targets; drawing uses center containment."""
         if (
             not self.auto_hide_overlapping or self.panning()
             or self.current is not None or self._pending_label_shape is not None
+            or self._drawing_crosshair_position() is not None
         ):
             return ()
         targets = set(self.selected_shapes)
-        if self.editing():
-            targets.update(self.hover_shapes_for_paint)
-            if self._annotation_gesture_source == "mouse":
-                targets.add(self._overlap_drag_shape)
+        if self.editing() and self._annotation_gesture_source == "mouse":
+            targets.add(self._overlap_drag_shape)
         return tuple(
             shape for shape in self.shapes
             if shape in targets and self.isVisible(shape)
@@ -213,6 +230,17 @@ class Canvas(QWidget):
             label = label.adjusted(-padding, -padding, padding, padding)
         return label
 
+    def _drawing_shape_presentation(self, shape, point, bounds=None):
+        """Independently suppress boxes and displayed labels containing the center."""
+        paint_box, paint_label = True, self._shape_label_visible(shape)
+        if point is not None and shape is not self._pending_label_shape:
+            bounds = shape.bounding_rect().normalized() if bounds is None else bounds
+            paint_box = not bounds.contains(point)
+            label = self._overlap_label_rect(shape)
+            if label is not None and label.contains(point):
+                paint_label = False
+        return paint_box, paint_label
+
     def _overlap_hiding_path(self, protected_shapes=None):
         covered = QPainterPath()
         covered.setFillRule(Qt.WindingFill)
@@ -228,15 +256,20 @@ class Canvas(QWidget):
             return False
         if covered is None:
             covered = self._overlap_hiding_path(protected_shapes)
+        point = self._drawing_crosshair_position() if self.auto_hide_overlapping else None
+        paint_box, paint_label = self._drawing_shape_presentation(shape, point)
+        if not paint_box and not paint_label:
+            return True
         if covered.isEmpty():
             return False
-        padding = max(0.75, shape.point_size / 2.0) / max(self.scale, 0.01)
-        bounds = shape.bounding_rect().normalized().adjusted(
-            -padding, -padding, padding, padding,
-        )
-        if not covered.contains(bounds):
-            return False
-        label = self._overlap_label_rect(shape)
+        if paint_box:
+            padding = max(0.75, shape.point_size / 2.0) / max(self.scale, 0.01)
+            bounds = shape.bounding_rect().normalized().adjusted(
+                -padding, -padding, padding, padding,
+            )
+            if not covered.contains(bounds):
+                return False
+        label = self._overlap_label_rect(shape) if paint_label else None
         return label is None or covered.contains(label)
 
     def _pending_overlap_rectangle(self):
@@ -251,7 +284,9 @@ class Canvas(QWidget):
         return None if pending.isEmpty() else pending
 
     def _overlap_hiding_rectangles(self, protected_shapes=None):
-        if self.current is not None or self._pending_label_shape is not None:
+        if self.current is not None:
+            return ()
+        if self._pending_label_shape is not None:
             geometry = self._pending_overlap_rectangle()
             return () if geometry is None else (geometry,)
         if protected_shapes is None:
@@ -272,8 +307,9 @@ class Canvas(QWidget):
             return None
         # Use one screen-space pixel boundary for cached and direct painting.
         covered = QRegion()
+        transform = painter.worldTransform()
         for rectangle in rectangles:
-            bounds = painter.worldTransform().mapRect(rectangle).toAlignedRect()
+            bounds = transform.mapRect(rectangle).toAlignedRect()
             covered |= QRegion(bounds)
         return QRegion(self.rect()).subtracted(covered)
 
@@ -303,8 +339,14 @@ class Canvas(QWidget):
             self.set_external_hover_shape(None)
             self.de_select_shape()
         self.prev_point = QPointF()
-        self._cursor = CURSOR_GRAB if mode == self.PAN else CURSOR_DEFAULT
+        self._cursor = (
+            CURSOR_DRAW if mode == self.CREATE
+            else CURSOR_GRAB if mode == self.PAN
+            else CURSOR_DEFAULT
+        )
         self.setCursor(QCursor(self._cursor))
+        if self.underMouse():
+            self.override_cursor(self._cursor)
         self.repaint()
 
     @property
@@ -510,8 +552,10 @@ class Canvas(QWidget):
                 hover_shape.highlight_clear()
             self.override_cursor(CURSOR_SELECT)
         elif not self.selection_dragging:
-            self._cursor = CURSOR_DEFAULT
+            self._cursor = CURSOR_DRAW if self.drawing() else CURSOR_DEFAULT
             self.restore_cursor()
+            if self.drawing():
+                self.override_cursor(CURSOR_DRAW)
             if self._last_pointer_pos is not None and self.editing():
                 target = self._refresh_hover(self._last_pointer_pos)
                 self._override_target_cursor(target)
@@ -641,7 +685,7 @@ class Canvas(QWidget):
         if self.multi_selection_mode:
             self.override_cursor(CURSOR_SELECT)
         else:
-            self._cursor = CURSOR_DEFAULT
+            self._cursor = CURSOR_DRAW if self.drawing() else CURSOR_DEFAULT
             self.restore_cursor()
         self._refresh_hover(pos, suppress_handles=control_down)
         self.update()
@@ -656,7 +700,7 @@ class Canvas(QWidget):
         if self.multi_selection_mode:
             self.override_cursor(CURSOR_SELECT)
         else:
-            self._cursor = CURSOR_DEFAULT
+            self._cursor = CURSOR_DRAW if self.drawing() else CURSOR_DEFAULT
             self.restore_cursor()
         if self._last_pointer_pos is not None:
             self._refresh_hover(
@@ -748,7 +792,6 @@ class Canvas(QWidget):
                     # user:
                     pos = self.current[0]
                     color = self.current.line_color
-                    self.override_cursor(CURSOR_POINT)
                     self.current.highlight_vertex(0, Shape.NEAR_VERTEX)
 
                 if self.draw_square:
@@ -1366,6 +1409,7 @@ class Canvas(QWidget):
         )
         paint_shapes = self.shapes
         protected_shapes = set(self._overlap_protected_shapes())
+        drawing_point = self._drawing_crosshair_position() if self.auto_hide_overlapping else None
         overlap_clip = self._overlap_clip_region(p, protected_shapes)
         if self.drawing() and self._near_duplicate_focus is None:
             shapes = [
@@ -1379,6 +1423,9 @@ class Canvas(QWidget):
                     and (shape.selected or not self._hide_background)
                 ),
                 clip_region=overlap_clip,
+                presentation=lambda shape, bounds: self._drawing_shape_presentation(
+                    shape, drawing_point, bounds,
+                ),
             )
             if cached:
                 paint_shapes = [shape for shape in self.shapes if shape in protected_shapes]
@@ -1404,6 +1451,9 @@ class Canvas(QWidget):
                 )
                 and self.isVisible(shape)
             ):
+                paint_box, paint_label = self._drawing_shape_presentation(shape, drawing_point)
+                if not paint_box and not paint_label:
+                    continue
                 p.save()
                 if overlap_clip is not None and shape not in protected_shapes:
                     transform = p.worldTransform()
@@ -1416,30 +1466,20 @@ class Canvas(QWidget):
                     and shape in self._near_duplicate_focus.members
                     and shape is not self._near_duplicate_focus_shape
                 )
-                selected_focus_member = (
-                    self._near_duplicate_focus is not None
-                    and shape is self._near_duplicate_focus_shape
-                )
                 if peer_in_focus:
                     p.save()
                     p.setOpacity(0.20)
+                paint_kwargs = {}
+                if not paint_box:
+                    paint_kwargs["paint_box"] = False
+                if paint_label != shape.paint_label:
+                    paint_kwargs["paint_label"] = paint_label
                 if shape in hover_shapes:
-                    paint_kwargs = {
-                        "outline_style": Qt.CustomDashLine,
-                        "outline_dash_pattern": Shape.hover_dash_pattern,
-                    }
-                    if peer_in_focus:
-                        paint_kwargs["paint_label"] = False
-                    elif selected_focus_member:
-                        paint_kwargs["paint_label"] = True
-                    shape.paint(p, **paint_kwargs)
-                else:
-                    if peer_in_focus:
-                        shape.paint(p, paint_label=False)
-                    elif selected_focus_member:
-                        shape.paint(p, paint_label=True)
-                    else:
-                        shape.paint(p)
+                    paint_kwargs.update(
+                        outline_style=Qt.CustomDashLine,
+                        outline_dash_pattern=Shape.hover_dash_pattern,
+                    )
+                shape.paint(p, **paint_kwargs)
                 if peer_in_focus:
                     p.restore()
                 p.restore()
@@ -1456,10 +1496,14 @@ class Canvas(QWidget):
             p.drawRect(self.selection_rect)
             p.restore()
 
+        # Canvas-wide reverse-screen guides share the pending box's mask.
+        inverse, _invertible = p.worldTransform().inverted()
+        guide_bounds = inverse.mapRect(QRectF(self.rect()))
         # The pending box has its own presentation, independent of label colors.
         if self.current is not None and len(self.line) == 2:
             paint_pending_box(
                 p, image_size, self.line[0], self.line[1],
+                guide_bounds=guide_bounds,
             )
         elif self._pending_label_shape is not None:
             bounds = self._pending_label_shape.bounding_rect()
@@ -1468,17 +1512,10 @@ class Canvas(QWidget):
                 drawing=False,
             )
 
-        if (
-            self.current is None and self._pending_label_shape is None
-            and self.drawing() and not self.prev_point.isNull()
-            and not self.out_of_pixmap(self.prev_point)
-        ):
-            p.setPen(QColor(0, 0, 0))
-            image_size = self.pixmap_size
-            p.drawLine(int(round(self.prev_point.x())), 0,
-                       int(round(self.prev_point.x())), image_size.height())
-            p.drawLine(0, int(round(self.prev_point.y())),
-                       image_size.width(), int(round(self.prev_point.y())))
+        if self.current is None:
+            crosshair = self._drawing_crosshair_position()
+            if crosshair is not None:
+                paint_drawing_crosshair(p, guide_bounds, crosshair)
 
         p.save()
         p.resetTransform()
@@ -1733,7 +1770,7 @@ class Canvas(QWidget):
             QPointF(widget_position).toPoint()
         )
         self._last_pointer_pos = QPointF(position)
-        if self.auto_hide_overlapping and self.drawing():
+        if self.drawing():
             self.update()
         shape = self._active_readout_shape()
         if shape is None and self._valid_pointer_position(position):
@@ -2226,6 +2263,12 @@ class Canvas(QWidget):
 
     def override_cursor(self, cursor):
         self._cursor = cursor
+        if cursor == CURSOR_DRAW:
+            # Hide the native drawing cursor only over this Canvas, so modal
+            # category choosers and other controls keep their normal pointer.
+            self.setCursor(QCursor(cursor))
+            self.restore_cursor()
+            return
         if self.current_cursor() is None:
             QApplication.setOverrideCursor(cursor)
         else:

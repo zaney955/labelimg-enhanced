@@ -9,7 +9,7 @@ from PyQt5.QtCore import QEvent, QPointF, QRectF, QSize, Qt
 from PyQt5.QtGui import QColor, QImage, QMouseEvent, QPainter, QPixmap, qRgb
 from PyQt5.QtWidgets import QApplication
 
-from labelimg.canvas.drawing_preview import paint_pending_box
+from labelimg.canvas.drawing_preview import paint_drawing_crosshair, paint_pending_box
 from labelimg.canvas.widget import Canvas
 
 
@@ -43,6 +43,122 @@ class DrawingPreviewTest(unittest.TestCase):
         )
         painter.end()
         return output
+
+    def render_crosshair(self, source, *, position=(50, 60), scale=1.0, density=1.0):
+        output = QImage(round(source.width() * scale * density),
+                        round(source.height() * scale * density), QImage.Format_RGB32)
+        output.setDevicePixelRatio(density)
+        painter = QPainter(output)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.scale(scale, scale)
+        painter.drawImage(QPointF(), source)
+        paint_drawing_crosshair(painter, QRectF(source.rect()), QPointF(*position))
+        painter.end()
+        return output
+
+    def drawing_canvas(self, color=Qt.white):
+        canvas = Canvas()
+        canvas.load_pixmap(QPixmap.fromImage(self.source(color)))
+        canvas.resize(260, 220)
+        canvas.set_mode(Canvas.CREATE)
+        canvas.grab()  # Initialize the Canvas margin palette.
+        self.addCleanup(self.dispose_canvas, canvas)
+        return canvas
+
+    def dispose_canvas(self, canvas):
+        canvas.restore_cursor()
+        canvas.deleteLater()
+        QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+    def move_on_canvas(self, canvas, point):
+        QApplication.sendEvent(canvas, QMouseEvent(
+            QEvent.MouseMove, canvas.image_to_widget(QPointF(*point)),
+            Qt.NoButton, Qt.NoButton, Qt.NoModifier,
+        ))
+
+    @staticmethod
+    def inverse(color):
+        return QColor(255 - color.red(), 255 - color.green(), 255 - color.blue())
+
+    def test_crosshair_inverts_underlying_pixels_once_across_the_entire_surface(self):
+        for color in (QColor(24, 100, 170), QColor(90, 90, 90), QColor(Qt.white),
+                      QColor(Qt.black), QColor(128, 128, 128)):
+            with self.subTest(color=color.name()):
+                output = self.render_crosshair(self.source(color))
+                for point in ((50, 60), (0, 60), (199, 60), (50, 0), (50, 159)):
+                    self.assertEqual(output.pixelColor(*point), self.inverse(color))
+                self.assertEqual(output.pixelColor(49, 59), color)
+
+    def test_crosshair_keeps_one_screen_pixel_width_across_zoom_and_density(self):
+        for scale in (0.5, 1.0, 3.0):
+            for density in (1.0, 2.0):
+                with self.subTest(scale=scale, density=density):
+                    output = self.render_crosshair(self.source(), scale=scale, density=density)
+                    x, y = round(50 * scale * density), round(10 * scale * density)
+                    coverage = sum((255 - output.pixelColor(col, y).red()) / 255
+                                   for col in range(x - 4, x + 5)) / density
+                    self.assertAlmostEqual(coverage, 1.0, delta=0.02)
+
+    def test_idle_crosshair_extends_through_canvas_margins_and_uses_no_native_cross(self):
+        canvas = self.drawing_canvas(QColor(90, 90, 90))
+        baseline = canvas.grab().toImage()
+        self.move_on_canvas(canvas, (50, 60))
+        output = canvas.grab().toImage()
+        for point in ((80, 10), (10, 90), (250, 90), (80, 210), (80, 90)):
+            self.assertEqual(output.pixelColor(*point), self.inverse(baseline.pixelColor(*point)))
+        self.assertEqual(canvas.cursor().shape(), Qt.BlankCursor)
+        self.assertIsNone(QApplication.overrideCursor())
+        self.assertEqual(output.pixelColor(79, 89), baseline.pixelColor(79, 89))
+
+    def test_crosshair_remains_visible_at_image_origin_and_in_canvas_margin(self):
+        canvas = self.drawing_canvas()
+        baseline = canvas.grab().toImage()
+        for point, sample in (((0, 0), (30, 10)), ((-10, 60), (20, 10))):
+            with self.subTest(point=point):
+                self.move_on_canvas(canvas, point)
+                output = canvas.grab().toImage()
+                self.assertEqual(output.pixelColor(*sample), self.inverse(baseline.pixelColor(*sample)))
+
+    def test_drawing_has_one_canvas_wide_crosshair_at_the_constrained_corner(self):
+        canvas = self.drawing_canvas(QColor(24, 100, 170))
+        baseline = canvas.grab().toImage()
+        canvas.set_drawing_shape_to_square(True)
+        canvas.handle_drawing(QPointF(20, 30))
+        self.move_on_canvas(canvas, (250, 90))
+        self.assertEqual(canvas.line[1], QPointF(80, 90))
+        output = canvas.grab().toImage()
+        for point in ((110, 10), (10, 120), (250, 120), (110, 210), (110, 120)):
+            self.assertEqual(output.pixelColor(*point), self.inverse(baseline.pixelColor(*point)))
+        self.assertEqual(canvas.cursor().shape(), Qt.BlankCursor)
+        self.assertIsNone(QApplication.overrideCursor())
+        self.assertEqual(output.pixelColor(112, 122), baseline.pixelColor(112, 122))
+
+    def test_idle_crosshair_leaves_no_trail_and_clears_on_leave_or_mode_change(self):
+        canvas = self.drawing_canvas(QColor(90, 90, 90))
+        baseline = canvas.grab().toImage()
+        self.move_on_canvas(canvas, (50, 60))
+        canvas.grab()
+        self.move_on_canvas(canvas, (100, 100))
+        output = canvas.grab().toImage()
+        self.assertEqual(output.pixelColor(80, 10), baseline.pixelColor(80, 10))
+        QApplication.sendEvent(canvas, QEvent(QEvent.Leave))
+        self.assertEqual(canvas.grab().toImage(), baseline)
+        self.move_on_canvas(canvas, (50, 60))
+        canvas.set_mode(Canvas.EDIT)
+        self.assertEqual(canvas.grab().toImage(), baseline)
+        self.assertEqual(canvas.cursor().shape(), Qt.ArrowCursor)
+
+    def test_control_selection_suspends_custom_crosshair_and_release_resumes_it(self):
+        canvas = self.drawing_canvas()
+        baseline = canvas.grab().toImage()
+        self.move_on_canvas(canvas, (50, 60))
+        drawing = canvas.grab().toImage()
+        canvas.set_multi_selection_mode(True)
+        self.assertEqual(canvas.current_cursor(), Qt.CrossCursor)
+        self.assertEqual(canvas.grab().toImage(), baseline)
+        canvas.set_multi_selection_mode(False)
+        self.assertEqual(canvas.cursor().shape(), Qt.BlankCursor)
+        self.assertEqual(canvas.grab().toImage(), drawing)
 
     def test_outline_adapts_locally_across_one_light_and_dark_edge(self):
         source = self.source()

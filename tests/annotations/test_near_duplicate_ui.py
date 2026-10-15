@@ -172,7 +172,7 @@ class NearDuplicateCanvasTest(unittest.TestCase):
         self.assertEqual(len(self.canvas._near_duplicate_marker_hits), 1)
         marker = self.canvas._near_duplicate_marker_hits[0][0].center()
         self.assertEqual(self.canvas._near_duplicate_marker_text(self.cluster), "2")
-        self.canvas.line[1] = QPointF(90, 90)
+        self.canvas.line[1] = QPointF(30, 50)
         # Hit testing must not reuse the previously visible marker before repaint.
         self.assertIsNone(self.canvas._near_duplicate_marker_at(marker))
         self.canvas.grab()
@@ -188,14 +188,15 @@ class NearDuplicateCanvasTest(unittest.TestCase):
         self.canvas.set_auto_hide_overlapping(True)
         self.canvas.set_mode(Canvas.CREATE)
         self.canvas.handle_drawing(QPointF(10, 15))
-        self.canvas.line[1] = QPointF(90, 90)
+        self.canvas.line[1] = QPointF(50, 50)
         self.canvas.grab()
         self.assertEqual(len(self.canvas._near_duplicate_marker_hits), 1)
-        self.canvas.line[0] = QPointF(0, 0)
+        for shape in (self.first, self.second):
+            shape.paint_label = False
         self.canvas.grab()
         self.assertEqual(self.canvas._near_duplicate_marker_hits, ())
 
-    def test_predraw_pointer_and_control_leave_cluster_marker_visible(self):
+    def test_predraw_center_hides_cluster_and_control_restores_it(self):
         self.canvas.set_auto_hide_overlapping(True)
         self.canvas.set_mode(Canvas.CREATE)
         self.canvas.refresh_pointer_coordinates(
@@ -204,8 +205,27 @@ class NearDuplicateCanvasTest(unittest.TestCase):
         for control in (False, True, False):
             self.canvas.set_multi_selection_mode(control)
             self.canvas.grab()
-            self.assertEqual(len(self.canvas._near_duplicate_marker_hits), 1)
+            self.assertEqual(len(self.canvas._near_duplicate_marker_hits), int(control))
         QApplication.sendEvent(self.canvas, QEvent(QEvent.Leave))
+        self.canvas.grab()
+        self.assertEqual(len(self.canvas._near_duplicate_marker_hits), 1)
+
+    def test_only_a_cluster_containing_the_crosshair_center_is_suppressed(self):
+        first = rectangle("tiny", 124, 44, 132, 52)
+        second = rectangle("tiny", 124, 44, 132, 52)
+        self.canvas.load_shapes((first, second))
+        self.canvas.set_near_duplicate_clusters(detect_near_duplicate_clusters((first, second)))
+        self.canvas.set_mode(Canvas.CREATE)
+        self.canvas.set_auto_hide_overlapping(True)
+        self.canvas.refresh_pointer_coordinates(self.canvas.image_to_widget(QPointF(48, 48)))
+        self.canvas.grab()
+        self.assertEqual(len(self.canvas._near_duplicate_marker_hits), 1)
+        self.canvas.refresh_pointer_coordinates(self.canvas.image_to_widget(QPointF(128, 48)))
+        self.canvas.grab()
+        self.assertEqual(self.canvas._near_duplicate_marker_hits, ())
+        self.assertTrue(self.canvas.isVisible(first))
+        self.assertTrue(self.canvas.isVisible(second))
+        self.canvas.set_multi_selection_mode(True)
         self.canvas.grab()
         self.assertEqual(len(self.canvas._near_duplicate_marker_hits), 1)
 

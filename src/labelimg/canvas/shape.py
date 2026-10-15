@@ -91,6 +91,7 @@ class Shape(object):
         outline_style=Qt.SolidLine,
         outline_dash_pattern=None,
         paint_label=None,
+        paint_box=True,
     ):
         if self.points:
             color = QColor(self.line_color)
@@ -102,33 +103,34 @@ class Shape(object):
                 pen.setDashPattern(list(outline_dash_pattern))
             painter.setPen(pen)
 
-            line_path = QPainterPath()
-            vertex_path = QPainterPath()
+            if paint_box:
+                line_path = QPainterPath()
+                vertex_path = QPainterPath()
 
-            line_path.moveTo(self.points[0])
-            # Uncommenting the following line will draw 2 paths
-            # for the 1st vertex, and make it non-filled, which
-            # may be desirable.
-            # self.drawVertex(vertex_path, 0)
+                line_path.moveTo(self.points[0])
+                # Uncommenting the following line will draw 2 paths
+                # for the 1st vertex, and make it non-filled, which
+                # may be desirable.
+                # self.drawVertex(vertex_path, 0)
 
-            for i, p in enumerate(self.points):
-                line_path.lineTo(p)
-                self.draw_vertex(vertex_path, i)
-            if self.is_closed():
-                line_path.lineTo(self.points[0])
+                for i, p in enumerate(self.points):
+                    line_path.lineTo(p)
+                    self.draw_vertex(vertex_path, i)
+                if self.is_closed():
+                    line_path.lineTo(self.points[0])
 
-            painter.drawPath(line_path)
-            if pen.style() != Qt.SolidLine:
-                vertex_pen = QPen(pen)
-                vertex_pen.setStyle(Qt.SolidLine)
-                painter.setPen(vertex_pen)
-            painter.drawPath(vertex_path)
-            painter.fillPath(vertex_path, color)
+                painter.drawPath(line_path)
+                if pen.style() != Qt.SolidLine:
+                    vertex_pen = QPen(pen)
+                    vertex_pen.setStyle(Qt.SolidLine)
+                    painter.setPen(vertex_pen)
+                painter.drawPath(vertex_path)
+                painter.fillPath(vertex_path, color)
 
-            if self.fill:
-                fill_color = QColor(self.line_color)
-                fill_color.setAlpha(self.selected_fill_alpha)
-                painter.fillPath(line_path, fill_color)
+                if self.fill:
+                    fill_color = QColor(self.line_color)
+                    fill_color.setAlpha(self.selected_fill_alpha)
+                    painter.fillPath(line_path, fill_color)
 
             if self.paint_label if paint_label is None else paint_label:
                 self.paint_label_text(painter)

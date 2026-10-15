@@ -285,7 +285,7 @@ The stage of a pending drawing whose box geometry is complete but whose first an
 _Avoid_: Committed annotation, existing-label edit, completed creation
 
 **Automatic overlap hiding**:
-Temporary Canvas suppression of only the portions of other annotations covered by a pending box, or by visible selected, hover-highlighted, or manipulated boxes and their displayed labels, without changing explicit visibility choices.
+Temporary Canvas suppression of boxes and labels containing the drawing crosshair center, or portions covered by pending label-confirmation geometry and visible selected or manipulated annotations, without changing explicit visibility choices.
 _Avoid_: Hide all background boxes, manual visibility toggle, annotation deletion
 
 **Pending annotation gesture**:

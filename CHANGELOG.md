@@ -2,7 +2,11 @@
 
 ## Unreleased
 
-- Changed automatic overlap hiding to clip only portions obscuring target boxes and their visible labels while drawing, choosing an initial label, hovering, selecting, dragging, or resizing. Selected and hovered groups protect all visible members, and protection persists while selection or hover remains active.
+- Made drawing visibility depend on the crosshair center: independently hide entire containing boxes and labels before and during drawing, restore them on departure, and retain local clipping during initial label confirmation and selection/dragging.
+
+- Unified the drawing cursor and alignment guides into one Canvas-wide reverse-screen crosshair before and during drawing, including image margins, with a single shared mask and no separate small native drawing cursor.
+
+- Changed automatic overlap hiding to clip only portions obscuring target boxes and their visible labels while drawing, choosing an initial label, selecting, dragging, or resizing. Selected groups protect all visible members, and protection persists while selection remains active; hover alone only highlights annotations.
 - Updated the bilingual View option and description for target protection, kept uncovered annotations visible, and cached the unclipped drawing background separately from protected targets.
 
 ## 2.5.0
