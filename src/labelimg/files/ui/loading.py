@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import time
 
-from PyQt5.QtCore import QObject, QThread, QTimer, pyqtSignal, pyqtSlot
+from PyQt5.QtCore import QObject, QThread, QTimer, Qt, pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import QPushButton
 
 from labelimg.annotations import AnnotationWorkspace, YoloClassMappingDeclined
@@ -82,9 +82,11 @@ class DirectoryLoadingMixin:
         self._directory_load_generation = 0
         self._directory_load_jobs = {}
         self._directory_load_request = None
+        self._directory_initial_selection = None
         self._directory_pending_paths = ()
         self._directory_pending_workspace = None
         self._directory_projection_pending = False
+        self._directory_status_pending = False
         self._directory_ready_commit_seconds = 0.0
         self._directory_max_ui_batch_seconds = 0.0
         self.directory_load_button = QPushButton(self)
@@ -98,6 +100,11 @@ class DirectoryLoadingMixin:
         self._ensure_directory_loading()
         self._directory_load_generation += 1
         generation = self._directory_load_generation
+        self._directory_pending_paths = ()
+        self._directory_pending_workspace = None
+        self._directory_projection_pending = False
+        self._directory_status_pending = False
+        self._directory_initial_selection = None
         directory = os.path.abspath(os.fspath(directory))
         annotation_directory = self.default_save_dir
         self._directory_load_request = (directory, initial_index)
@@ -121,8 +128,10 @@ class DirectoryLoadingMixin:
         )
         worker.indexed.connect(self._directory_index_completed)
         worker.failed.connect(self._directory_load_failed)
-        worker.finished.connect(self._directory_worker_finished)
-        worker.finished.connect(thread.quit)
+        worker.finished.connect(thread.quit, Qt.DirectConnection)
+        thread.finished.connect(
+            lambda current=generation: self._directory_worker_finished(current)
+        )
         thread.finished.connect(worker.deleteLater)
         thread.finished.connect(thread.deleteLater)
         self._directory_load_jobs[generation] = (thread, worker)
@@ -138,6 +147,11 @@ class DirectoryLoadingMixin:
         self._ensure_directory_loading()
         self._directory_load_generation += 1
         generation = self._directory_load_generation
+        self._directory_pending_paths = ()
+        self._directory_pending_workspace = None
+        self._directory_projection_pending = False
+        self._directory_status_pending = False
+        self._directory_initial_selection = None
         directory = os.path.abspath(os.fspath(directory)) if directory else None
         thread = QThread(self)
         worker = _AnnotationDirectoryWorker(generation, directory, self.dir_name)
@@ -145,8 +159,10 @@ class DirectoryLoadingMixin:
         thread.started.connect(worker.run)
         worker.indexed.connect(self._annotation_directory_index_completed)
         worker.failed.connect(self._directory_load_failed)
-        worker.finished.connect(self._directory_worker_finished)
-        worker.finished.connect(thread.quit)
+        worker.finished.connect(thread.quit, Qt.DirectConnection)
+        thread.finished.connect(
+            lambda current=generation: self._directory_worker_finished(current)
+        )
         thread.finished.connect(worker.deleteLater)
         thread.finished.connect(thread.deleteLater)
         self._directory_load_jobs[generation] = (thread, worker)
@@ -163,11 +179,22 @@ class DirectoryLoadingMixin:
     def stop_directory_load(self):
         self._ensure_directory_loading()
         self._directory_load_generation += 1
+        self._directory_initial_selection = None
         self._directory_pending_paths = ()
         self._directory_pending_workspace = None
         self._directory_projection_pending = False
+        self._directory_status_pending = False
         self.directory_load_button.setText(tr("directoryLoading.resume"))
         self.status(tr("directoryLoading.stopped"))
+
+    def finish_directory_loads(self, timeout_ms=5000):
+        """Discard late results and retain workers until their threads stop."""
+        self.stop_directory_load()
+        for thread, _worker in tuple(self._directory_load_jobs.values()):
+            thread.quit()
+            if thread.isRunning() and not thread.wait(timeout_ms):
+                return False
+        return True
 
     def _toggle_directory_load(self):
         if self.directory_load_button.text() == tr("directoryLoading.resume"):
@@ -193,23 +220,26 @@ class DirectoryLoadingMixin:
         if published is False:
             self.stop_directory_load()
             return
+        self._directory_initial_selection = (self.file_path, initial_index)
         self._directory_pending_paths = tuple(paths[published:])
         self._directory_projection_pending = bool(
             self._directory_pending_paths
         )
         self.file_list_controls.set_index_complete(False)
         if self._directory_projection_pending:
-            QTimer.singleShot(0, self._publish_next_path_batch)
+            QTimer.singleShot(0, lambda current=generation: self._publish_next_path_batch(current))
         self.status(tr("directoryLoading.indexing", count=len(paths)))
 
-    def _publish_next_path_batch(self):
+    def _publish_next_path_batch(self, generation):
+        if generation != self._directory_load_generation:
+            return
         if not self._directory_pending_paths:
             if self._directory_pending_workspace is not None:
                 workspace = self._directory_pending_workspace
                 self._directory_pending_workspace = None
                 self._begin_status_projection(workspace)
             else:
-                self._directory_projection_pending = False
+                self._directory_projection_pending = self._directory_status_pending
             return
         started = time.perf_counter()
         batch = self._directory_pending_paths[:UI_BATCH_SIZE]
@@ -219,7 +249,7 @@ class DirectoryLoadingMixin:
         self._directory_max_ui_batch_seconds = max(
             self._directory_max_ui_batch_seconds, elapsed
         )
-        QTimer.singleShot(0, self._publish_next_path_batch)
+        QTimer.singleShot(0, lambda current=generation: self._publish_next_path_batch(current))
 
     def _directory_index_completed(self, generation, workspace):
         if generation != self._directory_load_generation:
@@ -240,10 +270,14 @@ class DirectoryLoadingMixin:
 
     def _begin_status_projection(self, _workspace):
         self._directory_status_offset = 0
+        self._directory_status_pending = True
         self._directory_projection_pending = True
-        QTimer.singleShot(0, self._project_next_status_batch)
+        generation = self._directory_load_generation
+        QTimer.singleShot(0, lambda: self._project_next_status_batch(generation))
 
-    def _project_next_status_batch(self):
+    def _project_next_status_batch(self, generation):
+        if generation != self._directory_load_generation:
+            return
         started = time.perf_counter()
         first = self._directory_status_offset
         last = min(first + UI_BATCH_SIZE, len(self.m_img_list))
@@ -255,15 +289,42 @@ class DirectoryLoadingMixin:
             self._directory_max_ui_batch_seconds, elapsed
         )
         if last < len(self.m_img_list):
-            QTimer.singleShot(0, self._project_next_status_batch)
+            QTimer.singleShot(0, lambda: self._project_next_status_batch(generation))
             return
         self._directory_projection_pending = False
+        self._directory_status_pending = False
         self.file_list_controls.set_index_complete(True)
         self.apply_file_list_view(scroll_current=False)
+        self._finish_directory_initial_selection()
         self.file_list_widget.viewport().update()
         self.update_file_selection_count()
         self.directory_load_button.hide()
         self.status(tr("directoryLoading.complete", count=len(self.m_img_list)))
+
+    def _finish_directory_initial_selection(self):
+        initial = self._directory_initial_selection
+        self._directory_initial_selection = None
+        if initial is None or initial[0] != self.file_path or not self.m_img_list:
+            return
+        view = self.annotation_editing.view
+        if view is not None and (view.dirty or view.can_undo or view.can_redo):
+            return
+        index = min(max(initial[1], 0), len(self.m_img_list) - 1)
+        target = self.m_img_list[index]
+        plan = self.workbench_session.plan_transition(target, self._transition_facts())
+        if not plan.ready or self.canvas.line.points:
+            return
+        if target != self.file_path:
+            self.open_file_list_path(target)
+
+    def invalidate_directory_load_for_file_operation(self):
+        self._ensure_directory_loading()
+        interrupted = bool(self._directory_load_jobs or self._directory_projection_pending)
+        if interrupted:
+            self.stop_directory_load()
+            self.directory_load_button.hide()
+        self._directory_initial_selection = None
+        return interrupted
 
     def _annotation_directory_index_completed(
         self, generation, directory, workspace

@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+## 2.6.0
+
+- Prevent late background indexes from overwriting committed review, crop, recovered, or saved annotation state; project unsaved annotation status from retained editing snapshots.
+- Keep directory workers owned until their threads finish and wait safely on workbench close.
+- Extend all-eight-sort UI integration coverage to annotation undo/redo/save, batch review, image processing/recovery, hidden selections, cancellation, rollback, quality checks, and paused-index races.
+
+- Aligned the Canvas crosshair, pending-box preview, and magnifier crosshair with the configured annotation line width.
+
+- Open directories at the first image of the selected sort order, synchronize title/navigation counters immediately after sorting, and preserve manual navigation while the background index completes.
+- Keep deletion on the next or previous surviving visible image, guard its pending decode against refresh/navigation, and discard obsolete queued index publications after directory switches and file mutations.
+- Add distinct icons for selected-annotation protection, the crosshair magnifier, and annotation display settings; update UI regression coverage for independent visibility settings and larger labels.
+
+- Fixed crosshair magnifier placement overlapping reverse-drawn pending boxes near Canvas edges; search all free sides, compact when needed, and temporarily hide if no non-overlapping in-bounds placement exists.
+
+- Fixed progressive directory loading truncating the workspace to its first 64 rows, causing changing image counts, missed annotation statuses, and late-row image opening failures. Kept row positions separate from the complete navigation sequence during search, sorting, and background indexing.
+
+- Increased the default annotation label size to 25 pt and expanded the adjustable range to 6–128 pt.
+
+- Split automatic hiding into independent drawing-center and selected-target controls, migrating existing preferences.
+- Added a persisted crosshair magnifier with Canvas-scoped M shortcut and a button beside Canvas zoom; it follows the lower-right corner and flips near edges.
+- Added live-preview annotation display settings for screen-stable box line width and label text size, with cancel rollback and default restoration.
+
 - Made drawing visibility depend on the crosshair center: independently hide entire containing boxes and labels before and during drawing, restore them on departure, and retain local clipping during initial label confirmation and selection/dragging.
 
 - Unified the drawing cursor and alignment guides into one Canvas-wide reverse-screen crosshair before and during drawing, including image margins, with a single shared mask and no separate small native drawing cursor.

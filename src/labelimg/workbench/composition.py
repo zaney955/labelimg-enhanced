@@ -24,6 +24,11 @@ from labelimg.ui.query_field import decorate_list_query_field
 from labelimg.platform.settings_keys import (
     SETTING_AUTO_CHECK_UPDATES,
     SETTING_AUTO_HIDE_OVERLAPPING,
+    SETTING_HIDE_AT_CROSSHAIR,
+    SETTING_PROTECT_SELECTED,
+    SETTING_CROSSHAIR_MAGNIFIER,
+    SETTING_ANNOTATION_LINE_WIDTH,
+    SETTING_ANNOTATION_FONT_SIZE,
     SETTING_AUTO_SAVE,
     SETTING_DRAW_SQUARE,
     SETTING_FILENAME,
@@ -1202,18 +1207,52 @@ class WorkbenchComposer:
         self.display_label_option.setChecked(settings.get(SETTING_PAINT_LABEL, False))
         self.display_label_option.triggered.connect(self.toggle_paint_labels_option)
 
-        self.auto_hide_overlapping_option = action(
-            get_str('autoHideOverlapping'),
-            self.canvas.set_auto_hide_overlapping,
-            icon='auto-hide-overlapping',
-            tip=get_str('autoHideOverlappingDetail'),
+        # Existing combined preference migrates to both independent controls.
+        legacy_hiding = settings.get(SETTING_AUTO_HIDE_OVERLAPPING, False)
+        self.hide_at_crosshair_option = action(
+            get_str('hideAtCrosshair'), self.canvas.set_hide_at_crosshair,
+            icon='auto-hide-overlapping', tip=get_str('hideAtCrosshairDetail'),
             checkable=True,
         )
-        self.auto_hide_overlapping_option.setChecked(
-            settings.get(SETTING_AUTO_HIDE_OVERLAPPING, False)
+        self.protect_selected_option = action(
+            get_str('protectSelected'), self.canvas.set_protect_selected_annotations,
+            icon='protect-selected', tip=get_str('protectSelectedDetail'),
+            checkable=True,
         )
-        self.canvas.set_auto_hide_overlapping(
-            self.auto_hide_overlapping_option.isChecked()
+        self.hide_at_crosshair_option.setChecked(settings.get(
+            SETTING_HIDE_AT_CROSSHAIR, legacy_hiding,
+        ))
+        self.protect_selected_option.setChecked(settings.get(
+            SETTING_PROTECT_SELECTED, legacy_hiding,
+        ))
+        self.canvas.set_hide_at_crosshair(self.hide_at_crosshair_option.isChecked())
+        self.canvas.set_protect_selected_annotations(self.protect_selected_option.isChecked())
+        self.magnifier_option = action(
+            get_str('crosshairMagnifier'), self.canvas.set_magnifier_enabled,
+            shortcut='M', icon='crosshair-magnifier', tip=get_str('crosshairMagnifierDetail'),
+            checkable=True, enabled=False,
+        )
+        # Return typing to the drawing surface after using the status button.
+        self.magnifier_option.triggered.connect(
+            lambda _checked: self.canvas.setFocus(Qt.ShortcutFocusReason)
+        )
+        self.magnifier_option.setAutoRepeat(False)
+        self.magnifier_option.setShortcutContext(Qt.WidgetWithChildrenShortcut)
+        self.canvas.addAction(self.magnifier_option)
+        self.magnifier_option.setChecked(settings.get(SETTING_CROSSHAIR_MAGNIFIER, False))
+        self.canvas.set_magnifier_enabled(self.magnifier_option.isChecked())
+        self.actions.magnifier = self.magnifier_option
+        self.actions.onLoadActive += (self.magnifier_option,)
+        self.canvas_status.set_magnifier_action(self.magnifier_option)
+        from labelimg.workbench.annotation_display import show_annotation_display_settings
+        self.annotation_display_action = action(
+            get_str('annotationDisplay.title'),
+            lambda: show_annotation_display_settings(self),
+            icon='annotation-display', tip=get_str('annotationDisplay.detail'),
+        )
+        self.canvas.set_annotation_style(
+            settings.get(SETTING_ANNOTATION_LINE_WIDTH, 1.5),
+            settings.get(SETTING_ANNOTATION_FONT_SIZE, 25.0),
         )
 
         add_actions(self.menus.file,
@@ -1253,7 +1292,10 @@ class WorkbenchComposer:
             self.display_adjustment_action,
             None,
             hide_all, show_all, None,
-            self.auto_hide_overlapping_option, None,
+            self.hide_at_crosshair_option,
+            self.protect_selected_option, None,
+            self.magnifier_option,
+            self.annotation_display_action, None,
             zoom_in, zoom_out, zoom_org, None,
             fit_window, fit_width))
 
@@ -1403,9 +1445,10 @@ class WorkbenchComposer:
                 'updates.autoCheckDetail',
             ),
             self.display_label_option: ('displayLabel', None),
-            self.auto_hide_overlapping_option: (
-                'autoHideOverlapping', 'autoHideOverlappingDetail',
-            ),
+            self.hide_at_crosshair_option: ('hideAtCrosshair', 'hideAtCrosshairDetail'),
+            self.protect_selected_option: ('protectSelected', 'protectSelectedDetail'),
+            self.magnifier_option: ('crosshairMagnifier', 'crosshairMagnifierDetail'),
+            self.annotation_display_action: ('annotationDisplay.title', 'annotationDisplay.detail'),
         }
         self.retranslate_ui()
 

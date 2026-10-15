@@ -16,7 +16,11 @@ from labelimg.workbench.bootstrap import WorkbenchLaunchOptions, create_workbenc
 from labelimg.canvas.widget import Canvas
 from labelimg.canvas.shape import Shape
 from labelimg.localization.runtime import ENGLISH, SIMPLIFIED_CHINESE, set_language
-from labelimg.platform.settings_keys import SETTING_AUTO_HIDE_OVERLAPPING
+from labelimg.platform.settings_keys import (
+    SETTING_AUTO_HIDE_OVERLAPPING,
+    SETTING_HIDE_AT_CROSSHAIR,
+    SETTING_PROTECT_SELECTED,
+)
 
 
 class CommandSurfacesTest(unittest.TestCase):
@@ -555,8 +559,8 @@ class CommandSurfacesTest(unittest.TestCase):
                 self.load_image("overlap-%s.png" % label)
                 self.window.use_default_label_checkbox.setChecked(False)
                 self.window.single_class_mode.setChecked(False)
-                if not self.window.auto_hide_overlapping_option.isChecked():
-                    self.window.auto_hide_overlapping_option.trigger()
+                if not self.window.hide_at_crosshair_option.isChecked():
+                    self.window.hide_at_crosshair_option.trigger()
                 # Seed through creation so the scene and annotation history agree.
                 canvas = self.window.canvas
                 for index, left in enumerate((1, 7)):
@@ -607,7 +611,7 @@ class CommandSurfacesTest(unittest.TestCase):
         shapes = self.load_canvas_shapes(3)
         canvas = self.window.canvas
         canvas.set_mode(Canvas.EDIT)
-        self.window.auto_hide_overlapping_option.trigger()
+        self.window.protect_selected_option.trigger()
         self.window.label_selection_requested((shapes[0], shapes[1]), shapes[0])
         self.assertEqual(canvas._overlap_protected_shapes(), tuple(shapes[:2]))
         self.window.label_hover_changed((shapes[2],))
@@ -620,51 +624,69 @@ class CommandSurfacesTest(unittest.TestCase):
         self.window.label_visibility_requested((shapes[1],), False)
         self.assertEqual(canvas._overlap_protected_shapes(), (shapes[0],))
         self.assertEqual(canvas.selected_shapes, shapes[:2])
-        self.window.auto_hide_overlapping_option.trigger()
+        self.window.protect_selected_option.trigger()
         self.assertEqual(canvas._overlap_protected_shapes(), ())
         self.assertFalse(canvas.isVisible(shapes[1]))
 
-    def test_overlap_hiding_preference_defaults_off_persists_and_resets(self):
-        action = self.window.auto_hide_overlapping_option
-        self.assertFalse(action.isChecked())
-        self.assertFalse(self.window.canvas.auto_hide_overlapping)
-        self.assertTrue(action.isCheckable())
-        self.assertTrue(action.shortcut().isEmpty())
-        action.trigger()
-        self.assertTrue(self.window.canvas.auto_hide_overlapping)
+    def reopen_window(self):
+        self.window.deleteLater()
+        QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        self.window = create_workbench(WorkbenchLaunchOptions(
+            class_file=os.path.join(self.temporary.name, "classes.txt"),
+            save_dir="",
+        ))
+
+    def test_independent_hiding_preferences_persist_and_reset(self):
+        crosshair = self.window.hide_at_crosshair_option
+        selected = self.window.protect_selected_option
+        for action in (crosshair, selected):
+            self.assertFalse(action.isChecked())
+            self.assertTrue(action.isCheckable())
+            self.assertTrue(action.shortcut().isEmpty())
+        crosshair.trigger()
+        self.assertTrue(self.window.canvas.hide_at_crosshair)
+        self.assertFalse(self.window.canvas.protect_selected_annotations)
         self.window.change_language(SIMPLIFIED_CHINESE)
-        self.assertEqual(action.text(), "自动隐藏遮挡目标的标注部分")
-        self.assertIn("十字准星中点", action.statusTip())
-        self.assertNotIn("24px", action.statusTip())
-        self.assertIn("选中或拖动", action.statusTip())
-        self.assertNotIn("悬停", action.statusTip())
-        self.assertIn("可见标签", action.statusTip())
+        self.assertEqual(crosshair.text(), "隐藏覆盖准星中点的框和文字")
+        self.assertEqual(selected.text(), "隐藏遮挡选中标注的部分")
+        self.assertIn("准星", crosshair.statusTip())
+        self.assertIn("选中", selected.statusTip())
         self.window.change_language(ENGLISH)
-        self.assertEqual(action.text(), "Auto-hide Parts Obscuring Annotation Targets")
-        self.assertIn("crosshair center", action.statusTip())
-        self.assertNotIn("24 px", action.statusTip())
-        self.assertIn("selecting, dragging", action.statusTip())
-        self.assertNotIn("hovering", action.statusTip())
-        self.assertIn("visible labels", action.statusTip())
+        self.assertEqual(crosshair.text(), "Hide Boxes and Labels Covering the Crosshair Center")
+        self.assertEqual(selected.text(), "Hide Parts Obscuring Selected Annotations")
         self.assertTrue(self.window.close())
-        self.assertTrue(self.window.settings[SETTING_AUTO_HIDE_OVERLAPPING])
-
-        def reopen():
-            self.window.deleteLater()
-            QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
-            self.window = create_workbench(WorkbenchLaunchOptions(
-                class_file=os.path.join(self.temporary.name, "classes.txt"),
-                save_dir="",
-            ))
-
-        reopen()
-        self.assertTrue(self.window.auto_hide_overlapping_option.isChecked())
-        self.assertTrue(self.window.canvas.auto_hide_overlapping)
+        self.assertTrue(self.window.settings[SETTING_HIDE_AT_CROSSHAIR])
+        self.assertFalse(self.window.settings[SETTING_PROTECT_SELECTED])
+        self.reopen_window()
+        self.assertTrue(self.window.canvas.hide_at_crosshair)
+        self.assertFalse(self.window.canvas.protect_selected_annotations)
+        self.window.hide_at_crosshair_option.trigger()
+        self.window.protect_selected_option.trigger()
+        self.assertFalse(self.window.canvas.hide_at_crosshair)
+        self.assertTrue(self.window.canvas.protect_selected_annotations)
+        self.assertTrue(self.window.close())
+        self.reopen_window()
+        self.assertFalse(self.window.canvas.hide_at_crosshair)
+        self.assertTrue(self.window.canvas.protect_selected_annotations)
         with patch("labelimg.workbench.main_window.QProcess.startDetached"):
             self.window.reset_all()
-        reopen()
-        self.assertFalse(self.window.auto_hide_overlapping_option.isChecked())
-        self.assertFalse(self.window.canvas.auto_hide_overlapping)
+        self.reopen_window()
+        self.assertFalse(self.window.hide_at_crosshair_option.isChecked())
+        self.assertFalse(self.window.protect_selected_option.isChecked())
+        self.assertFalse(self.window.canvas.hide_at_crosshair)
+        self.assertFalse(self.window.canvas.protect_selected_annotations)
+
+    def test_legacy_hiding_preference_migrates_without_overriding_new_values(self):
+        self.window.settings.data = {SETTING_AUTO_HIDE_OVERLAPPING: True}
+        self.window.settings.save()
+        self.reopen_window()
+        self.assertTrue(self.window.canvas.hide_at_crosshair)
+        self.assertTrue(self.window.canvas.protect_selected_annotations)
+        self.window.settings.data[SETTING_HIDE_AT_CROSSHAIR] = False
+        self.window.settings.save()
+        self.reopen_window()
+        self.assertFalse(self.window.canvas.hide_at_crosshair)
+        self.assertTrue(self.window.canvas.protect_selected_annotations)
 
     def test_settings_is_a_top_level_menu_for_application_preferences(self):
         self.assertEqual(
@@ -836,17 +858,21 @@ class CommandSurfacesTest(unittest.TestCase):
                 self.window.actions.hideAll,
                 self.window.actions.showAll,
                 view_actions[6],
-                self.window.auto_hide_overlapping_option,
-                view_actions[8],
+                self.window.hide_at_crosshair_option,
+                self.window.protect_selected_option,
+                view_actions[9],
+                self.window.magnifier_option,
+                self.window.annotation_display_action,
+                view_actions[12],
                 self.window.actions.zoomIn,
                 self.window.actions.zoomOut,
                 self.window.actions.zoomOrg,
-                view_actions[12],
+                view_actions[16],
                 self.window.actions.fitWindow,
                 self.window.actions.fitWidth,
             ],
         )
-        for index in (3, 6, 8, 12):
+        for index in (3, 6, 9, 12, 16):
             self.assertTrue(view_actions[index].isSeparator())
         self.assertEqual(self.window.actions.labels.text(), "Annotation Panel")
         self.assertEqual(
@@ -913,7 +939,7 @@ class CommandSurfacesTest(unittest.TestCase):
             self.window.zoom_widget,
             self.window.canvas_status.findChildren(type(self.window.zoom_widget)),
         )
-        self.window.resize(1600, 760)
+        self.window.resize(1800, 760)
         self.window.show()
         self.app.processEvents()
         self.assertTrue(self.window.zoom_widget.isVisible())

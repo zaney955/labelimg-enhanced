@@ -97,6 +97,10 @@ All standard incremental zoom commands multiply or divide by `1.10` and snap to 
 
 Cursor-anchored zoom keeps the same image point at the same viewport position, using the nearest image-boundary point when the pointer lies outside the image. Exact anchoring takes priority over automatic centering even when the scaled image fits inside the viewport. Image search uses `Ctrl+F`; Fit to Window uses `Ctrl+0`.
 
+### Crosshair magnifier control
+
+A checkable magnifier button sits immediately before zoom in the bottom Canvas strip, with a 28-by-28 target and localized name, checked state, and `M` tooltip. It shares its action with View, is unavailable without an image, remembers the user's preference, and only presents the loupe during drawing. This is a view aid rather than a mutually exclusive tool, so it is kept out of the left rail. Its width participates in the strip's existing responsive stacking; readout changes still do not move controls. [Annotation interaction](annotation-interaction.md) owns the loupe's content and edge positioning.
+
 ## Icon and state system
 
 Canvas-rail and top quick-action icons follow the shared [24-by-24 duotone operation icon system](../icon-design-system.md), including its stroke, optical bounds, semantic motifs, and palette. Legacy raster icons and mismatched SVG styles are excluded.

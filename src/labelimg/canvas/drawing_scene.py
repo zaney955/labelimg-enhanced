@@ -46,7 +46,8 @@ class DrawingSceneCache:
 
         transform = painter.worldTransform()
         key = (viewport, transform, density, shapes[0].scale if shapes else 1,
-               shapes[0].label_font_size if shapes else 0, tuple(shapes))
+               shapes[0].label_font_size if shapes else 0,
+               shapes[0].line_width if shapes else 1.5, tuple(shapes))
         rebuild = key != self._key
         if rebuild:
             self._layer = QPixmap(width, height)
@@ -73,7 +74,7 @@ class DrawingSceneCache:
                     if label_bounds is not None:
                         paint_bounds = paint_bounds.united(transform.mapRect(label_bounds))
                 # Covers the largest highlighted handle, outline AA and label padding.
-                padding = max(3.0, shape.point_size * 2.0 + 2.0)
+                padding = max(shape.line_width / 2.0 + 2.0, shape.point_size * 2.0 + 2.0)
                 paint_bounds = paint_bounds.adjusted(-padding, -padding, padding, padding)
                 paint_bounds = paint_bounds.toAlignedRect()
             else:

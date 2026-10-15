@@ -7,12 +7,11 @@ from PyQt5.QtGui import QColor, QPainter, QPainterPath, QPainterPathStroker
 
 
 _OUTLINE_WIDTH = 1.5
-_GUIDE_WIDTH = 1.0
 _START_RADIUS = 2.0
 _INTERIOR_FILL = QColor(255, 255, 255, 15)  # Approximately 6% white.
 
 
-def paint_pending_box(painter, image_size, start, end, *, drawing=True, guide_bounds=None):
+def paint_pending_box(painter, image_size, start, end, *, drawing=True, guide_bounds=None, outline_width=_OUTLINE_WIDTH):
     """Invert displayed pixels once, like a Windows reverse-screen cursor.
 
     Fully covered RGB channels become 255 minus their displayed values; only
@@ -31,11 +30,11 @@ def paint_pending_box(painter, image_size, start, end, *, drawing=True, guide_bo
     outline.addRect(QRectF(start, end).normalized())
     image_clip = QPainterPath()
     image_clip.addRect(image_bounds)
-    mask = _stroke(outline, _OUTLINE_WIDTH / scale).intersected(image_clip)
+    mask = _stroke(outline, outline_width / scale).intersected(image_clip)
     crosshair_bounds = image_bounds if guide_bounds is None else QRectF(guide_bounds)
 
     if drawing:
-        mask = mask.united(_crosshair_mask(painter, crosshair_bounds, end))
+        mask = mask.united(_crosshair_mask(painter, crosshair_bounds, end, outline_width))
 
         marker = QPainterPath()
         radius = _START_RADIUS / scale
@@ -55,24 +54,24 @@ def paint_pending_box(painter, image_size, start, end, *, drawing=True, guide_bo
     painter.restore()
 
 
-def paint_drawing_crosshair(painter, bounds, position):
-    """Extend the reverse-screen cursor across the visible Canvas."""
+def paint_drawing_crosshair(painter, bounds, position, *, line_width=_OUTLINE_WIDTH):
+    """Extend the reverse-screen cursor with the configured screen-space width."""
     if bounds.isEmpty():
         return
     painter.save()
     painter.setClipRect(bounds, Qt.IntersectClip)
     painter.setCompositionMode(QPainter.CompositionMode_Difference)
-    painter.fillPath(_crosshair_mask(painter, bounds, position), QColor(Qt.white))
+    painter.fillPath(_crosshair_mask(painter, bounds, position, line_width), QColor(Qt.white))
     painter.restore()
 
 
-def _crosshair_mask(painter, bounds, position):
+def _crosshair_mask(painter, bounds, position, line_width):
     transform = painter.worldTransform()
     scale = max(transform.m11(), 0.01)
     density = painter.device().devicePixelRatioF()
     screen = transform.map(position)
-    # Align the one-screen-pixel stroke to device pixels for crisp inversion.
-    half = _GUIDE_WIDTH / 2.0
+    # Align one edge of the configured stroke to device pixels for crisp inversion.
+    half = line_width / 2.0
     x = floor((screen.x() - half) * density + 0.5) / density + half
     y = floor((screen.y() - half) * density + 0.5) / density + half
     inverse, _invertible = transform.inverted()
@@ -82,7 +81,7 @@ def _crosshair_mask(painter, bounds, position):
     guides.lineTo(bounds.right(), position.y())
     guides.moveTo(position.x(), bounds.top())
     guides.lineTo(position.x(), bounds.bottom())
-    return _stroke(guides, _GUIDE_WIDTH / scale)
+    return _stroke(guides, line_width / scale)
 
 
 def _stroke(path, width):

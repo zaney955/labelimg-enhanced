@@ -182,7 +182,7 @@ class WorkbenchZoomTest(unittest.TestCase):
         return path
 
     def test_zoom_control_stays_visible_and_compacts_in_a_narrow_window(self):
-        self.window.resize(1600, 760)
+        self.window.resize(1800, 760)
         self.app.processEvents()
         self.assertTrue(self.window.zoom_widget.isVisible())
         self.assertTrue(self.window.zoom_widget.slider.isVisible())

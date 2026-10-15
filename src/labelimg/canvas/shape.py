@@ -27,7 +27,8 @@ class Shape(object):
     point_type = P_ROUND
     point_size = 4
     scale = 1.0
-    label_font_size = 8
+    label_font_size = 25
+    line_width = 1.5
     selected_label_background_color = QColor(0, 0, 0, 153)
     selected_label_text_color = QColor(Qt.white)
     selected_label_padding = 2.0
@@ -97,7 +98,7 @@ class Shape(object):
             color = QColor(self.line_color)
             color.setAlpha(255)
             pen = QPen(color)
-            pen.setWidthF(1.5 / self.scale)
+            pen.setWidthF(self.line_width / self.scale)
             pen.setStyle(outline_style)
             if outline_dash_pattern is not None:
                 pen.setDashPattern(list(outline_dash_pattern))
@@ -172,7 +173,7 @@ class Shape(object):
         # Labels must render identically on the transparent Draw-mode cache
         # and the opaque Canvas; LCD subpixel AA depends on the background.
         font.setStyleStrategy(QFont.NoSubpixelAntialias)
-        font.setPointSize(
+        font.setPointSizeF(
             self.label_font_size if font_size is None else font_size
         )
         font.setBold(True)

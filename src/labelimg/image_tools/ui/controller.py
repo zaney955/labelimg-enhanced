@@ -72,6 +72,7 @@ class ImageToolsActionsMixin:
 
     def _project_image_processing(self, request):
         """Project one committed image-processing result into Qt state."""
+        interrupted_index = self.invalidate_directory_load_for_file_operation()
         if request.kind is not ImageProcessingProjectionKind.PROJECTION_FAILED:
             self.display_adjustment_controller.source_pixels_replaced(
                 request.paths
@@ -110,6 +111,8 @@ class ImageToolsActionsMixin:
                 self.paint_canvas()
             else:
                 self._refresh_current_image_pixels(request.paths)
+            if interrupted_index:
+                self.refresh_file_list_statuses()
             self.actions.undoImageProcessing.setEnabled(True)
             return None
 
@@ -163,7 +166,10 @@ class ImageToolsActionsMixin:
                 if request.direction == 'crop':
                     self._finish_crop_mode()
                 self.rescan_annotation_workspace()
-                self.update_file_list_item_status(self.file_path)
+                if interrupted_index:
+                    self.refresh_file_list_statuses()
+                else:
+                    self.update_file_list_item_status(self.file_path)
                 self.actions.undoImageProcessing.setEnabled(True)
                 self._sync_annotation_history_ui()
 
@@ -189,6 +195,8 @@ class ImageToolsActionsMixin:
                     raise RuntimeError(
                         "the transformed current image could not reload"
                     )
+                if interrupted_index:
+                    self.refresh_file_list_statuses()
             else:
                 self.refresh_file_list_statuses()
             self.actions.undoImageProcessing.setEnabled(True)

@@ -113,7 +113,7 @@ class OverlapHidingTest(unittest.TestCase):
         self.assertTrue(self.canvas.isVisible(self.shape))
 
     def test_point_inside_label_hides_entire_label_but_keeps_box(self):
-        label = self.shape.label_text_rect()
+        label = self.shape.label_text_rect().toAlignedRect().intersected(self.canvas.pixmap.rect())
         self.mouse(QEvent.MouseMove, (label.center().x(), label.center().y()))
         baseline = self.capture()
         self.canvas.set_auto_hide_overlapping(True)
@@ -132,7 +132,9 @@ class OverlapHidingTest(unittest.TestCase):
         self.shape.move_by(QPointF(0, -40))
         self.capture()
         label = self.shape.label_text_rect()
-        point = label.center()
+        overlap = label.intersected(self.shape.bounding_rect())
+        self.assertFalse(overlap.isEmpty())
+        point = overlap.center()
         self.assertTrue(self.shape.bounding_rect().contains(point))
         self.mouse(QEvent.MouseMove, (point.x(), point.y()))
         self.canvas.set_auto_hide_overlapping(True)
@@ -280,7 +282,8 @@ class OverlapHidingTest(unittest.TestCase):
             self.assert_box_hidden(self.capture())
             cleanup()
             self.assertEqual(self.capture(), baseline)
-            self.assertTrue(self.canvas.auto_hide_overlapping)
+            self.assertTrue(self.canvas.hide_at_crosshair)
+            self.assertTrue(self.canvas.protect_selected_annotations)
 
     def test_cached_components_match_direct_rendering_through_point_changes(self):
         self.canvas.set_auto_hide_overlapping(True)

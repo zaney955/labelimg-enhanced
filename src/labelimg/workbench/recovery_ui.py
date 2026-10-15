@@ -142,6 +142,7 @@ class RecoveryActionsMixin:
                 dialog.accept()
             return
 
+        self.invalidate_directory_load_for_file_operation()
         selected_before = tuple(self.selected_file_paths())
         renamed = dict(outcome.renamed)
         if self.file_path in renamed:

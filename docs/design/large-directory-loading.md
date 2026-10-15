@@ -14,6 +14,10 @@ The index exists only in memory for the current application session. [ADR 0024](
 
 A new workspace commits only when it can atomically install the image and annotation directories, stable naturally ordered discovered-file list, loadable current image and annotation document, and authoritative save target. Until then, the previous workspace remains intact.
 
+The complete discovered image sequence remains authoritative for navigation and counters while list rows are published in batches. Refreshing a published row never replaces that sequence with the visible row prefix; row lookup tracks published positions independently from workspace positions.
+
+Opening a directory defaults to its first image in the selected file-list sort order, independent of annotation presence. If that order depends on background annotation/review indexing, completion resolves the initial image to the first final row only while the user has neither navigated nor edited. Title and command-bar counters always follow the current image's position after sorting, including before the next navigation command.
+
 Editing, saving, name search, and navigation become available at this point. Navigating to a file whose annotation state is not indexed prioritizes its exact annotation load; placeholder state is never editable.
 
 ### Workspace index completion
@@ -42,7 +46,9 @@ Selecting the current annotation directory again explicitly rebuilds its index, 
 | [files.ui.loading](../../src/labelimg/files/ui/loading.py) | Workers, generations, progress, stop/resume, and bounded publication. |
 | [files.ui.list_widget](../../src/labelimg/files/ui/list_widget.py) | Virtualized `QAbstractListModel` and proxy filtering/sorting. |
 
-Workers discover and sort paths, then build remaining annotation snapshots without mutating the active workspace. The UI thread checks the generation and applies results through their authoritative owner. Application and domain modules neither import Qt nor expose Qt thread types.
+Worker ownership lasts until the QThread finishes, rather than only until the scan function emits its completion signal. Closing the workbench invalidates queued results and waits for directory workers to stop; a timeout leaves the window open.
+
+Workers discover and sort paths, then build remaining annotation snapshots without mutating the active workspace. Every queued path/status publication also carries its originating generation. File mutations invalidate outstanding discovery/index projections before pumping UI events, so old results cannot replace the updated file list. The UI thread checks the generation and applies results through their authoritative owner. Application and domain modules neither import Qt nor expose Qt thread types.
 
 One per-image snapshot supplies document choices, active choice, annotation/review state, ambiguity/persistence flags, candidate-label contribution, and resource fingerprints. File-list population consumes this bulk state instead of independently querying each property.
 

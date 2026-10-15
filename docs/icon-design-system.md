@@ -2,7 +2,7 @@
 
 ## Scope
 
-The operation icon set contains the 83 SVG files used by actions, buttons, and
+The operation icon set contains the 86 SVG files used by actions, buttons, and
 query-field decorations, including the [Canvas rail and top command surface](design/canvas-tool-rail.md).
 The application identity asset, `app.svg`, is outside this system.
 

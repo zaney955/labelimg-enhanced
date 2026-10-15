@@ -44,7 +44,8 @@ class DrawingPreviewTest(unittest.TestCase):
         painter.end()
         return output
 
-    def render_crosshair(self, source, *, position=(50, 60), scale=1.0, density=1.0):
+    def render_crosshair(self, source, *, position=(50, 60), scale=1.0, density=1.0,
+                         line_width=1.0):
         output = QImage(round(source.width() * scale * density),
                         round(source.height() * scale * density), QImage.Format_RGB32)
         output.setDevicePixelRatio(density)
@@ -52,12 +53,15 @@ class DrawingPreviewTest(unittest.TestCase):
         painter.setRenderHint(QPainter.Antialiasing)
         painter.scale(scale, scale)
         painter.drawImage(QPointF(), source)
-        paint_drawing_crosshair(painter, QRectF(source.rect()), QPointF(*position))
+        paint_drawing_crosshair(
+            painter, QRectF(source.rect()), QPointF(*position), line_width=line_width,
+        )
         painter.end()
         return output
 
     def drawing_canvas(self, color=Qt.white):
         canvas = Canvas()
+        canvas.set_annotation_style(1.0, 25.0)
         canvas.load_pixmap(QPixmap.fromImage(self.source(color)))
         canvas.resize(260, 220)
         canvas.set_mode(Canvas.CREATE)
@@ -98,6 +102,19 @@ class DrawingPreviewTest(unittest.TestCase):
                     coverage = sum((255 - output.pixelColor(col, y).red()) / 255
                                    for col in range(x - 4, x + 5)) / density
                     self.assertAlmostEqual(coverage, 1.0, delta=0.02)
+
+    def test_crosshair_uses_configured_screen_width_across_zoom_and_density(self):
+        for width in (0.5, 1.5, 3.0, 6.0):
+            for scale in (0.5, 1.0, 3.0):
+                for density in (1.0, 2.0):
+                    with self.subTest(width=width, scale=scale, density=density):
+                        output = self.render_crosshair(
+                            self.source(), scale=scale, density=density, line_width=width,
+                        )
+                        x, y = round(50 * scale * density), round(10 * scale * density)
+                        coverage = sum((255 - output.pixelColor(col, y).red()) / 255
+                                       for col in range(x - 12, x + 13)) / density
+                        self.assertAlmostEqual(coverage, width, delta=0.03)
 
     def test_idle_crosshair_extends_through_canvas_margins_and_uses_no_native_cross(self):
         canvas = self.drawing_canvas(QColor(90, 90, 90))
@@ -305,6 +322,7 @@ class DrawingPreviewTest(unittest.TestCase):
 
     def test_canvas_guides_follow_constrained_corner_and_cancel_clears_preview(self):
         canvas = Canvas()
+        canvas.set_annotation_style(1.0, 25.0)
         canvas.load_pixmap(QPixmap.fromImage(self.source()))
         canvas.resize(200, 160)
         canvas.set_editing(False)
