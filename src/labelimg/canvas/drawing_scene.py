@@ -27,10 +27,11 @@ class DrawingSceneCache:
         self._entries = {}
         self._layer = QPixmap()
 
-    def paint(self, painter, shapes, viewport, is_visible):
+    def paint(self, painter, shapes, viewport, is_visible, clip_region=None):
         """Update damaged annotations, then composite the layer in widget space.
 
-        is_visible receives the shape and its cached geometric bounds. This method
+        is_visible receives the shape and its cached geometric bounds; clip_region
+        is an optional widget-space visible region applied only during composition. This method
         returns False to request ordinary rendering when the viewport exceeds the budget.
         """
         density = painter.device().devicePixelRatioF()
@@ -101,6 +102,9 @@ class DrawingSceneCache:
 
         painter.save()
         painter.resetTransform()
+        if clip_region is not None:
+            # Composite a moving cutout without rerasterizing static annotations.
+            painter.setClipRegion(clip_region, Qt.IntersectClip)
         painter.drawPixmap(QPointF(viewport.topLeft()), self._layer)
         painter.restore()
         return True

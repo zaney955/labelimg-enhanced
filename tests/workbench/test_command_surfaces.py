@@ -590,7 +590,7 @@ class CommandSurfacesTest(unittest.TestCase):
                     canvas.line[1] = QPointF(14, 14)
                     canvas.handle_drawing(QPointF(14, 14))
 
-                self.assertEqual(observed, [(False, True, False, True, False)])
+                self.assertEqual(observed, [(True, True, False, True, False)])
                 with patch.object(shapes[0], "paint") as visible_paint, patch.object(
                     shapes[1], "paint",
                 ) as hidden_paint:
@@ -602,6 +602,24 @@ class CommandSurfacesTest(unittest.TestCase):
                 self.assertEqual(len(canvas.shapes), 2 + (label is not None))
                 self.assertFalse(self.window.annotation_editing.pending)
 
+    def test_label_list_selection_and_hover_share_overlap_protection(self):
+        self.load_image()
+        shapes = self.load_canvas_shapes(3)
+        canvas = self.window.canvas
+        canvas.set_mode(Canvas.EDIT)
+        self.window.auto_hide_overlapping_option.trigger()
+        self.window.label_selection_requested((shapes[0], shapes[1]), shapes[0])
+        self.assertEqual(canvas._overlap_protected_shapes(), tuple(shapes[:2]))
+        self.window.label_hover_changed((shapes[2],))
+        self.assertEqual(canvas._overlap_protected_shapes(), tuple(shapes))
+        self.window.label_hover_changed(())
+        self.window.label_visibility_requested((shapes[1],), False)
+        self.assertEqual(canvas._overlap_protected_shapes(), (shapes[0],))
+        self.assertEqual(canvas.selected_shapes, shapes[:2])
+        self.window.auto_hide_overlapping_option.trigger()
+        self.assertEqual(canvas._overlap_protected_shapes(), ())
+        self.assertFalse(canvas.isVisible(shapes[1]))
+
     def test_overlap_hiding_preference_defaults_off_persists_and_resets(self):
         action = self.window.auto_hide_overlapping_option
         self.assertFalse(action.isChecked())
@@ -611,9 +629,13 @@ class CommandSurfacesTest(unittest.TestCase):
         action.trigger()
         self.assertTrue(self.window.canvas.auto_hide_overlapping)
         self.window.change_language(SIMPLIFIED_CHINESE)
-        self.assertEqual(action.text(), "绘制时自动隐藏重叠框")
+        self.assertEqual(action.text(), "自动隐藏遮挡目标的标注部分")
+        self.assertIn("悬停高亮、选中", action.statusTip())
+        self.assertIn("可见标签", action.statusTip())
         self.window.change_language(ENGLISH)
-        self.assertEqual(action.text(), "Auto-hide Overlapping Boxes While Drawing")
+        self.assertEqual(action.text(), "Auto-hide Parts Obscuring Annotation Targets")
+        self.assertIn("hovering, selecting", action.statusTip())
+        self.assertIn("visible labels", action.statusTip())
         self.assertTrue(self.window.close())
         self.assertTrue(self.window.settings[SETTING_AUTO_HIDE_OVERLAPPING])
 
