@@ -61,7 +61,9 @@ class OverlapHidingTest(unittest.TestCase):
     def capture(self):
         # Observe the annotation layer separately from the reverse-screen preview.
         self.canvas.prev_point = QPointF()
-        with patch("labelimg.canvas.widget.paint_pending_box"):
+        with patch("labelimg.canvas.widget.paint_pending_box"), patch(
+            "labelimg.canvas.widget.paint_drawing_crosshair",
+        ):
             return self.canvas.grab().toImage().convertToFormat(QImage.Format_RGB32)
 
     def color(self, image, x, y):
@@ -71,8 +73,8 @@ class OverlapHidingTest(unittest.TestCase):
     def assert_frame_clipped(self):
         image = self.capture()
         self.assertEqual(self.color(image, 60, 40), self.background)
-        self.assertNotEqual(self.color(image, 90, 40), self.background)
-        self.assertNotEqual(self.color(image, 40, 90), self.background)
+        self.assertNotEqual(self.color(image, 100, 40), self.background)
+        self.assertNotEqual(self.color(image, 40, 100), self.background)
 
     def mouse(self, event, point, button=Qt.NoButton, buttons=Qt.NoButton,
               modifiers=Qt.NoModifier):
@@ -90,143 +92,138 @@ class OverlapHidingTest(unittest.TestCase):
         self.mouse(QEvent.MouseMove, end, buttons=Qt.LeftButton)
         return active
 
-    def test_partial_intersection_keeps_uncovered_frame_and_label_pixels(self):
-        self.start_box()
-        baseline = self.capture()
-        self.canvas.set_auto_hide_overlapping(True)
-        self.assert_frame_clipped()
-        image = self.capture()
-        # The right half of the label also survives this partial cutout.
-        label = self.shape.label_text_rect()
-        remaining_ink = 0
-        for x in range(82, int(label.right())):
-            for y in range(int(label.top()), int(label.bottom()) + 1):
-                self.assertEqual(image.pixelColor(x, y), baseline.pixelColor(x, y))
-                remaining_ink += baseline.pixelColor(x, y) != self.background
-        self.assertGreater(remaining_ink, 0)
+    def assert_box_hidden(self, image):
+        for x, y in ((40, 40), (100, 40), (100, 100), (40, 100), (40, 80)):
+            self.assertEqual(self.color(image, x, y), self.background)
 
-    def test_label_only_intersection_clips_only_covered_glyph_pixels(self):
-        label = self.shape.label_text_rect()
-        split = int(label.center().x())
-        self.start_box((label.left() - 2, label.top() - 2),
-                       (split, label.bottom() + 2))
-        self.assertLess(self.canvas.line[1].y(), self.shape.bounding_rect().top())
+    def test_point_inside_box_hides_whole_box_but_keeps_label_outside_point(self):
+        self.mouse(QEvent.MouseMove, (60, 60))
         baseline = self.capture()
         self.canvas.set_auto_hide_overlapping(True)
-        clipped = self.capture()
-        counts = [0, 0]
+        image = self.capture()
+        self.assert_box_hidden(image)
+        label = self.shape.label_text_rect().toAlignedRect()
+        ink = [(x, y) for x in range(label.left(), label.right())
+               for y in range(label.top(), label.bottom())
+               if baseline.pixelColor(x, y) != self.background]
+        self.assertTrue(ink)
+        self.assertTrue(all(image.pixelColor(x, y) == baseline.pixelColor(x, y)
+                            for x, y in ink))
+        self.assertEqual(self.canvas.visible, {})
+        self.assertTrue(self.canvas.isVisible(self.shape))
+
+    def test_point_inside_label_hides_entire_label_but_keeps_box(self):
+        label = self.shape.label_text_rect()
+        self.mouse(QEvent.MouseMove, (label.center().x(), label.center().y()))
+        baseline = self.capture()
+        self.canvas.set_auto_hide_overlapping(True)
+        image = self.capture()
+        count = 0
         for x in range(int(label.left()), int(label.right()) + 1):
             for y in range(int(label.top()), int(label.bottom()) + 1):
                 if baseline.pixelColor(x, y) != self.background:
-                    side = int(x >= split)
-                    counts[side] += 1
-                    expected = baseline.pixelColor(x, y) if side else self.background
-                    self.assertEqual(clipped.pixelColor(x, y), expected)
-        self.assertTrue(all(counts))
-        self.assertNotEqual(self.color(clipped, 60, 40), self.background)
+                    count += 1
+                    self.assertEqual(image.pixelColor(x, y), self.background)
+        self.assertGreater(count, 0)
+        for x, y in ((60, 40), (100, 80), (60, 100)):
+            self.assertNotEqual(self.color(image, x, y), self.background)
 
-    def test_contained_pending_box_does_not_hide_an_enclosing_outline(self):
-        self.start_box((50, 50), (60, 60))
-        baseline = self.capture()
-        self.canvas.set_auto_hide_overlapping(True)
-        self.assertEqual(self.capture(), baseline)
-
-    def test_complete_coverage_hides_outline_and_label(self):
-        self.start_box((10, 10), (190, 130))
+    def test_box_and_label_both_hide_when_both_contain_center(self):
+        self.shape.move_by(QPointF(0, -40))
+        self.capture()
+        label = self.shape.label_text_rect()
+        point = label.center()
+        self.assertTrue(self.shape.bounding_rect().contains(point))
+        self.mouse(QEvent.MouseMove, (point.x(), point.y()))
         self.canvas.set_auto_hide_overlapping(True)
         image = self.capture()
-        for x, y in ((40, 40), (100, 100), (60, 40)):
-            self.assertEqual(self.color(image, x, y), self.background)
         self.assertTrue(self.canvas._is_overlap_hidden(self.shape))
+        self.assertTrue(all(image.pixelColor(x, y) == self.background
+                            for x in range(35, 145) for y in range(0, 70)))
 
-    def test_reverse_and_fractional_boxes_use_normalized_clip_geometry(self):
+    def test_all_containing_boxes_hide_and_unrelated_boxes_remain_visible(self):
+        self.shape.paint_label = False
+        inner = self.box("inner", (50, 50, 70, 70))
+        inner.paint_label = False
+        other = self.box("other", (120, 50, 180, 100))
+        other.paint_label = False
+        self.canvas.load_shapes([self.shape, inner, other])
+        self.mouse(QEvent.MouseMove, (60, 60))
         self.canvas.set_auto_hide_overlapping(True)
-        for start, end in (((80, 80), (20, 20)), ((20.25, 20.5), (80.25, 80.5))):
-            with self.subTest(start=start):
-                self.start_box(start, end)
-                self.assert_frame_clipped()
+        image = self.capture()
+        self.assert_box_hidden(image)
+        self.assertEqual(self.color(image, 50, 60), self.background)
+        self.assertNotEqual(self.color(image, 120, 80), self.background)
 
-    def test_pointer_first_corner_and_zero_area_do_not_hide_boxes(self):
-        self.canvas.set_auto_hide_overlapping(True)
-        baseline = self.capture()
-        for point in ((60, 60), (40, 40), (60, 30)):
-            self.mouse(QEvent.MouseMove, point)
-            self.assertEqual(self.capture(), baseline)
-        self.canvas.handle_drawing(QPointF(50, 50))
-        self.assertEqual(self.capture(), baseline)
-        self.canvas.line[1] = QPointF(80, 50)
-        self.assertEqual(self.capture(), baseline)
-
-    def test_cache_and_fallback_match_with_labels_zoom_and_fractional_bounds(self):
-        self.canvas.set_auto_hide_overlapping(True)
-        for scale in (0.5, 1.0, 2.0):
-            self.canvas.scale = scale
-            self.canvas.set_view_offset(QPointF(3.25, 5.5))
-            for start, end in (((20.25, 20.5), (80.5, 80.25)),
-                               ((100, 20), (30, 35)), ((10, 5), (20, 10))):
-                with self.subTest(scale=scale, start=start, end=end):
-                    self.start_box(start, end)
-                    cached = self.capture()
-                    with patch.object(self.canvas._drawing_scene_cache, "paint",
-                                      return_value=False):
-                        direct = self.capture()
-                    a = cached.bits().asstring(cached.byteCount())
-                    b = direct.bits().asstring(direct.byteCount())
-                    self.assertLessEqual(max(abs(x - y) for x, y in zip(a, b)), 1)
-
-    def test_moving_cutout_does_not_rerasterize_static_annotations(self):
-        self.canvas.set_auto_hide_overlapping(True)
-        self.start_box()
-        self.capture()
-        with patch.object(self.shape, "paint", wraps=self.shape.paint) as paint:
-            for point in ((90, 80), (130, 130), (30, 30), (80, 80)):
-                self.canvas.line[1] = QPointF(*point)
-                self.capture()
-        self.assertEqual(paint.call_count, 0)
-        self.assert_frame_clipped()
-
-    def test_option_off_and_endpoint_movement_restore_pixels(self):
-        self.start_box()
+    def test_nearby_boxes_and_remote_crosshair_crossings_do_not_hide(self):
         baseline = self.capture()
         self.canvas.set_auto_hide_overlapping(True)
-        self.assert_frame_clipped()
-        # Avoid covering label pixels for the disjoint endpoint.
-        self.canvas.line[0] = QPointF(10, 5)
-        self.canvas.line[1] = QPointF(20, 10)
-        self.assertEqual(self.capture(), baseline)
-        self.canvas.set_auto_hide_overlapping(False)
-        self.assertEqual(self.capture(), baseline)
+        for point in ((35, 60), (10, 70), (70, 130), (150, 60)):
+            with self.subTest(point=point):
+                self.mouse(QEvent.MouseMove, point)
+                self.assertEqual(self.capture(), baseline)
 
-    def test_explicit_visibility_and_geometry_are_unchanged(self):
+    def test_first_corner_zero_area_and_pointer_departure_restore_components(self):
         self.canvas.set_auto_hide_overlapping(True)
-        self.start_box()
-        points = list(self.shape.points)
-        self.assert_frame_clipped()
-        self.assertEqual(self.canvas.visible, {})
-        self.assertTrue(self.canvas.isVisible(self.shape))
-        self.canvas.set_shape_visible(self.shape, False)
-        self.canvas.cancel_current_drawing()
-        self.assertEqual(self.color(self.capture(), 60, 40), self.background)
-        self.assertFalse(self.canvas.isVisible(self.shape))
-        self.assertEqual(self.shape.points, points)
+        self.mouse(QEvent.MouseMove, (60, 60))
+        before = self.capture()
+        self.assert_box_hidden(before)
+        self.canvas.handle_drawing(QPointF(60, 60))
+        self.assertEqual(self.capture(), before)
+        self.canvas.line[1] = QPointF(80, 60)
+        self.assertEqual(self.capture(), before)
+        self.canvas.line[1] = QPointF(120, 60)
+        self.assertNotEqual(self.color(self.capture(), 40, 80), self.background)
 
-    def test_cancellation_modes_and_scene_replacement_restore_pixels(self):
+    def test_drawing_uses_endpoint_containment_instead_of_rectangle_intersection(self):
+        self.start_box((20, 20), (130, 130))
         baseline = self.capture()
         self.canvas.set_auto_hide_overlapping(True)
-        for cleanup in (self.canvas.cancel_current_drawing,
-                        lambda: self.canvas.set_mode(Canvas.EDIT),
-                        lambda: self.canvas.set_mode(Canvas.PAN),
-                        lambda: self.canvas.load_shapes([self.shape])):
-            self.canvas.set_mode(Canvas.CREATE)
-            self.start_box()
-            self.assert_frame_clipped()
-            cleanup()
-            self.assertEqual(self.capture(), baseline)
-            self.assertTrue(self.canvas.auto_hide_overlapping)
+        self.assertEqual(self.capture(), baseline)
+        self.canvas.line[1] = QPointF(80, 80)
+        self.assert_box_hidden(self.capture())
+        self.canvas.line[1] = QPointF(130, 130)
+        self.assertEqual(self.capture(), baseline)
 
-    def test_label_confirmation_keeps_partial_clip_until_creation_ends(self):
+    def test_box_boundaries_and_fractional_endpoints_use_original_geometry(self):
+        self.canvas.set_auto_hide_overlapping(True)
+        for point, hidden in (((40, 60), True), ((100, 60), True),
+                              ((99.9, 60), True), ((100.1, 60), False)):
+            with self.subTest(point=point):
+                self.start_box((20, 20), point)
+                image = self.capture()
+                self.assertEqual(self.color(image, 40, 80) == self.background, hidden)
+
+    def test_center_containment_is_stable_across_zoom_and_view_offsets(self):
+        self.canvas.resize(600, 480)
+        for scale in (0.5, 1.0, 2.0, 3.0):
+            with self.subTest(scale=scale):
+                self.canvas.scale = scale
+                self.canvas.set_view_offset(QPointF(3, 5))
+                self.canvas.set_auto_hide_overlapping(False)
+                self.mouse(QEvent.MouseMove, (60, 60))
+                baseline = self.capture()
+                self.canvas.set_auto_hide_overlapping(True)
+                self.assert_box_hidden(self.capture())
+                self.mouse(QEvent.MouseMove, (30, 60))
+                self.assertEqual(self.capture(), baseline)
+
+    def test_square_constraint_uses_actual_corner_instead_of_raw_pointer(self):
+        peer = self.box("peer", (140, 60, 170, 100))
+        self.canvas.load_shapes([self.shape, peer])
+        self.canvas.set_auto_hide_overlapping(True)
+        self.canvas.set_drawing_shape_to_square(True)
+        self.canvas.handle_drawing(QPointF(20, 20))
+        self.mouse(QEvent.MouseMove, (150, 80))
+        self.assertEqual(self.canvas.line[1], QPointF(80, 80))
+        image = self.capture()
+        self.assert_box_hidden(image)
+        self.assertNotEqual(self.color(image, 150, 60), self.background)
+
+    def test_label_confirmation_ends_point_suppression_and_keeps_pending_clip(self):
         self.canvas.set_auto_hide_overlapping(True)
         self.start_box()
+        self.assert_box_hidden(self.capture())
         observed = []
 
         def choose_label():
@@ -238,19 +235,84 @@ class OverlapHidingTest(unittest.TestCase):
         self.canvas.newShape.connect(choose_label)
         self.canvas.handle_drawing(QPointF(80, 80))
         self.assertEqual(observed, [True])
-        self.assertIsNone(self.canvas._pending_overlap_rectangle())
-        self.assertNotEqual(self.color(self.capture(), 60, 40), self.background)
+        self.assertNotEqual(self.color(self.capture(), 100, 40), self.background)
 
-    def test_square_constraint_uses_actual_preview(self):
+    def test_control_leave_and_option_off_restore_without_changing_manual_visibility(self):
+        self.mouse(QEvent.MouseMove, (60, 60))
+        baseline = self.capture()
         self.canvas.set_auto_hide_overlapping(True)
-        self.canvas.set_drawing_shape_to_square(True)
-        self.canvas.handle_drawing(QPointF(20, 20))
-        self.mouse(QEvent.MouseMove, (180, 30))
-        self.assertEqual(self.canvas.line[1], QPointF(30, 30))
-        self.assertEqual(self.canvas._pending_overlap_rectangle(), QRectF(20, 20, 10, 10))
-        self.assertNotEqual(self.color(self.capture(), 60, 40), self.background)
+        self.assert_box_hidden(self.capture())
+        self.canvas.set_multi_selection_mode(True)
+        self.assertEqual(self.capture(), baseline)
+        self.canvas.set_multi_selection_mode(False)
+        self.assert_box_hidden(self.capture())
+        self.canvas.set_auto_hide_overlapping(False)
+        self.assertEqual(self.capture(), baseline)
+        self.canvas.set_auto_hide_overlapping(True)
+        QApplication.sendEvent(self.canvas, QEvent(QEvent.Leave))
+        self.assertEqual(self.capture(), baseline)
+        self.canvas.set_shape_visible(self.shape, False)
+        self.mouse(QEvent.MouseMove, (60, 60))
+        self.canvas.set_auto_hide_overlapping(False)
+        self.assertEqual(self.color(self.capture(), 60, 40), self.background)
+        self.assertFalse(self.canvas.isVisible(self.shape))
 
-    def test_drag_clips_other_frame_and_restores_it_on_release(self):
+    def test_hidden_box_includes_selected_fill_without_changing_geometry(self):
+        self.canvas.set_selected_shapes([self.shape])
+        points = list(self.shape.points)
+        self.mouse(QEvent.MouseMove, (60, 60))
+        self.canvas.set_auto_hide_overlapping(True)
+        image = self.capture()
+        self.assert_box_hidden(image)
+        self.assertEqual(self.color(image, 80, 80), self.background)
+        self.assertEqual(self.shape.points, points)
+        self.assertTrue(self.shape.selected)
+
+    def test_cancellation_modes_and_scene_replacement_clear_drawing_suppression(self):
+        baseline = self.capture()
+        self.canvas.set_auto_hide_overlapping(True)
+        for cleanup in (self.canvas.cancel_current_drawing,
+                        lambda: self.canvas.set_mode(Canvas.EDIT),
+                        lambda: self.canvas.set_mode(Canvas.PAN),
+                        lambda: self.canvas.load_shapes([self.shape])):
+            self.canvas.set_mode(Canvas.CREATE)
+            self.start_box()
+            self.assert_box_hidden(self.capture())
+            cleanup()
+            self.assertEqual(self.capture(), baseline)
+            self.assertTrue(self.canvas.auto_hide_overlapping)
+
+    def test_cached_components_match_direct_rendering_through_point_changes(self):
+        self.canvas.set_auto_hide_overlapping(True)
+        for scale in (0.5, 1.0, 2.0):
+            self.canvas.scale = scale
+            self.canvas.set_view_offset(QPointF(3.25, 5.5))
+            for start, end in (((20, 20), (60, 60)), ((80, 80), (60, 30)),
+                               ((10, 5), (130, 130)), ((20, 20), (80, 80))):
+                with self.subTest(scale=scale, end=end):
+                    self.start_box(start, end)
+                    cached = self.capture()
+                    with patch.object(self.canvas._drawing_scene_cache, "paint", return_value=False):
+                        direct = self.capture()
+                    a = cached.bits().asstring(cached.byteCount())
+                    b = direct.bits().asstring(direct.byteCount())
+                    self.assertLessEqual(max(abs(x - y) for x, y in zip(a, b)), 1)
+
+    def test_crossing_a_box_does_not_rerasterize_unaffected_annotations(self):
+        other = self.box("other", (160, 130, 190, 155))
+        other.paint_label = False
+        self.canvas.load_shapes([self.shape, other])
+        self.canvas.set_auto_hide_overlapping(True)
+        self.mouse(QEvent.MouseMove, (20, 10))
+        self.capture()
+        with patch.object(other, "paint", wraps=other.paint) as paint:
+            self.mouse(QEvent.MouseMove, (60, 60))
+            self.capture()
+            self.mouse(QEvent.MouseMove, (20, 10))
+            self.capture()
+        self.assertEqual(paint.call_count, 0)
+
+    def test_drag_clipping_persists_after_release_until_deselection(self):
         self.canvas.set_auto_hide_overlapping(True)
         active = self.begin_drag()
         self.assertEqual(active.bounding_rect(), QRectF(65, 60, 40, 55))
@@ -263,6 +325,8 @@ class OverlapHidingTest(unittest.TestCase):
             self.canvas.set_auto_hide_overlapping(True)
             self.mouse(QEvent.MouseButtonRelease, (85, 85), Qt.LeftButton)
             self.assertIsNone(self.canvas._pending_overlap_rectangle())
+            self.assertEqual(self.color(self.capture(), 100, 80), self.background)
+            self.canvas.clear_selection()
             self.assertNotEqual(self.color(self.capture(), 100, 80), self.background)
 
     def test_dragged_box_and_its_label_remain_visible(self):
@@ -293,7 +357,7 @@ class OverlapHidingTest(unittest.TestCase):
             self.assertEqual(self.color(clipped, sample_x, line_y), self.background)
             self.assertNotEqual(self.color(clipped, 40, line_y), self.background)
 
-    def test_drag_hides_other_text_over_active_label_until_selection_and_hover_end(self):
+    def test_drag_hides_other_text_over_active_label_until_deselection(self):
         active = self.begin_drag()
         self.shape.points = [QPointF(x, y) for x, y in (
             (40, 60), (180, 60), (180, 140), (40, 140),
@@ -312,7 +376,7 @@ class OverlapHidingTest(unittest.TestCase):
             self.mouse(QEvent.MouseButtonRelease, (85, 85), Qt.LeftButton)
             self.assertEqual(self.capture(), clipped)
             self.canvas.clear_selection()
-            self.canvas.set_hover_target(None)
+            self.assertIs(self.canvas.hover_shape_for_paint, active)
             restored = self.capture()
             self.assertTrue(all(restored.pixelColor(x, y) == baseline.pixelColor(x, y)
                                 for x, y in ink))
@@ -405,49 +469,45 @@ class OverlapHidingTest(unittest.TestCase):
         self.canvas.set_mode(Canvas.EDIT)
         return target
 
-    def test_canvas_hover_protects_box_and_releases_on_pointer_leave(self):
+    def test_canvas_hover_highlights_without_hiding_other_annotations(self):
         target = self.prepare_protection_target()
-        self.canvas.set_auto_hide_overlapping(True)
         self.mouse(QEvent.MouseMove, (85, 110))
         self.assertIs(self.canvas.hover_shape_for_paint, target)
         with patch.object(target, "paint"):
-            image = self.capture()
-            self.assertEqual(self.color(image, 100, 80), self.background)
-            self.assertNotEqual(self.color(image, 40, 80), self.background)
+            baseline = self.capture()
+            self.canvas.set_auto_hide_overlapping(True)
+            self.assertEqual(self.capture(), baseline)
+            self.assertNotEqual(self.color(baseline, 100, 80), self.background)
             QApplication.sendEvent(self.canvas, QEvent(QEvent.Leave))
-            self.assertNotEqual(self.color(self.capture(), 100, 80), self.background)
+            self.assertEqual(self.capture(), baseline)
         self.assertEqual(self.canvas.selected_shapes, [])
         self.assertEqual(self.canvas.visible, {})
 
-    def test_hover_and_selection_protect_own_label_from_other_outlines_and_text(self):
-        for state in ("hover", "selected"):
-            for peer_part in ("outline", "text"):
-                with self.subTest(state=state, peer_part=peer_part):
-                    target = self.prepare_protection_target()
-                    if state == "hover":
-                        self.canvas.set_hover_target(target)
-                    else:
-                        self.canvas.set_selected_shapes([target])
-                    label = target.label_text_rect()
-                    line_y = int(label.center().y())
-                    top = line_y if peer_part == "outline" else 60
-                    self.shape.points = [QPointF(x, y) for x, y in (
-                        (20, top), (180, top), (180, 140), (20, 140),
-                    )]
-                    self.shape.paint_label = peer_part == "text"
-                    self.canvas.set_auto_hide_overlapping(False)
-                    with patch.object(target, "paint"):
-                        baseline = self.capture()
-                        inside = [(x, y) for x in range(int(label.left()) + 1, int(label.right()))
-                                  for y in range(int(label.top()) + 1, int(label.bottom()))
-                                  if baseline.pixelColor(x, y) != self.background]
-                        self.assertTrue(inside)
-                        self.canvas.set_auto_hide_overlapping(True)
-                        clipped = self.capture()
-                        self.assertTrue(all(clipped.pixelColor(x, y) == self.background
-                                            for x, y in inside))
-                    self.canvas.clear_selection()
-                    self.canvas.set_hover_target(None)
+    def test_selection_protects_own_label_from_other_outlines_and_text(self):
+        for peer_part in ("outline", "text"):
+            with self.subTest(peer_part=peer_part):
+                target = self.prepare_protection_target()
+                self.canvas.set_selected_shapes([target])
+                label = target.label_text_rect()
+                line_y = int(label.center().y())
+                top = line_y if peer_part == "outline" else 60
+                self.shape.points = [QPointF(x, y) for x, y in (
+                    (20, top), (180, top), (180, 140), (20, 140),
+                )]
+                self.shape.paint_label = peer_part == "text"
+                self.canvas.set_auto_hide_overlapping(False)
+                with patch.object(target, "paint"):
+                    baseline = self.capture()
+                    inside = [(x, y) for x in range(int(label.left()) + 1, int(label.right()))
+                              for y in range(int(label.top()) + 1, int(label.bottom()))
+                              if baseline.pixelColor(x, y) != self.background]
+                    self.assertTrue(inside)
+                    self.canvas.set_auto_hide_overlapping(True)
+                    clipped = self.capture()
+                    self.assertTrue(all(clipped.pixelColor(x, y) == self.background
+                                        for x, y in inside))
+                self.canvas.clear_selection()
+                self.canvas.set_hover_target(None)
 
     def test_selection_protection_persists_off_pointer_and_ends_on_deselect(self):
         target = self.prepare_protection_target()
@@ -459,13 +519,17 @@ class OverlapHidingTest(unittest.TestCase):
             self.canvas.clear_selection()
             self.assertNotEqual(self.color(self.capture(), 100, 80), self.background)
 
-    def test_group_list_hover_protects_all_visible_members(self):
+    def test_group_hover_does_not_hide_and_group_selection_still_protects(self):
         target = self.prepare_protection_target()
         second = self.box("target", (10, 80, 50, 130))
         self.canvas.load_shapes([target, second, self.shape])
         self.canvas.set_external_hover_shapes([target, second])
-        self.canvas.set_auto_hide_overlapping(True)
         with patch.object(target, "paint"), patch.object(second, "paint"):
+            baseline = self.capture()
+            self.canvas.set_auto_hide_overlapping(True)
+            self.assertEqual(self.capture(), baseline)
+            self.assertEqual(self.canvas.hover_shapes_for_paint, (target, second))
+            self.canvas.set_selected_shapes([target, second])
             image = self.capture()
             self.assertEqual(self.color(image, 100, 80), self.background)
             self.assertEqual(self.color(image, 40, 90), self.background)
@@ -473,24 +537,28 @@ class OverlapHidingTest(unittest.TestCase):
             self.canvas.set_shape_visible(second, False)
             self.assertNotEqual(self.color(self.capture(), 40, 90), self.background)
             self.canvas.set_external_hover_shapes([])
+            self.assertEqual(self.color(self.capture(), 100, 80), self.background)
+            self.canvas.clear_selection()
             self.assertNotEqual(self.color(self.capture(), 100, 80), self.background)
 
-    def test_hover_and_selection_are_protected_together_and_remain_unclipped(self):
+    def test_hover_does_not_add_to_selected_protection(self):
         target = self.prepare_protection_target()
         self.canvas.set_selected_shapes([self.shape])
         self.canvas.set_hover_target(target)
         self.canvas.set_auto_hide_overlapping(True)
-        with patch.object(target, "paint"):
+        self.assertEqual(self.canvas._overlap_protected_shapes(), (self.shape,))
+        with patch.object(self.shape, "paint"):
             image = self.capture()
-            self.assertNotEqual(self.color(image, 100, 80), self.background)
-            self.assertFalse(self.canvas._is_overlap_hidden(target))
-            self.assertFalse(self.canvas._is_overlap_hidden(self.shape))
+            self.assertEqual(self.color(image, 65, 90), self.background)
+            self.assertTrue(any(self.color(image, x, y) != self.background
+                                for x in (64, 65, 66) for y in range(105, 114)))
         self.canvas.set_shape_visible(self.shape, False)
-        self.assertEqual(self.canvas._overlap_protected_shapes(), (target,))
+        self.assertEqual(self.canvas._overlap_protected_shapes(), ())
+        self.assertIs(self.canvas.hover_shape_for_paint, target)
 
-    def test_protected_hover_is_complete_and_above_clipped_background(self):
+    def test_protected_selection_is_complete_and_above_clipped_background(self):
         target = self.prepare_protection_target()
-        self.canvas.set_hover_target(target)
+        self.canvas.set_selected_shapes([target])
         self.canvas.set_auto_hide_overlapping(True)
         image = self.capture()
         self.canvas.set_shape_visible(self.shape, False)
@@ -521,6 +589,7 @@ class OverlapHidingTest(unittest.TestCase):
         target = self.box("inner", (60, 60, 90, 90))
         self.canvas.load_shapes([target, self.shape])
         self.canvas.set_mode(Canvas.EDIT)
+        self.canvas.set_selected_shapes([self.shape])
         self.canvas.set_auto_hide_overlapping(True)
         for _ in range(3):
             self.mouse(QEvent.MouseMove, (75, 75))
@@ -532,7 +601,7 @@ class OverlapHidingTest(unittest.TestCase):
         self.mouse(QEvent.MouseMove, (75, 75))
         self.assertIs(self.canvas.hover_shape_for_paint, target)
 
-    def test_hover_protection_follows_actual_label_visibility(self):
+    def test_selection_protection_follows_actual_label_visibility(self):
         target = self.prepare_protection_target()
         label = target.label_text_rect()
         line_y = int(label.center().y())
@@ -540,7 +609,7 @@ class OverlapHidingTest(unittest.TestCase):
         self.shape.points = [QPointF(x, y) for x, y in (
             (20, line_y), (180, line_y), (180, 140), (20, 140),
         )]
-        self.canvas.set_hover_target(target)
+        self.canvas.set_selected_shapes([target])
         self.canvas.set_auto_hide_overlapping(True)
         with patch.object(target, "paint"):
             target.paint_label = False
