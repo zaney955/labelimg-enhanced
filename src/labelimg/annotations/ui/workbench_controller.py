@@ -17,6 +17,7 @@ from labelimg.annotations.ui.errors import annotation_error_html, annotation_err
 from labelimg.annotations.domain.model import (
     AnnotationDocument,
     AnnotationDocumentError,
+    AnnotationStatus,
     YoloClassMappingDeclined,
     AnnotationFormat,
 )
@@ -1182,25 +1183,38 @@ class AnnotationActionsMixin:
         return removed
 
 
+    def _file_annotation_status(self, image_path, stored_status=None):
+        # A retained dirty document is authoritative even when an older disk
+        # index finishes later, including a new document with no save target.
+        try:
+            view = self.annotation_editing.view_image(image_path, touch=False)
+        except UnknownImageHistory:
+            view = None
+        if view is not None and view.dirty:
+            snapshot = view.snapshot
+            return AnnotationStatus(
+                bool(snapshot.boxes), snapshot.verified, snapshot.questioned,
+                frozenset(box.label for box in snapshot.boxes if box.label),
+            )
+        return stored_status if stored_status is not None else self.annotation_workspace.entry(image_path).status
+
     def file_annotation_state(self, image_path):
-        status = self.annotation_workspace.entry(image_path).status
+        status = self._file_annotation_status(image_path)
         return 'annotated' if status.has_annotations else 'unannotated'
 
-
     def file_review_state(self, image_path):
-        status = self.annotation_workspace.entry(image_path).status
+        status = self._file_annotation_status(image_path)
         if status.questioned:
             return 'questioned'
         if status.verified:
             return 'verified'
         return 'unreviewed'
 
-
     def file_workspace_state(self, image_path):
-        """Return all annotation-derived row state with one workspace query."""
+        """Project live dirty state or the latest indexed stored document."""
         entry = self.annotation_workspace.entry(image_path)
         choices = self.annotation_workspace.document_choices(image_path)
-        status = entry.status
+        status = self._file_annotation_status(image_path, entry.status)
         review = (
             'questioned' if status.questioned
             else 'verified' if status.verified
@@ -1251,6 +1265,7 @@ class AnnotationActionsMixin:
         ):
             self._cancel_annotation_edit_for_navigation()
 
+        interrupted_index = self.invalidate_directory_load_for_file_operation()
         result = self.review_state_transaction.apply(
             paths,
             state,
@@ -1275,7 +1290,7 @@ class AnnotationActionsMixin:
                     update.document and update.document.questioned
                 )
                 self.review_control.set_state(state)
-        if len(paths) == 1:
+        if len(paths) == 1 and not interrupted_index:
             self.update_file_list_item_status(paths[0])
         else:
             self.refresh_file_list_statuses()
@@ -1850,6 +1865,7 @@ class AnnotationActionsMixin:
                 tr('error.saveLabelData'), annotation_error_html(error)
             )
             return None
+        interrupted_index = self.invalidate_directory_load_for_file_operation()
         saved = outcome.saved_by_image[self.file_path]
         self.annotation_document = saved.document
         if saved.document is not None:
@@ -1860,6 +1876,8 @@ class AnnotationActionsMixin:
                 )
             )
         self._sync_annotation_history_ui()
+        if interrupted_index:
+            self.refresh_file_list_statuses()
         return saved
 
 

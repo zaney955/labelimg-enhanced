@@ -21,7 +21,11 @@ from PyQt5.QtWidgets import QAbstractItemView, QAction, QActionGroup, QCheckBox,
 import labelimg.ui.generated_resources  # noqa: F401 - registers Qt resources
 from labelimg.platform.settings_keys import (
     SETTING_AUTO_CHECK_UPDATES,
-    SETTING_AUTO_HIDE_OVERLAPPING,
+    SETTING_HIDE_AT_CROSSHAIR,
+    SETTING_PROTECT_SELECTED,
+    SETTING_CROSSHAIR_MAGNIFIER,
+    SETTING_ANNOTATION_LINE_WIDTH,
+    SETTING_ANNOTATION_FONT_SIZE,
     SETTING_AUTO_SAVE,
     SETTING_DRAW_SQUARE,
     SETTING_FILENAME,
@@ -277,6 +281,7 @@ class MainWindow(
         self.review_control.retranslate_ui()
         self.format_selector.retranslate_ui()
         self.zoom_widget.retranslate_ui()
+        self.canvas_status.retranslate_ui()
         for button in (
             self.edit_button,
             self.copy_button,
@@ -653,6 +658,7 @@ class MainWindow(
         prepared_image_data=_UNPREPARED_IMAGE_DATA,
     ):
         """Load the specified file, or the last opened file if None."""
+        self._directory_initial_selection = None
         previous_file_path = self.file_path
         if prepared_image_data is _UNPREPARED_IMAGE_DATA:
             self.cancel_deferred_image_load()
@@ -846,8 +852,7 @@ class MainWindow(
             self.update_file_list_item_status(self.file_path)
             self.refresh_candidate_labels()
 
-            counter = self.counter_str()
-            self.setWindowTitle(__appname__ + ' ' + file_path + ' ' + counter)
+            self.update_image_title()
             self.update_file_navigation_actions()
             self.set_edit_mode()
 
@@ -910,6 +915,14 @@ class MainWindow(
         )
         return True
 
+    def update_image_title(self):
+        if self.file_path:
+            self.setWindowTitle('%s %s %s' % (
+                __appname__, self.file_path, self.counter_str(),
+            ))
+        else:
+            self.setWindowTitle(__appname__)
+
     def counter_str(self):
         """
         Converts image counter to string representation.
@@ -958,6 +971,10 @@ class MainWindow(
         if not self.may_continue():
             event.ignore()
             return
+        if not self.finish_directory_loads():
+            event.ignore()
+            self.status(tr('status.imageLoadingBusy'))
+            return
         if (
             self._image_quality_thread is not None
             and self._image_quality_thread.isRunning()
@@ -998,9 +1015,11 @@ class MainWindow(
         settings[SETTING_SINGLE_CLASS] = self.single_class_mode.isChecked()
         settings[SETTING_PAINT_LABEL] = self.display_label_option.isChecked()
         settings[SETTING_DRAW_SQUARE] = self.draw_squares_option.isChecked()
-        settings[SETTING_AUTO_HIDE_OVERLAPPING] = (
-            self.auto_hide_overlapping_option.isChecked()
-        )
+        settings[SETTING_HIDE_AT_CROSSHAIR] = self.hide_at_crosshair_option.isChecked()
+        settings[SETTING_PROTECT_SELECTED] = self.protect_selected_option.isChecked()
+        settings[SETTING_CROSSHAIR_MAGNIFIER] = self.magnifier_option.isChecked()
+        settings[SETTING_ANNOTATION_LINE_WIDTH] = self.canvas.annotation_line_width
+        settings[SETTING_ANNOTATION_FONT_SIZE] = self.canvas.annotation_font_size
         settings[SETTING_LABEL_FILE_FORMAT] = self.annotation_format
         settings[SETTING_FILE_LIST_SORT_KEY] = (
             self.file_list_controls.state.sort_key
@@ -1293,6 +1312,8 @@ class MainWindow(
                 '<p>%s</p>' % outcome.failure.error,
             )
             return False
+        if outcome.saved:
+            self.invalidate_directory_load_for_file_operation()
         for receipt in outcome.saved:
             saved = receipt.workspace_save
             if receipt.image_key == self.file_path:
@@ -1378,7 +1399,7 @@ class MainWindow(
             return False
         if self.file_path:
             self._process_external_annotation_change()
-        elif self.m_img_list:
+        elif self.m_img_list and not getattr(self, '_deferred_image_load_path', None):
             index = min(max(self.cur_img_idx, 0), len(self.m_img_list) - 1)
             if not self.load_file(self.m_img_list[index]):
                 self.refresh_file_list_statuses()
@@ -1804,7 +1825,8 @@ class MainWindow(
         self.file_list_widget.addItems(items)
         for offset, path in enumerate(image_paths):
             self._file_row_by_path[path] = first + offset
-        if self.file_list_controls.state.search_active:
+        state = self.file_list_controls.state
+        if state.search_active or state.sort_key != 'name' or state.descending:
             self.apply_file_list_view(scroll_current=False)
         return len(items)
 
@@ -2184,11 +2206,14 @@ class MainWindow(
             (view.image_key for view in views),
             self.annotation_format,
         )
+        interrupted_index = bool(outcome.saved) and self.invalidate_directory_load_for_file_operation()
         for receipt in outcome.saved:
             saved = receipt.workspace_save
             if receipt.image_key == self.file_path:
                 self.annotation_document = saved.document
             self.update_file_list_item_status(receipt.image_key)
+        if interrupted_index:
+            self.refresh_file_list_statuses()
         if not outcome.ok:
             self.error_message(
                 tr('conflict.saveFailed'),

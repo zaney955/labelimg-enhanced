@@ -185,10 +185,12 @@ class NearDuplicateCanvasTest(unittest.TestCase):
     def test_marker_survives_when_only_member_labels_remain_uncovered(self):
         for shape in (self.first, self.second):
             shape.paint_label = True
+            # Leave room above each box for the default 25-point label.
+            shape.move_by(QPointF(0, 40))
         self.canvas.set_auto_hide_overlapping(True)
         self.canvas.set_mode(Canvas.CREATE)
-        self.canvas.handle_drawing(QPointF(10, 15))
-        self.canvas.line[1] = QPointF(50, 50)
+        self.canvas.handle_drawing(QPointF(10, 55))
+        self.canvas.line[1] = QPointF(50, 90)
         self.canvas.grab()
         self.assertEqual(len(self.canvas._near_duplicate_marker_hits), 1)
         for shape in (self.first, self.second):

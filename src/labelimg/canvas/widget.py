@@ -22,6 +22,7 @@ from labelimg.ui.risk_glyphs import draw_not_equal_glyph
 from labelimg.canvas.shape import Shape
 from labelimg.canvas.drawing_preview import paint_drawing_crosshair, paint_pending_box
 from labelimg.canvas.drawing_scene import DrawingSceneCache
+from labelimg.canvas.magnifier import paint_magnifier
 from labelimg.canvas.interaction import (
     CanvasContextRequest,
     CanvasInteraction,
@@ -100,12 +101,16 @@ class Canvas(QWidget):
         self.scale = 1.0
         self._view_offset = QPointF()
         self._content_margins = (0.0, 0.0, 0.0, 0.0)
-        self.label_font_size = 8
+        self.annotation_font_size = 25.0
+        self.label_font_size = 25.0
+        self.annotation_line_width = 1.5
+        self.magnifier_enabled = False
         self.pixmap = QPixmap()
         self.visible = {}
         self._hide_background = False
         self.hide_background = False
-        self.auto_hide_overlapping = False
+        self.hide_at_crosshair = False
+        self.protect_selected_annotations = False
         self._drawing_scene_cache = DrawingSceneCache()
         self._painter = QPainter()
         self._cursor = CURSOR_DEFAULT
@@ -173,10 +178,32 @@ class Canvas(QWidget):
     def isVisible(self, shape):
         return self.visible.get(shape, True)
 
-    def set_auto_hide_overlapping(self, enabled):
-        self.auto_hide_overlapping = bool(enabled)
+    def set_hide_at_crosshair(self, enabled):
+        self.hide_at_crosshair = bool(enabled)
         self._near_duplicate_marker_hits = tuple()
         self.update()
+
+    def set_protect_selected_annotations(self, enabled):
+        self.protect_selected_annotations = bool(enabled)
+        self._near_duplicate_marker_hits = tuple()
+        self.update()
+
+    def set_magnifier_enabled(self, enabled):
+        self.magnifier_enabled = bool(enabled)
+        self.update()
+
+    def set_annotation_style(self, line_width, font_size):
+        self.annotation_line_width = max(0.5, min(6.0, float(line_width)))
+        self.annotation_font_size = max(6.0, min(128.0, float(font_size)))
+        self.label_font_size = self.annotation_font_size / max(self.scale, 0.01)
+        self._drawing_scene_cache.clear()
+        self._near_duplicate_marker_hits = tuple()
+        self.update()
+
+    def set_auto_hide_overlapping(self, enabled):
+        """Compatibility for callers of the former combined control."""
+        self.set_hide_at_crosshair(enabled)
+        self.set_protect_selected_annotations(enabled)
 
     def _drawing_crosshair_position(self):
         """The scene-space center used by the crosshair and drawing visibility."""
@@ -198,7 +225,7 @@ class Canvas(QWidget):
     def _overlap_protected_shapes(self):
         """Visible selected/manipulated targets; drawing uses center containment."""
         if (
-            not self.auto_hide_overlapping or self.panning()
+            not self.protect_selected_annotations or self.panning()
             or self.current is not None or self._pending_label_shape is not None
             or self._drawing_crosshair_position() is not None
         ):
@@ -256,14 +283,14 @@ class Canvas(QWidget):
             return False
         if covered is None:
             covered = self._overlap_hiding_path(protected_shapes)
-        point = self._drawing_crosshair_position() if self.auto_hide_overlapping else None
+        point = self._drawing_crosshair_position() if self.hide_at_crosshair else None
         paint_box, paint_label = self._drawing_shape_presentation(shape, point)
         if not paint_box and not paint_label:
             return True
         if covered.isEmpty():
             return False
         if paint_box:
-            padding = max(0.75, shape.point_size / 2.0) / max(self.scale, 0.01)
+            padding = max(self.annotation_line_width / 2.0, shape.point_size / 2.0) / max(self.scale, 0.01)
             bounds = shape.bounding_rect().normalized().adjusted(
                 -padding, -padding, padding, padding,
             )
@@ -274,7 +301,7 @@ class Canvas(QWidget):
 
     def _pending_overlap_rectangle(self):
         """The constrained new rectangle, retained through initial label choice."""
-        if not self.auto_hide_overlapping:
+        if not self.hide_at_crosshair:
             return None
         pending = QRectF()
         if self.current is not None and len(self.line) == 2:
@@ -1402,6 +1429,7 @@ class Canvas(QWidget):
             )
         Shape.scale = self.scale
         Shape.label_font_size = self.label_font_size
+        Shape.line_width = self.annotation_line_width
         hover_shapes = set(
             self.hover_shapes_for_paint
             if self.editing()
@@ -1409,7 +1437,7 @@ class Canvas(QWidget):
         )
         paint_shapes = self.shapes
         protected_shapes = set(self._overlap_protected_shapes())
-        drawing_point = self._drawing_crosshair_position() if self.auto_hide_overlapping else None
+        drawing_point = self._drawing_crosshair_position() if self.hide_at_crosshair else None
         overlap_clip = self._overlap_clip_region(p, protected_shapes)
         if self.drawing() and self._near_duplicate_focus is None:
             shapes = [
@@ -1503,23 +1531,38 @@ class Canvas(QWidget):
         if self.current is not None and len(self.line) == 2:
             paint_pending_box(
                 p, image_size, self.line[0], self.line[1],
-                guide_bounds=guide_bounds,
+                guide_bounds=guide_bounds, outline_width=self.annotation_line_width,
             )
         elif self._pending_label_shape is not None:
             bounds = self._pending_label_shape.bounding_rect()
             paint_pending_box(
                 p, image_size, bounds.topLeft(), bounds.bottomRight(),
-                drawing=False,
+                drawing=False, outline_width=self.annotation_line_width,
             )
 
         if self.current is None:
             crosshair = self._drawing_crosshair_position()
             if crosshair is not None:
-                paint_drawing_crosshair(p, guide_bounds, crosshair)
+                paint_drawing_crosshair(
+                    p, guide_bounds, crosshair, line_width=self.annotation_line_width,
+                )
 
         p.save()
         p.resetTransform()
         self._paint_near_duplicate_markers(p)
+        center = self._drawing_crosshair_position() if self.magnifier_enabled else None
+        if center is not None and QRectF(0, 0, image_size.width(), image_size.height()).contains(center):
+            protected_rect = None
+            if self.current is not None and len(self.line) == 2:
+                protected_rect = QRectF(
+                    self.image_to_widget(self.line[0]),
+                    self.image_to_widget(self.line[1]),
+                ).normalized()
+            paint_magnifier(
+                p, self.pixmap, image_size, center, self.image_to_widget(center),
+                self.visibleRegion().boundingRect().intersected(self.rect()), self.scale,
+                protected_rect=protected_rect, outline_width=self.annotation_line_width,
+            )
         p.restore()
 
         self.setAutoFillBackground(True)
@@ -1672,7 +1715,7 @@ class Canvas(QWidget):
         # Pending geometry can change before the queued repaint updates the cache.
         hits = (
             self._near_duplicate_marker_layout()
-            if self.auto_hide_overlapping
+            if self.hide_at_crosshair or self.protect_selected_annotations
             else self._near_duplicate_marker_hits or self._near_duplicate_marker_layout()
         )
         for rect, cluster, _anchor in reversed(hits):

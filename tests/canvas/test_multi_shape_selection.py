@@ -4,7 +4,7 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt5.QtCore import QEvent, QPoint, QPointF, Qt
+from PyQt5.QtCore import QEvent, QPoint, QPointF, QRectF, Qt
 from PyQt5.QtGui import (
     QColor,
     QContextMenuEvent,
@@ -230,10 +230,12 @@ class CanvasMultiSelectionTest(unittest.TestCase):
         label_shape = rectangle("red label", 10, 45, 75, 85)
         label_shape.paint_label = True
         self.canvas.load_shapes([label_shape])
+        # Large labels can extend beyond this small image. Target the visible
+        # part that also lies along the other box's horizontal edge.
         label_center = label_shape.label_hit_rect(
             scale=self.canvas.scale,
             font_size=self.canvas.label_font_size,
-        ).center()
+        ).intersected(QRectF(10, 0, 90, 120)).center()
         position = (round(label_center.x()), round(label_center.y()))
         edge_shape = rectangle(
             "blue box",
@@ -292,10 +294,12 @@ class CanvasMultiSelectionTest(unittest.TestCase):
         label_shape = rectangle("red label", 10, 45, 75, 85)
         label_shape.paint_label = True
         self.canvas.load_shapes([label_shape])
+        # Large labels can extend beyond this small image. Target the visible
+        # part that also lies along the other box's horizontal edge.
         label_center = label_shape.label_hit_rect(
             scale=self.canvas.scale,
             font_size=self.canvas.label_font_size,
-        ).center()
+        ).intersected(QRectF(10, 0, 90, 120)).center()
         position = (round(label_center.x()), round(label_center.y()))
         edge_shape = rectangle(
             "blue box",

@@ -79,6 +79,7 @@ _ACTION_SECTIONS = (
         "shortcuts.section.view",
         (
             "displayLabel",
+            "magnifier",
             "labels",
             "hideAll",
             "showAll",

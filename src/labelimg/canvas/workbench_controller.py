@@ -22,6 +22,7 @@ class CanvasActionsMixin:
 
     def create_shape(self):
         self.canvas.set_mode(Canvas.CREATE)
+        self.canvas.setFocus(Qt.ShortcutFocusReason)
         self.actions.create.setChecked(True)
         self.actions.create.setEnabled(False)
 
@@ -179,8 +180,8 @@ class CanvasActionsMixin:
 
     def _render_canvas_scale(self, value):
         self.canvas.scale = 0.01 * float(value)
-        self.canvas.label_font_size = int(
-            0.02 * max(self.image.width(), self.image.height())
+        self.canvas.label_font_size = (
+            self.canvas.annotation_font_size / max(self.canvas.scale, 0.01)
         )
         self.canvas.adjustSize()
         self.canvas.update()

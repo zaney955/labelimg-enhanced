@@ -157,7 +157,9 @@ class FileActionsMixin:
             self.file_list_widget.item(row)
             for row in range(self.file_list_widget.count())
         }
-        paths = [path for path in items if path]
+        # Published rows may still be a prefix of the discovered workspace.
+        # View refreshes must never turn that prefix into the workspace itself.
+        paths = list(self.m_img_list)
         annotation_states = {
             path: item.data(FILE_ANNOTATION_STATE_ROLE)
             for path, item in items.items()
@@ -213,17 +215,18 @@ class FileActionsMixin:
             else None
         )
         blocker = QSignalBlocker(self.file_list_widget)
-        if ordered != self.m_img_list:
-            self.file_list_widget.setItems(items[path] for path in ordered)
+        row_paths = tuple(path for path in ordered if path in items)
+        if row_paths != tuple(items):
+            self.file_list_widget.setItems(items[path] for path in row_paths)
         self.m_img_list = list(ordered)
         self._file_row_by_path = {
-            path: index for index, path in enumerate(self.m_img_list)
+            path: index for index, path in enumerate(row_paths)
         }
         self.img_count = len(self.m_img_list)
         visible_count = 0
         current_item = None
         focused_item = None
-        for row, path in enumerate(self.m_img_list):
+        for row, path in enumerate(row_paths):
             item = self.file_list_widget.item(row)
             matches = path in visible_paths
             item.setHidden(not matches)
@@ -284,18 +287,26 @@ class FileActionsMixin:
         )
         if hasattr(self, 'top_commands'):
             total = len(self.m_img_list)
-            current_row = getattr(self, '_file_row_by_path', {}).get(
-                self.file_path
+            current_row = (
+                self.m_img_list.index(self.file_path)
+                if self.file_path in self.m_img_list else None
             )
+            if current_row is not None:
+                self.cur_img_idx = current_row
             current = (
                 current_row + 1
                 if current_row is not None
                 else (1 if self.file_path else 0)
             )
             self.top_commands.set_counter(current, total or current)
+        self.update_image_title()
 
 
     def _adjacent_visible_file(self, direction):
+        # Deletion owns a specific replacement until its pixels are ready.
+        # Navigating from a temporary empty session would restart at row one.
+        if getattr(self, '_deferred_image_load_path', None):
+            return None
         projection = getattr(self, '_file_list_projection', None)
         return (
             projection.adjacent_visible(self.file_path, direction)
@@ -800,6 +811,7 @@ class FileActionsMixin:
 
     def delete_file_paths(self, paths):
         before = list(self.m_img_list)
+        visible_before = set(self.visible_file_paths())
         old_current = self.file_path
         old_index = (
             before.index(old_current)
@@ -818,6 +830,7 @@ class FileActionsMixin:
             old_current,
             old_index,
             result,
+            visible_before=visible_before,
         )
         self.rescan_annotation_workspace()
         self.report_file_operation_result(tr('fileOps.delete'), result)
@@ -839,6 +852,7 @@ class FileActionsMixin:
 
 
     def run_file_operation(self, paths, title, operation):
+        self.invalidate_directory_load_for_file_operation()
         progress = None
         position = [0]
         if len(paths) > 1:
@@ -877,7 +891,9 @@ class FileActionsMixin:
         old_current,
         old_index,
         result,
+        visible_before=None,
     ):
+        visible_before = set(before) if visible_before is None else visible_before
         succeeded = set(result.succeeded_images)
         failed = set(result.failed_images)
         self.populate_file_list(self.scan_all_images(self.dir_name))
@@ -888,12 +904,12 @@ class FileActionsMixin:
                 next_path = old_current
         elif old_current:
             for candidate in before[old_index + 1:]:
-                if candidate in self.m_img_list:
+                if candidate in self.m_img_list and candidate in visible_before:
                     next_path = candidate
                     break
             if next_path is None:
                 for candidate in reversed(before[:old_index]):
-                    if candidate in self.m_img_list:
+                    if candidate in self.m_img_list and candidate in visible_before:
                         next_path = candidate
                         break
 
@@ -906,11 +922,8 @@ class FileActionsMixin:
         elif next_path is not None:
             self.cur_img_idx = self.m_img_list.index(next_path)
             self.load_file_after_deletion(next_path)
-        elif self.m_img_list:
-            self.cur_img_idx = min(old_index, len(self.m_img_list) - 1)
-            self.load_file_after_deletion(
-                self.m_img_list[self.cur_img_idx]
-            )
+        elif self.visible_file_paths():
+            self.load_file_after_deletion(self.visible_file_paths()[0])
         else:
             self.cur_img_idx = 0
             self.reset_state()
@@ -932,11 +945,13 @@ class FileActionsMixin:
             return
         self._deferred_image_load_generation = 0
         self._deferred_image_load_jobs = {}
+        self._deferred_image_load_path = None
 
 
     def cancel_deferred_image_load(self):
         self._ensure_deferred_image_loading()
         self._deferred_image_load_generation += 1
+        self._deferred_image_load_path = None
         if hasattr(self, 'file_list_widget'):
             self.file_list_widget.setEnabled(True)
 
@@ -960,6 +975,7 @@ class FileActionsMixin:
         generation = self._deferred_image_load_generation
 
         self.reset_state()
+        self._deferred_image_load_path = path
         self.set_clean()
         self.toggle_actions(False)
         self.canvas.setEnabled(False)
@@ -993,6 +1009,7 @@ class FileActionsMixin:
             job[0].wait()
         if generation != self._deferred_image_load_generation:
             return
+        self._deferred_image_load_path = None
         try:
             self.load_file(path, prepared_image_data=image)
         finally:
@@ -1123,6 +1140,9 @@ class FileActionsMixin:
             )
             return
 
+        # The Qt-free rename is synchronous. Invalidate only after success,
+        # before publishing rows, so a rejected rename keeps loading usable.
+        self.invalidate_directory_load_for_file_operation()
         renamed = dict(outcome.renamed)
         self.display_adjustment_controller.rename_paths(renamed)
         current_after = renamed.get(old_current, old_current)

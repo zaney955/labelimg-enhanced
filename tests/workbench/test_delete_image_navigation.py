@@ -2,6 +2,7 @@ import os
 import shutil
 import tempfile
 import time
+from threading import Event
 import unittest
 from unittest.mock import patch
 from xml.etree import ElementTree
@@ -295,6 +296,58 @@ class DeleteImageNavigationTest(unittest.TestCase):
             deleted_label,
             self.window.candidate_labels,
         )
+
+
+    def test_deleting_current_image_uses_next_visible_image(self):
+        self.window.file_list_controls.search_edit.setText(".png")
+        # A review filter leaves the middle image out of the navigation sequence.
+        for index in (0, 2):
+            path = os.path.join(self.annotation_dir, "%02d.xml" % (index + 1))
+            write_pascal_voc(path, "part")
+            tree = ElementTree.parse(path)
+            tree.getroot().set("verified", "yes")
+            tree.write(path, encoding="utf-8")
+        self.window._refresh_annotation_directory_index()
+        self.window.file_list_controls._set_filter("all", "verified", "all")
+        self.assertEqual(self.window.visible_file_paths(), [self.image_paths[0], self.image_paths[2]])
+        self.window.delete_image()
+        self.wait_for_current_image(self.image_paths[2])
+
+
+    def test_annotation_refresh_does_not_replace_pending_deletion_target(self):
+        released = Event()
+
+        class DelayedReader:
+            def __init__(self, path):
+                self.reader = QImageReader(path)
+
+            def setAutoTransform(self, enabled):
+                self.reader.setAutoTransform(enabled)
+
+            def read(self):
+                released.wait(3)
+                return self.reader.read()
+
+            @staticmethod
+            def supportedImageFormats():
+                return QImageReader.supportedImageFormats()
+
+        try:
+            with patch("labelimg.files.ui.controller.QImageReader", DelayedReader):
+                self.window.delete_image()
+                self.assertEqual(self.window._deferred_image_load_path, self.image_paths[1])
+                with patch.object(self.window, "load_file", wraps=self.window.load_file) as load:
+                    self.window._refresh_annotation_directory_index()
+                    self.assertEqual(load.call_count, 0)
+                self.assertIsNone(self.window.file_path)
+                self.assertFalse(self.window.actions.openNext.isEnabled())
+                self.assertFalse(self.window.actions.openPrev.isEnabled())
+                self.window.open_next_image()
+                self.assertIsNone(self.window.file_path)
+                self.assertEqual(self.window._deferred_image_load_path, self.image_paths[1])
+        finally:
+            released.set()
+        self.wait_for_current_image(self.image_paths[1])
 
 
 if __name__ == "__main__":

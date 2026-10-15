@@ -6,6 +6,8 @@ This document owns file-list navigation, selection, display, and clipboard behav
 
 An image directory supplies the workspace images. The annotation directory supplies their documents and save targets; when absent, the image directory serves both roles. Changing the annotation directory is a transactional workspace replacement, not a passive save-location preference. Standalone file opening loads one image or annotation document without implicitly opening its containing directory.
 
+Opening an image directory selects the first row of its chosen sort order, regardless of annotation state. Reordering retains an already chosen current image by path and refreshes its position consistently in the window title and navigation controls.
+
 The current image and file selection are independent. Opening or navigating never adds or removes selected files. List labels show paths relative to the workspace root, preserving nested directories; full absolute paths identify files and remain available on hover.
 
 Separate image and annotation roots preserve relative subdirectories, with conventional `images/<split>` to `labels/<split>` matching even when opening one image split against the labels root. Existing flat annotations remain candidates; competing documents require explicit active-document selection. File operations use the same path policy. YOLO class mappings prefer the annotation-local `classes.txt`, then the `labels` root mapping, then the dataset root's `data.yaml` when class files are missing or empty. The conventional dataset boundary is the parent of the nearest `labels` or `images` ancestor; a flat layout uses its selected annotation directory (or the annotation file's own directory for standalone reads). Other ancestor `classes.txt`/`data.yaml` locations within that boundary require confirmation of their path and ordered class IDs in the UI before using the mapping or publishing a background index. Standard locations win over nonstandard locations. No configuration outside the boundary is used, including symlink/junction targets. Approval is scoped to the workspace and the exact configuration content; cancellation keeps the current image and annotations, and changed content requires a new confirmation. YAML ID mappings must be contiguous from zero and class names unique. The full ordered vocabulary, including unused classes, survives saves. Fallback class sources participate in fingerprints and current-document watching.
@@ -47,6 +49,8 @@ Two fixed leading status columns precede each path: annotation presence, then re
 
 Annotation presence and review are independent: state selection and filters never infer one from the other. Persistence alerts do not modify filename text.
 
+A retained dirty editing snapshot supplies the live annotation and review state, including a new document without a stored target. A later background disk index must not replace that state. Successful annotation saves, review transactions, image-processing commits, and recovery invalidate older index generations before publishing their updated projection; an interrupted projection rebuilds every row from the authoritative current workspace.
+
 Current-image shortcuts toggle their verified or questioned state back to unreviewed when repeated. The always-visible top three-segment review control shows and sets one explicit state, independently of annotation-panel visibility. Batch commands set every selected image to one explicit state. [ADR 0010](../adr/0010-preserve-review-state-in-every-active-format.md) owns format-specific review storage.
 
 ## Clipboard transfer
@@ -59,6 +63,25 @@ Missing annotation resources do not exclude available files. Annotation-only cop
 
 ## File operations
 
+Deleting the current image chooses the first surviving next image from the operation's original visible sequence, falling back to the nearest surviving previous visible image. It never navigates into a filtered-out row. Deleting other images preserves the current image. While the chosen replacement decodes, navigation is disabled and annotation-directory refreshes do not choose another image from a transient empty session. Deleting every visible image clears the Canvas if no visible replacement remains.
+
 Delete and clear target images with all associated annotation formats; rename preserves directory and extension while changing basenames and embedded references together. Batch rename previews a unique mapping in pre-rename view order from prefix, original-name/sequence template, suffix, and unchanged extension. Transaction, rollback, unsaved-target handling, and recovery eligibility are specified once in [history and file recovery](undo-redo-and-file-recovery.md).
 
 Implementation and verification start at [files](../../src/labelimg/files), [file tests](../../tests/files), and [workbench file-entry tests](../../tests/workbench/test_file_entry_ui.py).
+
+## Cross-operation regression coverage
+
+[Sorted workspace operation tests](../../tests/workbench/test_sorted_workspace_operations.py) exercise all eight combinations of name, modification time, annotation state, and review state ordering with ascending and descending direction. Every operation checks current image identity, full row order and path mapping, annotation/review badges, Canvas document and source pixels, and title/navigation counters against independently read fixture files. Unsaved edits use explicit expected live state.
+
+| Area | Covered workflows |
+| --- | --- |
+| Opening and navigation | Synchronous/background opening at the first sorted row; previous/next navigation after mutations |
+| File operations | Current first/middle/last deletion, other-file deletion, filtered/batch/all deletion, rename, annotation clearing, and recovery |
+| Annotation editing | Paste/duplicate/delete the last box, undo/redo, manual save, autosave, and saving retained documents |
+| Review | All three batch review states and recovery, single-image review, hidden selected targets and preserved filters |
+| Image processing | Five rotation/flip commands, batch resize and pixel adjustment, crop that removes annotations, colored-frame removal, full/partial recovery, and non-destructive display adjustment/reset |
+| Interrupted workflows | Canceled review/processing/crop, crop undo/redo, failed batch rollback, quality scan/clear, and edits/saves/review/crop/recovery while an old index is paused |
+
+The matrix contains 45 operation variants per ordering mode, for 360 combinations in 28 test methods. It is also run against the installed DL package to verify the runtime copy.
+
+All destructive operations run against temporary images and annotations. Dedicated directory-loading tests also retain worker ownership until thread completion and reject obsolete publication callbacks.
