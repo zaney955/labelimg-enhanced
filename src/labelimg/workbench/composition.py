@@ -55,6 +55,7 @@ from labelimg.ui.actions import (
 )
 from labelimg.annotations.ui.style import LabelColorPalette
 from labelimg.workbench.label_color_settings import LabelColorAlgorithmMenu
+from labelimg.workbench.annotation_panel import build_annotation_panel
 from labelimg.platform.settings import Settings
 from labelimg.canvas.shape import Shape, DEFAULT_LINE_COLOR
 from labelimg.localization.runtime import (
@@ -149,7 +150,6 @@ from labelimg.files import (
     FileRecoveryBlocked,
     RecoveryOperation,
 )
-from labelimg.annotations.ui.label_group_list import LabelGroupListWidget
 from labelimg.annotations.ui.near_duplicate_chooser import NearDuplicateChooser
 from labelimg.image_tools.application.session import (
     AdjustmentChange,
@@ -268,130 +268,7 @@ class WorkbenchComposer:
         self._near_duplicate_clusters = tuple()
         self._near_duplicate_dismissals = {}
 
-        list_layout = QVBoxLayout()
-        list_layout.setContentsMargins(6, 4, 6, 6)
-        list_layout.setSpacing(6)
-
-        # Create a widget for using default label
-        self.use_default_label_checkbox = QCheckBox(get_str('useDefaultLabel'))
-        self.use_default_label_checkbox.setChecked(False)
-        self.default_label_text_line = QLineEdit()
-        use_default_label_qhbox_layout = QHBoxLayout()
-        use_default_label_qhbox_layout.setContentsMargins(0, 0, 0, 0)
-        use_default_label_qhbox_layout.setSpacing(6)
-        use_default_label_qhbox_layout.addWidget(self.use_default_label_checkbox)
-        use_default_label_qhbox_layout.addWidget(self.default_label_text_line)
-        self.default_label_row = QWidget()
-        self.default_label_row.setLayout(use_default_label_qhbox_layout)
-
-        # Create a widget for edit and diffc button
-        self.diffc_button = QCheckBox(get_str('useDifficult'))
-        self.diffc_button.setChecked(False)
-        self.diffc_button.setEnabled(False)
-        self.diffc_button.stateChanged.connect(self.button_state)
-        self.edit_button = QToolButton()
-        self.edit_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.copy_button = QToolButton()
-        self.copy_button.setObjectName('annotationCopyButton')
-        self.delete_button = QToolButton()
-        self.delete_button.setObjectName('annotationDeleteButton')
-        self.visibility_button = QToolButton()
-        self.visibility_button.setObjectName('annotationVisibilityButton')
-        self.label_color_button = QToolButton()
-        self.label_color_button.setObjectName('labelColorPaletteButton')
-        self.label_color_button.setIcon(new_icon('color'))
-        self.label_color_button.clicked.connect(self.manage_label_colors)
-        self.near_duplicate_more_button = QToolButton()
-        self.near_duplicate_more_button.setObjectName(
-            'nearDuplicateMoreButton'
-        )
-        self.near_duplicate_more_button.setText('⋮')
-        self.near_duplicate_more_button.setPopupMode(QToolButton.InstantPopup)
-        self.near_duplicate_more_menu = QMenu(
-            self.near_duplicate_more_button
-        )
-        self.restore_near_duplicate_action = QAction(self)
-        self.restore_near_duplicate_action.setEnabled(False)
-        self.restore_near_duplicate_action.triggered.connect(
-            self.restore_current_near_duplicate_dismissals
-        )
-        self.near_duplicate_more_menu.addAction(
-            self.restore_near_duplicate_action
-        )
-        self.near_duplicate_more_button.setMenu(
-            self.near_duplicate_more_menu
-        )
-        self.annotation_header = QWidget()
-        annotation_header_layout = QHBoxLayout(self.annotation_header)
-        annotation_header_layout.setContentsMargins(0, 0, 0, 0)
-        annotation_header_layout.setSpacing(4)
-        for button in (
-            self.edit_button,
-            self.copy_button,
-            self.delete_button,
-            self.visibility_button,
-            self.label_color_button,
-            self.near_duplicate_more_button,
-        ):
-            button.setAutoRaise(True)
-            button.setIconSize(QSize(20, 20))
-            annotation_header_layout.addWidget(button)
-        annotation_header_layout.addStretch(1)
-
-        # Add some of widgets to list_layout
-        list_layout.addWidget(self.annotation_header)
-        list_layout.addWidget(self.diffc_button)
-        list_layout.addWidget(self.default_label_row)
-
-        self.label_filter = QLineEdit()
-        self.label_filter.setPlaceholderText(tr('labels.filter'))
-        self.label_filter_icon_action = decorate_list_query_field(
-            self.label_filter,
-            'filter',
-        )
-        self.label_filter.setToolTip(tr('labels.filterName'))
-        self.label_filter.setAccessibleName(tr('labels.filterName'))
-        list_layout.addWidget(self.label_filter)
-
-        self.label_summary_label = QLabel()
-        self.label_summary_label.setContentsMargins(6, 1, 6, 2)
-        self.label_summary_label.setStyleSheet('color: palette(mid);')
-        list_layout.addWidget(self.label_summary_label)
-
-        self.label_list = LabelGroupListWidget()
-        label_list_container = QWidget()
-        label_list_container.setLayout(list_layout)
-        self.label_filter.textChanged.connect(
-            self.label_list.set_filter_text
-        )
-        self.label_list.summaryChanged.connect(
-            self.label_summary_label.setText
-        )
-        self.label_list.selectionRequested.connect(
-            self.label_selection_requested
-        )
-        self.label_list.visibilityRequested.connect(
-            self.label_visibility_requested
-        )
-        self.label_list.groupEditRequested.connect(
-            self.edit_label_group
-        )
-        self.label_list.instanceEditRequested.connect(
-            self.edit_shape_label
-        )
-        self.label_list.contextMenuRequested.connect(
-            self.pop_label_group_menu
-        )
-        self.label_summary_label.setText(
-            self.label_list.summary_text()
-        )
-        list_layout.addWidget(self.label_list)
-
-
-
-        self.dock = QDockWidget(get_str('boxLabelText'), self)
-        self.dock.setObjectName(get_str('labels'))
-        self.dock.setWidget(label_list_container)
+        build_annotation_panel(self)
 
         self.file_list_widget = FileListWidget()
         self.file_list_widget.setItemDelegate(
@@ -1092,7 +969,7 @@ class WorkbenchComposer:
                                    rotate_180, flip_horizontal, flip_vertical,
                                    transform_image, adjust_image,
                                    check_image_quality),
-                              onShapesPresent=(save_as, hide_all, show_all))
+                              onShapesPresent=(save_as, hide_all, show_all, toggle_visibility))
 
         self.menus = SimpleNamespace(
             file=self.menu(get_str('menu_file')),

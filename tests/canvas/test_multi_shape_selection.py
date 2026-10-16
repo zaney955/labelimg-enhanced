@@ -968,9 +968,9 @@ class MainWindowMultiSelectionTest(unittest.TestCase):
         self.assertFalse(self.window.canvas.multi_selection_mode)
         self.assertFalse(self.window.canvas.draw_square)
 
-    def test_bulk_duplicate_selects_only_new_offset_copies(self):
-        first = rectangle("first", 10, 10, 30, 30)
-        second = rectangle("second", 50, 50, 80, 80)
+    def test_bulk_duplicate_preserves_coordinates_and_selects_only_copies(self):
+        first = rectangle("first", 0, 0, 30.5, 30.5)
+        second = rectangle("second", 50.25, 50.25, 120, 120)
         self.load_shapes([first, second])
         original_points = [
             [QPointF(point) for point in shape.points]
@@ -978,7 +978,7 @@ class MainWindowMultiSelectionTest(unittest.TestCase):
         ]
         self.window.canvas.set_selected_shapes([first, second])
 
-        self.window.copy_selected_shape()
+        self.window.actions.copy.trigger()
 
         copies = self.window.canvas.selected_shapes
         self.assertEqual(len(self.window.canvas.shapes), 4)
@@ -987,7 +987,12 @@ class MainWindowMultiSelectionTest(unittest.TestCase):
         self.assertNotIn(second, copies)
         self.assertEqual(self.window.label_list.group_count(), 2)
         for copy, points in zip(copies, original_points):
-            self.assertNotEqual(copy.points, points)
+            self.assertEqual(copy.points, points)
+
+        self.window.actions.copy.trigger()
+        self.assertEqual(len(self.window.canvas.shapes), 6)
+        for copy, points in zip(self.window.canvas.selected_shapes, original_points):
+            self.assertEqual(copy.points, points)
 
     def test_bulk_delete_removes_hidden_selected_shapes(self):
         visible = rectangle("visible", 10, 10, 30, 30)
@@ -1018,6 +1023,14 @@ class MainWindowMultiSelectionTest(unittest.TestCase):
         self.assertNotIn(first, self.window.canvas.selected_shapes)
         self.assertNotIn(second, self.window.canvas.selected_shapes)
         self.assertEqual(self.window.label_list.group_count(), 3)
+        for copy, original in zip(self.window.canvas.selected_shapes, (first, second)):
+            self.assertEqual(copy.points, original.points)
+
+        # Duplicating a pasted selection must also leave all coordinates intact.
+        self.window.actions.copy.trigger()
+        self.assertEqual(len(self.window.canvas.shapes), 7)
+        for copy, original in zip(self.window.canvas.selected_shapes, (first, second)):
+            self.assertEqual(copy.points, original.points)
 
 
 if __name__ == "__main__":

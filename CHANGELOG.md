@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Preserve original box coordinates when duplicating with Ctrl+D, matching Ctrl+C / Ctrl+V without an automatic offset, including repeated duplication and multi-selection at image boundaries.
+
+- Reorganize the annotation dock into global header controls, a compact Default Category selector, filtering, and a selection-dependent bottom bar; preserve annotation transactions and restore the all-annotation visibility button's enabled state.
+
 - Refresh the category chooser with compact equal-width labels, opaque color strips and outlines, annotation-list pale fills, live filtering, natural numeric sorting, and keyboard navigation; keep filtering geometry and pending-annotation behavior stable.
 
 - Add Settings → Label Color Algorithm with improved fixed full-name OKLCH colors by default and optional session-only maximum color separation; remember only the algorithm choice and preserve manual overrides when switching.

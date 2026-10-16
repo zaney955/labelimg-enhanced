@@ -563,6 +563,29 @@ class MainWindowHistoryIntegrationTest(unittest.TestCase):
             ["cat"],
         )
 
+    def test_duplicate_undo_redo_preserves_original_coordinates(self):
+        annotations = [
+            ("cat", [(0, 0), (30.5, 0), (30.5, 30.5), (0, 30.5)], False),
+            ("dog", [(490, 490), (512, 490), (512, 512), (490, 512)], True),
+        ]
+        self.window.annotation_clipboard = annotations
+        self.window.paste_copied_bounding_boxes()
+        self.window.actions.copy.trigger()
+
+        def assert_copies():
+            self.assertEqual(len(self.window.canvas.shapes), 4)
+            self.assertEqual(
+                [self.window.format_shape_for_clipboard(shape)
+                 for shape in self.window.canvas.shapes[2:]],
+                annotations,
+            )
+
+        assert_copies()
+        self.window.undo_annotation()
+        self.assertEqual(len(self.window.canvas.shapes), 2)
+        self.window.redo_annotation()
+        assert_copies()
+
     def test_session_palette_recolors_category_without_changing_history(self):
         self.window.annotation_clipboard = [
             (

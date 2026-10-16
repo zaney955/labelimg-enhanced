@@ -51,6 +51,7 @@ from labelimg.ui.actions import (
     set_action_copy,
 )
 from labelimg.platform.settings import Settings
+from labelimg.workbench.annotation_panel import update_annotation_summary
 from labelimg.localization.runtime import (
     ENGLISH,
     LANGUAGE_NAMES,
@@ -231,7 +232,12 @@ class MainWindow(
                 tr(text_id) if text_id is not None else None,
                 tr(tip_id) if tip_id is not None else None,
             )
-        self.use_default_label_checkbox.setText(tr('useDefaultLabel'))
+        self.annotation_title.setText(tr('boxLabelText'))
+        self.default_category_caption.setText(tr('annotationPanel.defaultCategory'))
+        self.edit_button.setText(tr('annotationPanel.edit'))
+        self.annotation_selection_label.setText(
+            tr('annotationPanel.selected', count=len(self.canvas.selection_snapshot.selected))
+        )
         self.diffc_button.setText(tr('useDifficult'))
         self.label_filter.setPlaceholderText(tr('labels.filter'))
         self.label_filter.setToolTip(tr('labels.filterName'))
@@ -310,7 +316,7 @@ class MainWindow(
             action.setChecked(language == current_language())
         self.canvas.setToolTip(tr('canvas.image'))
         self.update_file_selection_count()
-        self.label_summary_label.setText(self.label_list.summary_text())
+        update_annotation_summary(self, self.label_list.summary_text())
         if hasattr(self, 'annotation_editing'):
             self._sync_annotation_history_ui()
         self.sync_all_annotations_action(

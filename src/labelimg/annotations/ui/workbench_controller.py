@@ -1777,6 +1777,14 @@ class AnnotationActionsMixin:
             self.diffc_button.setChecked(False)
         del blocker
 
+        self.annotation_selection_bar.setVisible(bool(selection.selected))
+        self.annotation_selection_label.setText(
+            tr('annotationPanel.selected', count=len(selection.selected))
+        )
+        self.edit_button.setVisible(capabilities.can_edit_single)
+        self.diffc_button.setVisible(capabilities.can_edit_single)
+        self.edit_button.setText(tr('annotationPanel.edit'))
+
 
     def add_label(self, shape):
         shape.paint_label = self.display_label_option.isChecked()
@@ -1962,7 +1970,8 @@ class AnnotationActionsMixin:
 
         position MUST be in global coordinates.
         """
-        if not self.use_default_label_checkbox.isChecked() or not self.default_label_text_line.text():
+        default_label = self.default_category_selector.fixed_label
+        if default_label is None:
             # Sync single class mode from PR#106
             if self.single_class_mode.isChecked() and self.lastLabel:
                 text = self.lastLabel
@@ -1972,7 +1981,7 @@ class AnnotationActionsMixin:
                 )
                 self.lastLabel = text
         else:
-            text = self.default_label_text_line.text()
+            text = default_label
 
         # Add Chris
         self.diffc_button.setChecked(False)
@@ -2039,6 +2048,7 @@ class AnnotationActionsMixin:
         candidate_labels = list(
             self.annotation_workspace.candidate_labels
         )
+        self.default_category_selector.set_candidate_labels(candidate_labels)
         if candidate_labels == self.candidate_labels:
             # A new workspace can reset session colors without changing labels.
             self.candidate_label_dialog.refresh_colors()

@@ -75,7 +75,7 @@ Every newly opened or navigated image starts with an empty annotation selection.
 
 - Holding Ctrl enters temporary multi-selection with a crosshair. A click toggles one box; a dragged selection region replaces the selection with fully contained boxes. The region is dashed and lightly translucent. After its drag threshold, single-box hover is suppressed until release recomputes the pointer target.
 - Ctrl suppresses resize cursors and enlarged corners while retaining complete-box hover. Releasing it restores ordinary editing without clearing selection.
-- Ordinary geometry edits require one selected box. Copy, duplicate, delete, and explicitly scoped visibility commands can operate on the selection. A clipboard snapshot is distinct from in-image duplication; append paste preserves existing boxes and selects only the new boxes. Duplicates are slightly offset and become selected.
+- Ordinary geometry edits require one selected box. Copy, duplicate, delete, and explicitly scoped visibility commands can operate on the selection. A clipboard snapshot is distinct from in-image duplication; append paste preserves existing boxes and selects only the new boxes. Both paste and in-image duplication preserve source coordinates without an automatic offset; paste still constrains coordinates to the target image bounds. Duplicates become selected.
 - Previous-image annotation copy replaces the current boxes with copies from the previous image's session document, or its selected stored document if no session state exists. Paste, duplicate, and previous-image copy retain their completed results in history; Redo does not reread the clipboard or source image.
 
 Pointer resolution uses current visible geometry and pointer position, independently of selection, modifiers, approach direction, and prior hover. Resolve the nearest eligible corner, then edge, then containing box interior. Corner hit areas shrink for very small boxes so an interior move target remains available; a corner drag follows its geometric diagonal. Distances equal within tolerance resolve to the topmost annotation layer.
@@ -100,7 +100,17 @@ Canvas, instance-button, F2, Edit-button, and `Ctrl+E` entry points share one pe
 
 ## Label groups and instance strips
 
-The annotation list groups exact, case-sensitive labels. Groups exist only while they contain a box, and rows sort by case-insensitive natural label order with exact text as tie-breaker. Instance buttons follow annotation-document order; their displayed ordinals may change after edits and are not stored identities.
+### Panel command placement
+
+The annotation dock's movable title row contains the title, compact current-image totals, and global visibility, category-color, and list-option controls. Totals retain filter and hidden-selection information; elided header text exposes the complete summary in its tooltip and accessible name. Global visibility becomes available when annotations exist and applies to the whole image independently of selection.
+
+Below the title, **Default category** and the category filter each occupy one aligned row. The default selector replaces the former checkbox and blank text field: **Choose each time** disables the fixed default, known categories can be chosen directly, and **Set fixed category…** opens the shared chooser for an arbitrary name. Cancel preserves the previous default. The fixed choice is window-local, survives navigation and candidate rescans, and remains selectable when unused; it never registers a workspace category until a box actually uses it. Fixed defaults retain precedence over the existing Single Class Mode behavior. No default-category choice is written to annotation data, history, or application settings.
+
+Selection-dependent commands occupy a bottom bar shown only while boxes are selected. Single-box selection exposes category editing, duplication, deletion, and Difficult; multiple selection retains duplication/deletion and its complete selected count, including filtered-out boxes. Existing single-box capability and atomic history boundaries remain unchanged. Showing or hiding the bar changes the list's available height without moving the filter or its first row. The list, selector, and filter share the same horizontal margins.
+
+### Rows and selection
+
+The annotation list groups exact, case-sensitive labels. Groups exist only while they contain a box, and rows sort by case-insensitive natural label order with exact text as tie-breaker. A small opaque category-color bar precedes each ordinary text label. Instance buttons follow annotation-document order; their displayed ordinals may change after edits and are not stored identities.
 
 Each row keeps its class name, total, and aggregate eye fixed while its complete instance strip scrolls horizontally. The shared class-name column fits content including bold selection text, may occupy nearly half a row, and always leaves at least one whole instance button. Elision is identical in every selection state and exposes full text on hover.
 

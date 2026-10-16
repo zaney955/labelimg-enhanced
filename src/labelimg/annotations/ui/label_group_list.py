@@ -40,7 +40,7 @@ class LabelGroupListWidget(QAbstractScrollArea):
     label_min_width = 36
     label_max_width = 240
     label_width_ratio = 0.45
-    label_left_margin = 6
+    label_left_margin = 16
     label_button_gap = 6
     count_area_width = 50
     risk_area_width = 16
@@ -253,7 +253,7 @@ class LabelGroupListWidget(QAbstractScrollArea):
         group = self._groups_by_label.get(str(label))
         return group is not None and self._row_is_hovered(group)
 
-    def summary_text(self):
+    def summary_text(self, compact=False):
         groups = self._filtered_groups()
         shown_group_count = len(groups)
         shown_shapes = {
@@ -262,7 +262,7 @@ class LabelGroupListWidget(QAbstractScrollArea):
         shown_annotation_count = len(shown_shapes)
         if self._filter_text:
             text = tr(
-                "labelSummary.filtered",
+                "annotationPanel.filteredSummary" if compact else "labelSummary.filtered",
                 shown_groups=shown_group_count,
                 all_groups=len(self._groups),
                 shown_annotations=shown_annotation_count,
@@ -270,7 +270,7 @@ class LabelGroupListWidget(QAbstractScrollArea):
             )
         else:
             text = tr(
-                "labelSummary.all",
+                "annotationPanel.summary" if compact else "labelSummary.all",
                 groups=len(self._groups),
                 annotations=len(self._scene_shapes),
             )
@@ -279,7 +279,7 @@ class LabelGroupListWidget(QAbstractScrollArea):
         )
         if hidden_selected:
             text += tr(
-                "labelSummary.hiddenSelected",
+                "annotationPanel.hiddenSelected" if compact else "labelSummary.hiddenSelected",
                 count=hidden_selected,
             )
         return text
@@ -476,6 +476,14 @@ class LabelGroupListWidget(QAbstractScrollArea):
                 1.5,
                 1.5,
             )
+
+        color = QColor(group.shapes[0].line_color)
+        color.setAlpha(255)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(color)
+        painter.drawRoundedRect(
+            QRectF(row_rect.left() + 7, row_rect.top() + 9, 4, self.row_height - 18), 2, 2,
+        )
 
         font = QFont(painter.font())
         font.setBold(all_selected)

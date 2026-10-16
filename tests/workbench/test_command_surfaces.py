@@ -405,11 +405,8 @@ class CommandSurfacesTest(unittest.TestCase):
         self.app.processEvents()
 
         annotation_rows = [
-            self.window.annotation_header,
-            self.window.diffc_button,
             self.window.default_label_row,
             self.window.label_filter,
-            self.window.label_summary_label,
             self.window.label_list,
         ]
         file_rows = [
@@ -418,14 +415,12 @@ class CommandSurfacesTest(unittest.TestCase):
             self.window.file_list_stack,
             self.window.file_selection_count_label,
         ]
-        for rows in (annotation_rows, file_rows):
-            self.assertEqual({row.x() for row in rows}, {6})
+        for rows, margin in ((annotation_rows, 12), (file_rows, 6)):
+            self.assertEqual({row.x() for row in rows}, {margin})
             self.assertEqual({row.width() for row in rows}, {rows[0].width()})
 
-        self.assertEqual(
-            self.window.label_filter.height(),
-            self.window.file_list_controls.search_edit.height(),
-        )
+        self.assertGreaterEqual(self.window.label_filter.height(), 28)
+        self.assertIs(self.window.dock.titleBarWidget(), self.window.annotation_header)
         self.assertFalse(self.window.label_filter_icon_action.isEnabled())
         self.assertFalse(
             self.window.label_filter_icon_action.icon().isNull()
@@ -438,8 +433,7 @@ class CommandSurfacesTest(unittest.TestCase):
 
     def test_one_shot_create_accept_returns_to_enabled_selection(self):
         self.load_image("accept.png")
-        self.window.use_default_label_checkbox.setChecked(True)
-        self.window.default_label_text_line.setText("cat")
+        self.window.default_category_selector.set_fixed_label("cat")
 
         self.window.create_shape()
         self.window.canvas.handle_drawing(QPointF(2, 2))
@@ -460,7 +454,7 @@ class CommandSurfacesTest(unittest.TestCase):
 
     def test_one_shot_create_cancel_returns_to_selection_without_shape(self):
         self.load_image("cancel.png")
-        self.window.use_default_label_checkbox.setChecked(False)
+        self.window.default_category_selector.set_fixed_label(None)
 
         with patch.object(
             self.window.candidate_label_dialog,
@@ -481,7 +475,7 @@ class CommandSurfacesTest(unittest.TestCase):
         for label in ("cat", None):
             with self.subTest(label=label):
                 self.load_image("pending-%s.png" % label, color="#505050")
-                self.window.use_default_label_checkbox.setChecked(False)
+                self.window.default_category_selector.set_fixed_label(None)
                 self.window.single_class_mode.setChecked(False)
                 canvas = self.window.canvas
                 canvas.scale = 1.0
@@ -559,7 +553,7 @@ class CommandSurfacesTest(unittest.TestCase):
         for label in ("cat", None):
             with self.subTest(label=label):
                 self.load_image("overlap-%s.png" % label)
-                self.window.use_default_label_checkbox.setChecked(False)
+                self.window.default_category_selector.set_fixed_label(None)
                 self.window.single_class_mode.setChecked(False)
                 if not self.window.hide_at_crosshair_option.isChecked():
                     self.window.hide_at_crosshair_option.trigger()

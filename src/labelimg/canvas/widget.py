@@ -1387,23 +1387,11 @@ class Canvas(QWidget):
 
         copies = [shape.copy() for shape in originals]
         self.shapes.extend(copies)
-        for shape in copies:
-            self.bounded_shift_shape(shape)
         self.set_selected_shapes(
             copies,
             active_shape=copies[-1],
         )
         return copies
-
-    def bounded_shift_shape(self, shape):
-        # Try to move in one direction, and if it fails in another.
-        # Give up if both fail.
-        point = shape[0]
-        offset = QPointF(2.0, 2.0)
-        self.calculate_offsets(shape, point)
-        self.prev_point = point
-        if not self.bounded_move_shape(shape, point - offset):
-            self.bounded_move_shape(shape, point + offset)
 
     def paintEvent(self, event):
         if not self.pixmap:
