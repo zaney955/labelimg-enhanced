@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add Settings → Label Color Algorithm with improved fixed full-name OKLCH colors by default and optional session-only maximum color separation; remember only the algorithm choice and preserve manual overrides when switching.
+
 ## 2.6.0
 
 - Prevent late background indexes from overwriting committed review, crop, recovered, or saved annotation state; project unsaved annotation status from retained editing snapshots.

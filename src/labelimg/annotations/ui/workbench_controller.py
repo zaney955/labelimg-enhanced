@@ -2040,6 +2040,8 @@ class AnnotationActionsMixin:
             self.annotation_workspace.candidate_labels
         )
         if candidate_labels == self.candidate_labels:
+            # A new workspace can reset session colors without changing labels.
+            self.candidate_label_dialog.refresh_colors()
             return False
 
         self.candidate_labels[:] = candidate_labels

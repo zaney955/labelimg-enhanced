@@ -28,6 +28,7 @@ from labelimg.annotations.domain.model import (
     AnnotationFormat,
 )
 from labelimg.annotations.infrastructure.document import AnnotationDocument
+from labelimg.annotations.ui.color_algorithms import FIXED, MAXIMIN
 from labelimg.canvas.widget import Canvas
 from labelimg.localization.runtime import tr
 from labelimg.workbench.bootstrap import WorkbenchLaunchOptions, create_workbench
@@ -595,6 +596,69 @@ class MainWindowHistoryIntegrationTest(unittest.TestCase):
         self.window._begin_workspace_editing_session()
 
         self.assertIsNone(self.window.label_color_palette.override("cat"))
+
+    def test_switching_color_algorithm_refreshes_boxes_and_candidates_without_editing(self):
+        self.window.annotation_clipboard = [
+            (label, ((10, 10), (30, 10), (30, 30), (10, 30)), False)
+            for label in ("P_LS_LM2", "P_LS_LM3", "P_LSBM")
+        ]
+        self.window.paste_copied_bounding_boxes()
+        palette = self.window.label_color_palette
+        shapes = self.window.canvas.shapes
+        fixed = [QColor(shape.line_color) for shape in shapes]
+        palette.set_color("P_LSBM", QColor(12, 34, 56))
+        self.window._refresh_label_color_projection()
+        before = self.window.annotation_editing.view.snapshot
+        dirty = self.window.dirty
+        self.window.menus.labelColorAlgorithm.actions_by_algorithm[MAXIMIN].trigger()
+        self.assertEqual(self.window.annotation_editing.view.snapshot, before)
+        self.assertEqual(self.window.dirty, dirty)
+        self.assertNotEqual(shapes[0].line_color, fixed[0])
+        self.assertEqual(shapes[2].line_color, QColor(12, 34, 56))
+        candidates = self.window.candidate_label_dialog.list_widget
+        self.assertGreater(candidates.count(), 0)
+        for index in range(candidates.count()):
+            item = candidates.item(index)
+            self.assertEqual(item.data(Qt.BackgroundRole), palette.color(item.text()))
+        for shape in shapes:
+            self.assertEqual(shape.line_color, palette.color(shape.label))
+        self.window.menus.labelColorAlgorithm.actions_by_algorithm[FIXED].trigger()
+        self.assertEqual(shapes[0].line_color, fixed[0])
+        self.assertEqual(shapes[1].line_color, fixed[1])
+        self.assertEqual(shapes[2].line_color, QColor(12, 34, 56))
+
+    def test_maximin_colors_survive_image_navigation_and_annotation_undo_redo(self):
+        self.window.menus.labelColorAlgorithm.actions_by_algorithm[MAXIMIN].trigger()
+        self.window.annotation_clipboard = [
+            ("cat", ((10, 10), (30, 10), (30, 30), (10, 30)), False),
+        ]
+        self.window.paste_copied_bounding_boxes()
+        color = QColor(self.window.canvas.shapes[0].line_color)
+        self.window.undo_annotation()
+        self.window.redo_annotation()
+        self.assertEqual(self.window.canvas.shapes[0].line_color, color)
+        second = os.path.join(self.temp_dir.name, "next.png")
+        image = QPixmap(20, 20)
+        self.assertTrue(image.save(second))
+        self.window.dir_name = self.temp_dir.name
+        self.window.m_img_list = [self.window.file_path, second]
+        self.assertTrue(self.window.load_file(second))
+        self.assertEqual(self.window.label_color_palette.color("cat"), color)
+        self.window.paste_copied_bounding_boxes()
+        self.assertEqual(self.window.canvas.shapes[0].line_color, color)
+
+    def test_workspace_reset_refreshes_unchanged_candidate_colors(self):
+        self.window.menus.labelColorAlgorithm.actions_by_algorithm[MAXIMIN].trigger()
+        self.window.annotation_workspace.record(
+            os.path.join(self.temp_dir.name, "labels.xml"), ("cat",),
+        )
+        self.window.refresh_candidate_labels()
+        self.window.label_color_palette.set_color("cat", QColor("red"))
+        self.window._refresh_label_color_projection()
+        self.window._begin_workspace_editing_session()
+        self.assertFalse(self.window.refresh_candidate_labels())
+        item = self.window.candidate_label_dialog.list_widget.item(0)
+        self.assertEqual(item.data(Qt.BackgroundRole), self.window.label_color_palette.color(item.text()))
 
     def test_switching_standalone_image_clears_palette(self):
         second = os.path.join(self.temp_dir.name, "second.png")

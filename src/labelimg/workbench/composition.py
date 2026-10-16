@@ -29,6 +29,7 @@ from labelimg.platform.settings_keys import (
     SETTING_CROSSHAIR_MAGNIFIER,
     SETTING_ANNOTATION_LINE_WIDTH,
     SETTING_ANNOTATION_FONT_SIZE,
+    SETTING_LABEL_COLOR_ALGORITHM,
     SETTING_AUTO_SAVE,
     SETTING_DRAW_SQUARE,
     SETTING_FILENAME,
@@ -53,6 +54,7 @@ from labelimg.ui.actions import (
     set_action_copy,
 )
 from labelimg.annotations.ui.style import LabelColorPalette
+from labelimg.workbench.label_color_settings import LabelColorAlgorithmMenu
 from labelimg.platform.settings import Settings
 from labelimg.canvas.shape import Shape, DEFAULT_LINE_COLOR
 from labelimg.localization.runtime import (
@@ -247,7 +249,9 @@ class WorkbenchComposer:
             save_dir=default_save_dir,
             confirm_yolo_mapping=self._confirm_yolo_class_mapping,
         )
-        self.label_color_palette = LabelColorPalette()
+        self.label_color_palette = LabelColorPalette(
+            settings.get(SETTING_LABEL_COLOR_ALGORITHM, 'fixed')
+        )
         self.candidate_labels = list(
             self.annotation_workspace.candidate_labels
         )
@@ -1172,6 +1176,10 @@ class WorkbenchComposer:
             self.language_action_group.addAction(language_action)
             self.language_actions[language] = language_action
 
+        self.menus.labelColorAlgorithm = LabelColorAlgorithmMenu(
+            self.label_color_palette, self._refresh_label_color_projection, self,
+        )
+
         # Auto saving: persist annotation changes shortly after they occur.
         self.auto_saving = QAction(get_str('autoSaveMode'), self)
         self.auto_saving.setIcon(new_icon('auto-save'))
@@ -1275,6 +1283,7 @@ class WorkbenchComposer:
         ))
         add_actions(self.menus.settings, (
             self.menus.language,
+            self.menus.labelColorAlgorithm,
             None,
             self.auto_saving,
             self.single_class_mode,

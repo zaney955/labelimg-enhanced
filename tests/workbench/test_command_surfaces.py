@@ -12,6 +12,7 @@ from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication
 
 from labelimg.annotations.domain.model import AnnotationFormat
+from labelimg.annotations.ui.color_algorithms import FIXED, MAXIMIN
 from labelimg.workbench.bootstrap import WorkbenchLaunchOptions, create_workbench
 from labelimg.canvas.widget import Canvas
 from labelimg.canvas.shape import Shape
@@ -20,6 +21,7 @@ from labelimg.platform.settings_keys import (
     SETTING_AUTO_HIDE_OVERLAPPING,
     SETTING_HIDE_AT_CROSSHAIR,
     SETTING_PROTECT_SELECTED,
+    SETTING_LABEL_COLOR_ALGORITHM,
 )
 
 
@@ -705,17 +707,51 @@ class CommandSurfacesTest(unittest.TestCase):
             actions,
             [
                 self.window.menus.language.menuAction(),
-                actions[1],
+                self.window.menus.labelColorAlgorithm.menuAction(),
+                actions[2],
                 self.window.auto_saving,
                 self.window.single_class_mode,
                 self.window.auto_update_check,
-                actions[5],
+                actions[6],
                 self.window.actions.resetAll,
             ],
         )
-        self.assertTrue(actions[1].isSeparator())
-        self.assertTrue(actions[5].isSeparator())
+        self.assertTrue(actions[2].isSeparator())
+        self.assertTrue(actions[6].isSeparator())
         self.assertTrue(self.window.single_class_mode.shortcut().isEmpty())
+
+    def test_color_algorithm_selection_persists_only_mode_and_reset_defaults_to_fixed(self):
+        menu = self.window.menus.labelColorAlgorithm
+        self.assertTrue(menu.actions_by_algorithm[FIXED].isChecked())
+        menu.actions_by_algorithm[MAXIMIN].trigger()
+        self.assertEqual(self.window.label_color_palette.algorithm, MAXIMIN)
+        self.assertFalse(menu.actions_by_algorithm[FIXED].isChecked())
+        self.window.label_color_palette.color("P_LSBM")
+        self.window.label_color_palette.set_color("custom", QColor("red"))
+        self.assertTrue(self.window.close())
+        self.assertEqual(self.window.settings[SETTING_LABEL_COLOR_ALGORITHM], MAXIMIN)
+        self.assertEqual(
+            [key for key in self.window.settings.data if "labelColor" in key],
+            [SETTING_LABEL_COLOR_ALGORITHM],
+        )
+        self.reopen_window()
+        self.assertEqual(self.window.label_color_palette.algorithm, MAXIMIN)
+        self.assertEqual(self.window.label_color_palette.snapshot(), {})
+        self.assertTrue(self.window.menus.labelColorAlgorithm.actions_by_algorithm[MAXIMIN].isChecked())
+        with patch("labelimg.workbench.main_window.QProcess.startDetached"):
+            self.window.reset_all()
+        self.reopen_window()
+        self.assertEqual(self.window.label_color_palette.algorithm, FIXED)
+
+    def test_color_algorithm_menu_retranslates_without_changing_selection(self):
+        menu = self.window.menus.labelColorAlgorithm
+        menu.actions_by_algorithm[MAXIMIN].trigger()
+        self.window.change_language(SIMPLIFIED_CHINESE)
+        self.assertEqual(menu.title(), "类别颜色算法")
+        self.assertEqual(menu.actions_by_algorithm[FIXED].text(), "按完整类别名固定配色（默认）")
+        self.assertEqual(menu.actions_by_algorithm[MAXIMIN].text(), "最大色差配色")
+        self.assertEqual(menu.actions_by_algorithm[MAXIMIN].statusTip(), "为新类别分配与已有类别色差最大的颜色。")
+        self.assertTrue(menu.actions_by_algorithm[MAXIMIN].isChecked())
 
     def test_every_static_menu_option_has_a_distinct_semantic_icon(self):
         menu_actions = []

@@ -9,6 +9,7 @@ from labelimg.annotations.ui.style import (
     label_display_color,
 )
 from labelimg.files.model import natural_sort
+from labelimg.annotations.ui.color_algorithms import FIXED, MAXIMIN
 
 class TestUtils(unittest.TestCase):
 
@@ -51,6 +52,31 @@ class TestUtils(unittest.TestCase):
         self.assertEqual(palette.labels, ("bird",))
         self.assertTrue(palette.clear())
         self.assertFalse(palette.clear())
+
+    def test_algorithm_switch_preserves_overrides_and_session_assignments(self):
+        palette = LabelColorPalette()
+        self.assertEqual(palette.algorithm, FIXED)
+        fixed = palette.color("cat")
+        palette.set_color("manual", QColor("red"))
+        self.assertTrue(palette.set_algorithm(MAXIMIN))
+        distinct = palette.color("cat")
+        palette.color("dog")
+        self.assertEqual(palette.color("cat"), distinct)
+        self.assertEqual(palette.color("manual"), QColor("red"))
+        palette.set_algorithm(FIXED)
+        self.assertEqual(palette.color("cat"), fixed)
+        palette.set_algorithm(MAXIMIN)
+        self.assertEqual(palette.color("cat"), distinct)
+        self.assertEqual(palette.snapshot(), {"manual": QColor("red")})
+        self.assertTrue(palette.clear())
+        self.assertEqual(palette.algorithm, MAXIMIN)
+        self.assertIsNone(palette.override("manual"))
+
+    def test_unrecognized_saved_algorithm_defaults_to_fixed(self):
+        palette = LabelColorPalette("removed-algorithm")
+        self.assertEqual(palette.algorithm, FIXED)
+        with self.assertRaises(ValueError):
+            palette.set_algorithm("removed-algorithm")
 
     def test_nautalSort_noError(self):
         l1 = ['f1', 'f11', 'f3']

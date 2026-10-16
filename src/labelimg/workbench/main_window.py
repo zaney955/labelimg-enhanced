@@ -26,6 +26,7 @@ from labelimg.platform.settings_keys import (
     SETTING_CROSSHAIR_MAGNIFIER,
     SETTING_ANNOTATION_LINE_WIDTH,
     SETTING_ANNOTATION_FONT_SIZE,
+    SETTING_LABEL_COLOR_ALGORITHM,
     SETTING_AUTO_SAVE,
     SETTING_DRAW_SQUARE,
     SETTING_FILENAME,
@@ -275,6 +276,7 @@ class MainWindow(
         self.menus.specializedRepair.setTitle(tr('specializedRepair.menu'))
         self._sync_annotation_directory_ui()
         self.menus.language.setTitle(tr('language.menu'))
+        self.menus.labelColorAlgorithm.retranslate_ui()
         self.tools.setWindowTitle(tr('toolbar.canvasTools'))
         self.tools.retranslate_ui()
         self.top_commands.retranslate_ui()
@@ -1020,6 +1022,7 @@ class MainWindow(
         settings[SETTING_CROSSHAIR_MAGNIFIER] = self.magnifier_option.isChecked()
         settings[SETTING_ANNOTATION_LINE_WIDTH] = self.canvas.annotation_line_width
         settings[SETTING_ANNOTATION_FONT_SIZE] = self.canvas.annotation_font_size
+        settings[SETTING_LABEL_COLOR_ALGORITHM] = self.label_color_palette.algorithm
         settings[SETTING_LABEL_FILE_FORMAT] = self.annotation_format
         settings[SETTING_FILE_LIST_SORT_KEY] = (
             self.file_list_controls.state.sort_key

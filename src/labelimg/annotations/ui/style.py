@@ -1,9 +1,11 @@
 """Annotation label colors and input validation."""
 
-import hashlib
-
 from PyQt5.QtCore import QRegExp
 from PyQt5.QtGui import QColor, QRegExpValidator
+
+from labelimg.annotations.ui.color_algorithms import (
+    ALGORITHMS, FIXED, MAXIMIN, SessionColorAllocator, fixed_label_rgb,
+)
 
 
 def label_validator():
@@ -11,11 +13,7 @@ def label_validator():
 
 
 def generate_color_by_text(text):
-    hash_code = int(hashlib.sha256(str(text).encode("utf-8")).hexdigest(), 16)
-    red = int((hash_code / 255) % 255)
-    green = int((hash_code / 65025) % 255)
-    blue = int((hash_code / 16581375) % 255)
-    return QColor(red, green, blue, 100)
+    return QColor(*fixed_label_rgb(str(text)), 100)
 
 
 def label_display_color(text):
@@ -27,15 +25,33 @@ def label_display_color(text):
 class LabelColorPalette:
     """Session-only exact-label color overrides for one annotation workspace."""
 
-    def __init__(self):
+    def __init__(self, algorithm=FIXED):
         self._overrides = {}
+        self._allocator = SessionColorAllocator()
+        self._algorithm = algorithm if algorithm in ALGORITHMS else FIXED
+
+    @property
+    def algorithm(self):
+        return self._algorithm
+
+    def set_algorithm(self, algorithm):
+        if algorithm not in ALGORITHMS:
+            raise ValueError("unknown label color algorithm")
+        changed = self._algorithm != algorithm
+        self._algorithm = algorithm
+        return changed
 
     def color(self, label):
         label = str(label)
         color = self._overrides.get(label)
-        return QColor(color) if color is not None else label_display_color(label)
+        return QColor(color) if color is not None else self.automatic_color(label)
 
     def automatic_color(self, label):
+        if self._algorithm == MAXIMIN:
+            rgb = self._allocator.color(str(label), {
+                name: color.getRgb()[:3] for name, color in self._overrides.items()
+            })
+            return QColor(*rgb)
         return label_display_color(str(label))
 
     def override(self, label):
@@ -52,15 +68,20 @@ class LabelColorPalette:
         color.setAlpha(255)
         changed = self._overrides.get(label) != color
         self._overrides[label] = color
+        if changed:
+            self._allocator.invalidate()
         return changed
 
     def restore(self, label):
-        return self._overrides.pop(str(label), None) is not None
+        changed = self._overrides.pop(str(label), None) is not None
+        if changed:
+            self._allocator.invalidate()
+        return changed
 
     def clear(self):
         changed = bool(self._overrides)
         self._overrides.clear()
-        return changed
+        return self._allocator.clear() or changed
 
     def replace(self, overrides):
         replacement = {}
@@ -73,6 +94,8 @@ class LabelColorPalette:
             replacement[label] = color
         changed = replacement != self._overrides
         self._overrides = replacement
+        if changed:
+            self._allocator.invalidate()
         return changed
 
     @property
