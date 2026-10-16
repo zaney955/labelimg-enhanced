@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Refresh the category chooser with compact equal-width labels, opaque color strips and outlines, annotation-list pale fills, live filtering, natural numeric sorting, and keyboard navigation; keep filtering geometry and pending-annotation behavior stable.
+
 - Add Settings → Label Color Algorithm with improved fixed full-name OKLCH colors by default and optional session-only maximum color separation; remember only the algorithm choice and preserve manual overrides when switching.
 
 ## 2.6.0

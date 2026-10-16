@@ -22,6 +22,18 @@ Completing geometry leaves a static reverse-screen outline and the subtle interi
 
 Confirming the category ends the preview and resolves the committed box's category color. Canceling removes the new box and its preview. Default-label creation follows the same boundary without displaying the chooser. Scene replacement and drawing cancellation clear temporary presentation state; they do not leave a ghost outline.
 
+### Category chooser
+
+The compact native dialog presents a category heading and result count, one name/search field, the candidate grid, then Cancel and the primary confirmation button. It has no title-bar context-help button. Text and empty-result feedback follow the application language; category names remain unchanged.
+
+Candidates use naturally sorted numeric name chunks, matching the annotation panel (`LM2`, `LM3`, `LM10`). Live case-insensitive filtering ranks exact matches, prefix matches, then contained matches, retaining natural order within each tier. Filtering only projects the [workspace candidate vocabulary](undo-redo-and-file-recovery.md#candidate-labels); it never creates a category. Unmatched nonempty text can still be confirmed as a new annotation name. Empty text cannot confirm.
+
+Each candidate has an eight-pixel opaque category-color strip at its left, a solid same-color outline (1.4 pixels normally, 1.8 on hover, 2.2 when selected), small four-pixel corner radii, and centered theme-colored name text. Its pale category-color fill uses the same `48/255` alpha constant as selected annotation-list instance buttons. Full names remain in tooltips when screen limits require elision.
+
+All cells share one width measured from the longest name in the complete current candidate pool plus the strip, compact padding, and border allowance. The grid uses up to four columns, reducing columns before shortening names on narrow screens. Dialog dimensions are capped at 80% of the available screen width and 90% of its height; large pools scroll vertically. Filtering retains the full pool's geometry so targets and the window do not jump while typing. A candidate refresh may resize for a changed vocabulary but preserves an active draft and filter.
+
+Opening the chooser shows all candidates even when the previous name is prefilled and selected for replacement. Clicking a candidate fills the name without narrowing the current results; double-click confirms. Up/Down from the name field selects results and updates the draft while retaining typing focus. Enter confirms the current draft; Escape cancels through the existing pending-annotation boundary. Reopening clears the old filter. Color refreshes retain the full vocabulary rather than replacing it with the filtered subset.
+
 The Canvas tracks the pending label shape only as presentation state. Geometry finalization, scene membership, label assignment, annotation transactions, Undo/Redo, and persistence retain their existing ownership and commit sequence.
 
 ## Crosshair magnifier

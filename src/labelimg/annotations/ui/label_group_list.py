@@ -1,5 +1,3 @@
-import re
-
 from PyQt5.QtCore import QEvent, QPoint, QPointF, QRect, QRectF, Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPalette, QPen
 from PyQt5.QtWidgets import QAbstractScrollArea, QToolTip
@@ -7,15 +5,7 @@ from PyQt5.QtWidgets import QAbstractScrollArea, QToolTip
 from labelimg.localization.runtime import language_changed, tr
 from labelimg.canvas import CATEGORY_CONFLICT
 from labelimg.ui.risk_glyphs import draw_not_equal_glyph
-
-def _natural_label_key(text):
-    parts = []
-    for part in re.split(r"(\d+)", str(text).casefold()):
-        if part.isdigit():
-            parts.append((0, int(part), len(part)))
-        else:
-            parts.append((1, part))
-    return tuple(parts), str(text)
+from labelimg.annotations.ui.style import LABEL_INDICATOR_FILL_ALPHA, natural_label_key
 
 
 class _LabelGroup(object):
@@ -61,7 +51,7 @@ class LabelGroupListWidget(QAbstractScrollArea):
     chip_gap = 4
     chip_step = chip_size + chip_gap
     drag_threshold = 5
-    selected_fill_alpha = 48
+    selected_fill_alpha = LABEL_INDICATOR_FILL_ALPHA
     hover_background_alpha = 45
     separator_alpha = 45
     hidden_opacity = 0.45
@@ -111,7 +101,7 @@ class LabelGroupListWidget(QAbstractScrollArea):
         for shape in shapes:
             buckets.setdefault(str(shape.label), []).append(shape)
         groups = []
-        for label in sorted(buckets, key=_natural_label_key):
+        for label in sorted(buckets, key=natural_label_key):
             groups.append(_LabelGroup(
                 label,
                 buckets[label],

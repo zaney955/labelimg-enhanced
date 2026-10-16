@@ -1,11 +1,22 @@
 """Annotation label colors and input validation."""
 
+import re
+
 from PyQt5.QtCore import QRegExp
 from PyQt5.QtGui import QColor, QRegExpValidator
 
 from labelimg.annotations.ui.color_algorithms import (
     ALGORITHMS, FIXED, MAXIMIN, SessionColorAllocator, fixed_label_rgb,
 )
+
+LABEL_INDICATOR_FILL_ALPHA = 48
+
+
+def natural_label_key(text):
+    parts = []
+    for part in re.split(r"(\d+)", str(text).casefold()):
+        parts.append((0, int(part), len(part)) if part.isdigit() else (1, part))
+    return tuple(parts), str(text)
 
 
 def label_validator():

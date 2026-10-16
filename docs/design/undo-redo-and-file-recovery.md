@@ -344,7 +344,7 @@ The label-entry dialog's candidate area presents labels currently used by commit
 
 For a shared CreateML collection, stored and unsaved contributions are keyed by `(collection path, complete normalized image reference)`. An unresolved format conflict excludes only the conflicting image record; the collection's other unambiguous records remain eligible. A rescan rebuilds disk-derived candidates but does not erase retained dirty-history contributions or session-reserved YOLO indices.
 
-Undo of the final workspace use removes the candidate. Redo restores it. Ordering is `(label.casefold(), label)`, so case-only variants remain distinct and deterministic.
+Undo of the final workspace use removes the candidate. Redo restores it. Workspace vocabulary ordering is `(label.casefold(), label)`, so case-only variants remain distinct and deterministic. The [category chooser](annotation-interaction.md#category-chooser) projects that vocabulary using natural numeric sorting and live text filtering without changing class identities or stored class indices.
 
 ## File operation recovery center
 
