@@ -272,7 +272,7 @@ class YoloDatasetTest(unittest.TestCase):
         self.assertFalse(self.annotation.exists())
         self.assertTrue(self.annotation.with_name("renamed.txt").is_file())
 
-    def test_atomic_save_preserves_local_mapping_when_parent_differs(self):
+    def test_workspace_save_rejects_local_mapping_when_parent_differs(self):
         parent = ("parent-zero", "parent-one", "parent-two", "parent-three")
         local = ("local-zero", "local-one", "local-two", "local-three")
         (self.labels / "classes.txt").write_text("\n".join(parent), encoding="utf8")
@@ -280,9 +280,12 @@ class YoloDatasetTest(unittest.TestCase):
         local_path.write_text("\n".join(local), encoding="utf8")
         workspace = self.workspace()
         loaded = workspace.load_for_image(self.image_path, self.image)
-        workspace.save(loaded.document, AnnotationFormat.YOLO)
+        original = self.annotation.read_bytes()
+        with self.assertRaises(AnnotationDocumentError):
+            workspace.save(loaded.document, AnnotationFormat.YOLO)
         self.assertEqual(local_path.read_text().splitlines(), list(local))
-        self.assertTrue(self.annotation.read_text().splitlines()[1].startswith("2 "))
+        self.assertEqual((self.labels / "classes.txt").read_text().splitlines(), list(parent))
+        self.assertEqual(self.annotation.read_bytes(), original)
 
     def test_missing_mapping_error_lists_configuration_paths(self):
         (self.root / "data.yaml").unlink()

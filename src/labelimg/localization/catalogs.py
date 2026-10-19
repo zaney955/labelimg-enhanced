@@ -2,6 +2,7 @@
 
 
 ENGLISH_MESSAGES = {
+    "annotation.yoloWorkspaceConflict": "YOLO class mappings disagree at ID {class_index}.\n{first_path}: {first_label}\n{second_path}: {second_label}\nSaving was stopped. Use a consistent class-ID mapping throughout the dataset before saving.",
     "annotation.confirmMappingTitle": "Confirm class mapping",
     "annotation.confirmMappingPrompt": (
         "This class configuration is in a non-recommended location.\n"
@@ -54,6 +55,10 @@ ENGLISH_MESSAGES = {
     "annotationDirectory.statusCustom": "Annotation Directory: {name}",
     "annotationDirectory.imageTooltip": "Annotations are read from and saved beside each image",
     "annotationDirectory.useImage": "Use Image Directory",
+    "annotationTarget.noImage": "Save to: No image open",
+    "annotationTarget.path": "Save to: {path}",
+    "annotationTarget.choose": "Save location: Choose with Ctrl+S",
+    "annotationTarget.chooseTooltip": "Choose a save location with Ctrl+S. Automatic saving is paused until a destination is selected.",
     "nextImg": "Next Image",
     "nextImgDetail": "Open the next image",
     "prevImg": "Previous Image",
@@ -855,6 +860,7 @@ ENGLISH_MESSAGES = {
 
 
 CHINESE_MESSAGES = {
+    "annotation.yoloWorkspaceConflict": "YOLO 类别编号 {class_index} 的定义不一致。\n{first_path}：{first_label}\n{second_path}：{second_label}\n已停止保存。请先统一数据集中各类别编号的含义，再继续保存。",
     "annotation.confirmMappingTitle": "确认类别映射",
     "annotation.confirmMappingPrompt": (
         "发现位于非推荐位置的类别配置。\n"
@@ -899,6 +905,10 @@ CHINESE_MESSAGES = {
     "annotationDirectory.statusCustom": "标注目录：{name}",
     "annotationDirectory.imageTooltip": "标注从图像所在目录读取并保存到该目录",
     "annotationDirectory.useImage": "使用图像所在目录",
+    "annotationTarget.noImage": "保存到：尚未打开图像",
+    "annotationTarget.path": "保存到：{path}",
+    "annotationTarget.choose": "保存位置：按 Ctrl+S 选择",
+    "annotationTarget.chooseTooltip": "请按 Ctrl+S 选择保存位置。选定位置前，自动保存暂不写入文件。",
     "nextImg": "下一张图像",
     "nextImgDetail": "打开下一张图像",
     "prevImg": "上一张图像",

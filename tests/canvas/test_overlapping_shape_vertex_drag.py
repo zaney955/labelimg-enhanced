@@ -176,6 +176,118 @@ class OverlappingShapeVertexDragTest(unittest.TestCase):
             Qt.OpenHandCursor,
         )
 
+    def test_zoomed_corner_does_not_capture_a_pointer_seventy_pixels_away(self):
+        self.canvas.scale = 8.0
+        self.canvas.resize(800, 800)
+        shape = rectangle("zoomed", 20, 20, 80, 80)
+        self.canvas.load_shapes([shape])
+        corner = self.canvas.image_to_widget(shape[3])
+
+        self.canvas.mouseMoveEvent(
+            mouse_event(QEvent.MouseMove, (corner.x() - 70, corner.y()))
+        )
+
+        self.assertIsNone(self.canvas.interaction_snapshot.hover.shape)
+        self.assertEqual(self.canvas.current_cursor(), Qt.ArrowCursor)
+
+    def test_corner_hit_radius_stays_in_screen_pixels_at_every_zoom(self):
+        self.canvas.load_pixmap(QPixmap(1000, 1000))
+        directions = ((-1, -1), (1, -1), (1, 1), (-1, 1))
+        for scale in (0.125, 0.25, 0.5, 1, 2, 4, 8, 16):
+            for view_offset in (QPointF(), QPointF(23, -17)):
+                self.canvas.scale = scale
+                self.canvas.resize(int(1000 * scale + 100), int(1000 * scale + 100))
+                self.canvas.set_view_offset(view_offset)
+                self.canvas.set_content_margins(12, 16, 20, 24)
+                shape = rectangle("resizable", 200, 200, 800, 800)
+                self.canvas.load_shapes([shape])
+                for vertex, (dx, dy) in enumerate(directions):
+                    with self.subTest(scale=scale, offset=view_offset, vertex=vertex):
+                        corner = self.canvas.image_to_widget(shape[vertex])
+                        # Ten screen pixels away: inside the 11-pixel handle radius.
+                        near = corner + QPointF(dx * 6, dy * 8)
+                        self.canvas.mouseMoveEvent(
+                            mouse_event(QEvent.MouseMove, (near.x(), near.y()))
+                        )
+                        self.assertIs(self.canvas.interaction_snapshot.hover.shape, shape)
+                        self.assertEqual(self.canvas.interaction_snapshot.hover.vertex, vertex)
+                        self.assertEqual(
+                            self.canvas.current_cursor(),
+                            Qt.SizeFDiagCursor if vertex % 2 == 0 else Qt.SizeBDiagCursor,
+                        )
+
+                        # Fifteen pixels away: clear both the handle and old hover.
+                        far = corner + QPointF(dx * 9, dy * 12)
+                        self.canvas.mouseMoveEvent(
+                            mouse_event(QEvent.MouseMove, (far.x(), far.y()))
+                        )
+                        self.assertIsNone(self.canvas.interaction_snapshot.hover.shape)
+                        self.assertEqual(self.canvas.current_cursor(), Qt.ArrowCursor)
+
+    def test_tiny_screen_box_keeps_corner_edge_and_interior_targets_at_every_zoom(self):
+        self.canvas.load_pixmap(QPixmap(1000, 1000))
+        for scale in (0.125, 0.25, 0.5, 1, 2, 4, 8, 16):
+            with self.subTest(scale=scale):
+                self.canvas.scale = scale
+                shape = rectangle("tiny", 400, 400, 400 + 12 / scale, 400 + 12 / scale)
+                self.canvas.load_shapes([shape])
+                corner = self.canvas.image_to_widget(shape[0])
+                cases = (
+                    (QPointF(), 0, None, Qt.SizeFDiagCursor),
+                    (QPointF(6, 0), None, 0, Qt.SizeVerCursor),
+                    (QPointF(6, 6), None, None, Qt.OpenHandCursor),
+                )
+                for offset, vertex, edge, cursor in cases:
+                    position = corner + offset
+                    self.canvas.mouseMoveEvent(
+                        mouse_event(QEvent.MouseMove, (position.x(), position.y()))
+                    )
+                    hover = self.canvas.interaction_snapshot.hover
+                    self.assertIs(hover.shape, shape)
+                    self.assertEqual(hover.vertex, vertex)
+                    self.assertEqual(hover.edge, edge)
+                    self.assertEqual(self.canvas.current_cursor(), cursor)
+
+    def test_covered_corner_stays_reachable_at_every_zoom(self):
+        self.canvas.load_pixmap(QPixmap(1000, 1000))
+        for scale in (0.125, 0.25, 0.5, 1, 2, 4, 8, 16):
+            with self.subTest(scale=scale):
+                self.canvas.scale = scale
+                lower = rectangle("lower", 200, 200, 600, 600)
+                upper = rectangle("upper", 500, 500, 900, 900)
+                self.canvas.load_shapes([lower, upper])
+                position = self.canvas.image_to_widget(lower[2]) + QPointF(9, 0)
+                self.canvas.mouseMoveEvent(
+                    mouse_event(QEvent.MouseMove, (position.x(), position.y()))
+                )
+                self.assertIs(self.canvas.interaction_snapshot.hover.shape, lower)
+                self.assertEqual(self.canvas.interaction_snapshot.hover.vertex, 2)
+
+    def test_zoomed_corner_drag_and_release_follow_the_pointer(self):
+        for scale in (0.25, 2, 8):
+            for vertex in range(4):
+                with self.subTest(scale=scale, vertex=vertex):
+                    self.canvas.scale = scale
+                    self.canvas.resize(int(100 * scale), int(100 * scale))
+                    shape = rectangle("resizable", 20, 20, 80, 80)
+                    self.canvas.load_shapes([shape])
+                    original = QPointF(shape[vertex])
+                    start = self.canvas.image_to_widget(original)
+                    end = start + QPointF(-4, 4)
+                    self.canvas.mousePressEvent(mouse_event(
+                        QEvent.MouseButtonPress, (start.x(), start.y()),
+                        button=Qt.LeftButton, buttons=Qt.LeftButton,
+                    ))
+                    self.canvas.mouseMoveEvent(mouse_event(
+                        QEvent.MouseMove, (end.x(), end.y()), buttons=Qt.LeftButton,
+                    ))
+                    self.canvas.mouseReleaseEvent(mouse_event(
+                        QEvent.MouseButtonRelease, (end.x(), end.y()), button=Qt.LeftButton,
+                    ))
+                    self.assertEqual(shape[vertex], original + QPointF(-4 / scale, 4 / scale))
+                    self.assertIs(self.canvas.interaction_snapshot.hover.shape, shape)
+                    self.assertEqual(self.canvas.interaction_snapshot.hover.vertex, vertex)
+
     def test_tiny_shape_corner_and_edge_remain_resize_targets(self):
         shape = rectangle("tiny", 40, 40, 52, 52)
         self.canvas.load_shapes([shape])

@@ -18,15 +18,16 @@ from labelimg.ui.icons import IconLabel
 
 
 class _ElidedLabel(QLabel):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, elide_mode=Qt.ElideRight):
         super().__init__(parent)
+        self._elide_mode = elide_mode
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
 
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setPen(self.palette().text().color())
         painter.drawText(self.contentsRect(), Qt.AlignVCenter | Qt.AlignLeft,
-                         self.fontMetrics().elidedText(self.text(), Qt.ElideRight, self.contentsRect().width()))
+                         self.fontMetrics().elidedText(self.text(), self._elide_mode, self.contentsRect().width()))
 
 
 class _FileSelectionBar(QFrame):
@@ -81,6 +82,10 @@ def build_file_panel(w, settings):
     directory.addWidget(icon)
     w.annotation_directory_button = w.annotation_directory_bar
     layout.addWidget(w.annotation_directory_bar)
+    w.annotation_target_label = _ElidedLabel(elide_mode=Qt.ElideMiddle)
+    w.annotation_target_label.setObjectName('annotationSaveTarget')
+    w.annotation_target_label.setMinimumHeight(20)
+    layout.addWidget(w.annotation_target_label)
     w.file_list_controls.viewChanged.connect(w.apply_file_list_view)
     w.file_list_controls.openFirstSearchResultRequested.connect(w.open_first_image_search_result)
     layout.addWidget(w.file_list_controls)

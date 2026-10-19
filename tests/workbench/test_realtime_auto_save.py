@@ -45,6 +45,7 @@ class RealtimeAutoSaveTest(unittest.TestCase):
         ))
         self.window.auto_saving.setChecked(True)
         self.assertTrue(self.window.load_file(self.image_path))
+        self.window.annotation_workspace.set_image_dir(self.image_dir)
 
     def tearDown(self):
         self.window.deleteLater()

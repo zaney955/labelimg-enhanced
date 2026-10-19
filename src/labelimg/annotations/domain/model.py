@@ -13,6 +13,19 @@ class YoloClassMappingDeclined(AnnotationDocumentError):
     """The user cancelled loading an unusually located class mapping."""
 
 
+class YoloWorkspaceMappingConflict(AnnotationDocumentError):
+    def __init__(self, first_path, second_path, class_index, first_label, second_label):
+        self.first_path = first_path
+        self.second_path = second_path
+        self.class_index = class_index
+        self.first_label = first_label
+        self.second_label = second_label
+        super().__init__(
+            "Inconsistent YOLO class ID %s: %s (%s) != %s (%s)"
+            % (class_index, first_label, first_path, second_label, second_path)
+        )
+
+
 class YoloClassMappingError(AnnotationDocumentError):
     """Structured class diagnostics, localized by the workbench UI."""
 

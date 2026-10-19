@@ -209,7 +209,7 @@ Save failure never moves a baseline or clears history.
 Resource keys are canonical physical identities:
 
 - Pascal VOC: one XML path;
-- YOLO: one annotation TXT path plus the shared `classes.txt` vocabulary path;
+- YOLO: one annotation TXT path, its local and workspace-shared `classes.txt` paths, and the class sources validated for that write;
 - CreateML: one shared JSON collection path.
 
 Requests sharing any key serialize. Locks are acquired in sorted canonical-key order to prevent deadlock. The current GUI-thread implementation may execute synchronously, but requests and acknowledgements still use immutable revision identities so future asynchronous execution cannot corrupt baselines.
@@ -238,7 +238,7 @@ Review state is stored by every active format: Pascal VOC uses its existing root
 
 ## Autosave
 
-Autosave starts enabled for each workspace editing session, may be disabled for that session, and survives ordinary image navigation. It writes to the annotation directory, or the image directory when none is selected, with a 200ms debounce.
+Autosave starts enabled for each workspace editing session, may be disabled for that session, and survives ordinary image navigation. It uses the bound target and directory mapping defined by the [save-target policy](workspace-file-list.md#annotation-save-targets), with a 200ms debounce. A pending destination or an unconfirmed conversion overwrite pauses automatic writes until the user selects the destination.
 
 - A new edit, Undo, or Redo invalidates an older pending request.
 - Returning to the complete saved baseline cancels the pending write.

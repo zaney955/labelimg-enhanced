@@ -5,7 +5,7 @@ writes.  Qt presentation remains outside this seam.
 """
 
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 import os
 
@@ -274,7 +274,7 @@ class AnnotationSaveCoordinator:
             return ()
         return tuple(
             _resource_key(path)
-            for path in annotation_resources(annotation_format, target)
+            for path in self._resources_for(annotation_format, target)
         )
 
     def track(self, view):
@@ -302,45 +302,22 @@ class AnnotationSaveCoordinator:
         for image_key in self._editing.image_keys:
             view = self._editing.view_image(image_key, touch=False)
             baseline = view.saved_baseline
-            if baseline is None or not view.current_target:
-                continue
-            try:
-                annotation_format = AnnotationFormat.from_path(
-                    view.current_target
-                )
-            except AnnotationDocumentError:
-                continue
-            resources = annotation_resources(
-                annotation_format, view.current_target
-            )
-            if not any(
-                _resource_key(resource) in current
-                for resource in resources
-            ):
+            if baseline is None:
                 continue
             if isinstance(baseline.fingerprint, tuple):
-                old = {
-                    _resource_key(path): value
-                    for path, value in baseline.fingerprint
-                }
                 refreshed = tuple(
-                    (
-                        resource,
-                        current.get(
-                            _resource_key(resource),
-                            old.get(
-                                _resource_key(resource),
-                                fingerprint_path(resource),
-                            ),
-                        ),
-                    )
-                    for resource in resources
+                    (path, current.get(_resource_key(path), expected))
+                    for path, expected in baseline.fingerprint
                 )
             else:
-                target_key = _resource_key(view.current_target)
+                if not baseline.target:
+                    continue
+                target_key = _resource_key(baseline.target)
                 if target_key not in current:
                     continue
                 refreshed = current[target_key]
+            if refreshed == baseline.fingerprint:
+                continue
             self._editing.update_baseline_fingerprint(
                 image_key, refreshed
             )
@@ -400,6 +377,7 @@ class AnnotationSaveCoordinator:
 
     def _save_one(self, item):
         view, target, annotation_format = item
+        view = self._refresh_baseline(view)
         try:
             self.verify_snapshot(view.snapshot)
             self.verify_baseline(view)
@@ -423,7 +401,7 @@ class AnnotationSaveCoordinator:
         return self._acknowledge(((view, workspace_save),))
 
     def _save_create_ml_group(self, group):
-        views = tuple(item[0] for item in group)
+        views = tuple(self._refresh_baseline(item[0]) for item in group)
         target = group[0][1]
         try:
             for view in views:
@@ -489,6 +467,19 @@ class AnnotationSaveCoordinator:
                 default_format
             )
         return target, AnnotationFormat.from_path(target)
+
+    def _resources_for(self, annotation_format, target):
+        return getattr(self._workspace, "resources_for", annotation_resources)(annotation_format, target)
+
+    def _refresh_baseline(self, view):
+        """Keep the requested revision, accepting coordinated peer writes."""
+        baseline = view.saved_baseline
+        current = self._editing.view_image(view.image_key, touch=False).saved_baseline
+        if baseline is not None and current is not None and (
+            baseline.revision_id, baseline.target
+        ) == (current.revision_id, current.target):
+            return replace(view, saved_baseline=current)
+        return view
 
     def verify_snapshot(self, snapshot):
         expected = snapshot.image_fingerprint

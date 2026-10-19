@@ -4,6 +4,7 @@ import unittest
 from labelimg.annotations.domain.model import (
     AnnotationDocumentError,
     YoloClassMappingError,
+    YoloWorkspaceMappingConflict,
 )
 from labelimg.annotations.ui.errors import annotation_error_text, annotation_error_html
 from labelimg.localization.runtime import ENGLISH, SIMPLIFIED_CHINESE, set_language
@@ -48,6 +49,15 @@ class AnnotationErrorPresenterTest(unittest.TestCase):
     def test_unrelated_errors_keep_their_details(self):
         error = ValueError("ordinary failure")
         self.assertEqual(annotation_error_text(error), "ordinary failure")
+
+    def test_workspace_class_conflict_names_both_sources_in_both_languages(self):
+        error = YoloWorkspaceMappingConflict("left/classes.txt", "right/classes.txt", 1, "cat", "dog")
+        for language, phrase in ((ENGLISH, "disagree"), (SIMPLIFIED_CHINESE, "定义不一致")):
+            set_language(language)
+            message = annotation_error_text(error)
+            self.assertIn(phrase, message)
+            self.assertIn("left/classes.txt", message)
+            self.assertIn("right/classes.txt", message)
 
 
 if __name__ == "__main__":

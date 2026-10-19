@@ -1390,6 +1390,7 @@ class MainWindow(
         ):
             self.actions.annotationDirectoryCurrent.setText(current_text)
             self.actions.useImageDirectory.setEnabled(bool(custom_dir))
+        self._sync_annotation_target_ui()
 
     def _annotation_directory_is_current(self, directory):
         selected = os.path.normcase(os.path.abspath(directory)) if directory else None
@@ -1997,18 +1998,8 @@ class MainWindow(
         ):
             self.status(tr('status.finishEdit'))
             return
-        if self.default_save_dir is not None and len(ustr(self.default_save_dir)):
-            if self.file_path:
-                image_file_name = os.path.basename(self.file_path)
-                saved_file_name = os.path.splitext(image_file_name)[0]
-                saved_path = os.path.join(ustr(self.default_save_dir), saved_file_name)
-                self._save_file(saved_path)
-        else:
-            image_file_dir = os.path.dirname(self.file_path)
-            image_file_name = os.path.basename(self.file_path)
-            saved_file_name = os.path.splitext(image_file_name)[0]
-            saved_path = os.path.join(image_file_dir, saved_file_name)
-            self._save_file(saved_path)
+        if self.file_path:
+            self._save_file(self._current_annotation_target())
 
     def save_file_as(self, _value=False):
         if (
@@ -2018,7 +2009,7 @@ class MainWindow(
             self.status(tr('status.finishEdit'))
             return
         assert not self.image.isNull(), "cannot save empty image"
-        self._save_file(self.save_file_dialog())
+        self._save_file(self.save_file_dialog(), explicit=True)
 
     def save_file_dialog(self, remove_ext=True):
         caption = tr('dialog.chooseFile', app=__appname__)
@@ -2029,7 +2020,7 @@ class MainWindow(
         dlg = QFileDialog(self, caption, open_dialog_path, filters)
         dlg.setDefaultSuffix(self.annotation_format.extension[1:])
         dlg.setAcceptMode(QFileDialog.AcceptSave)
-        filename_without_extension = os.path.splitext(self.file_path)[0]
+        filename_without_extension = os.path.splitext(self._current_annotation_target())[0]
         dlg.selectFile(filename_without_extension)
         dlg.setOption(QFileDialog.DontUseNativeDialog, False)
         if dlg.exec_():
@@ -2040,7 +2031,7 @@ class MainWindow(
                 return full_file_path
         return ''
 
-    def _save_file(self, annotation_file_path):
+    def _save_file(self, annotation_file_path, *, explicit=False):
         was_degraded = self.annotation_editing.degraded
         if was_degraded and annotation_file_path:
             rescue_path = annotation_file_path
@@ -2054,11 +2045,12 @@ class MainWindow(
                     '<p>%s</p>' % tr('save.rescuePrompt'),
                 )
                 return
-        saved = (
-            self.save_labels(annotation_file_path)
-            if annotation_file_path
-            else None
-        )
+        saved = None
+        if annotation_file_path:
+            saved = (
+                self.save_labels(annotation_file_path, explicit=True)
+                if explicit else self.save_labels(annotation_file_path)
+            )
         if saved:
             self.refresh_candidate_labels()
             if was_degraded:
@@ -2217,10 +2209,32 @@ class MainWindow(
 
     def _save_history_views(self, views):
         views = tuple(views)
-        outcome = self.annotation_persistence.save_many(
-            (view.image_key for view in views),
-            self.annotation_format,
-        )
+        targets = {}
+        for view in views:
+            target = view.current_target
+            if target and self.annotation_workspace.needs_target_selection(view.image_key, target):
+                if view.image_key == self.file_path:
+                    selected = self.save_file_dialog()
+                else:
+                    selected, _filter = QFileDialog.getSaveFileName(
+                        self, tr('dialog.chooseFile', app=__appname__), target,
+                        tr('dialog.fileFilter', extension=os.path.splitext(target)[1]),
+                    )
+                if not selected:
+                    return None
+                extension = os.path.splitext(target)[1]
+                if not selected.lower().endswith(extension.lower()):
+                    selected += extension
+                targets[view.image_key] = selected
+        for image_key, target in targets.items():
+            self.annotation_editing.set_target(image_key, target)
+            self.annotation_workspace.confirm_save_target(image_key, target, AnnotationFormat.from_path(target))
+        with self._suspend_annotation_watches():
+            outcome = self.annotation_persistence.save_many(
+                (view.image_key for view in views),
+                self.annotation_format,
+            )
+        self._sync_annotation_target_ui()
         interrupted_index = bool(outcome.saved) and self.invalidate_directory_load_for_file_operation()
         for receipt in outcome.saved:
             saved = receipt.workspace_save

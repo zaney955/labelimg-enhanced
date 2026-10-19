@@ -242,6 +242,7 @@ class AtomicAnnotationWriter:
         target,
         base_resources=None,
         precommit=None,
+        shared_classes_path=None,
     ):
         from dataclasses import replace
 
@@ -310,14 +311,18 @@ class AtomicAnnotationWriter:
                     staged_target,
                     annotation_format,
                 )
+                pairs = [(staged_target, target), (staged_classes, classes_target)]
+                if shared_classes_path and _resource_key(shared_classes_path) != _resource_key(classes_target):
+                    pairs.append((staged_classes, shared_classes_path))
+                # Each destination needs its own staged file: os.replace
+                # consumes the source on the first commit.
+                if len(pairs) > 2:
+                    staged_shared = os.path.join(staging_dir, "shared-classes.txt")
+                    shutil.copyfile(staged_classes, staged_shared)
+                    pairs[-1] = (staged_shared, shared_classes_path)
                 if precommit is not None:
                     precommit()
-                _atomic_commit_staged(
-                    (
-                        (staged_target, target),
-                        (staged_classes, classes_target),
-                    )
-                )
+                _atomic_commit_staged(pairs)
             finally:
                 shutil.rmtree(staging_dir, ignore_errors=True)
             return target, False

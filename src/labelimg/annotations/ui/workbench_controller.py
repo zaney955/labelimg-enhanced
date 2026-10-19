@@ -3,6 +3,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 import os.path
+from contextlib import contextmanager
 
 
 from PyQt5.QtCore import QFileSystemWatcher, QPointF, QSignalBlocker, QTimer, Qt
@@ -94,7 +95,7 @@ class AnnotationActionsMixin:
         directory = os.path.dirname(target)
         directory = os.path.abspath(directory)
         annotation_format = AnnotationFormat.from_path(target)
-        resources = annotation_resources(annotation_format, target)
+        resources = self.annotation_workspace.resources_for(annotation_format, target)
         if directory != self._annotation_watch_directory:
             self._annotation_watch_directory = directory
             self._annotation_directory_snapshot = (
@@ -200,7 +201,7 @@ class AnnotationActionsMixin:
                 candidates.update(
                     resource
                     for choice in choices
-                    for resource in annotation_resources(
+                    for resource in self.annotation_workspace.resources_for(
                         choice.annotation_format, choice.annotation_path
                     )
                 )
@@ -440,6 +441,13 @@ class AnnotationActionsMixin:
     def _current_annotation_target(self):
         if not self.file_path:
             return None
+        view = self.annotation_editing.view
+        if view is not None and view.image_key == self.file_path and view.current_target:
+            try:
+                if AnnotationFormat.from_path(view.current_target) is self.annotation_format:
+                    return view.current_target
+            except AnnotationDocumentError:
+                pass
         active = self.annotation_workspace.active_document_path(
             self.file_path
         )
@@ -764,6 +772,7 @@ class AnnotationActionsMixin:
 
 
     def _sync_annotation_history_ui(self):
+        self._sync_annotation_target_ui()
         view = self.annotation_editing.view
         if view is None:
             set_action_copy(
@@ -858,7 +867,7 @@ class AnnotationActionsMixin:
             annotation_path,
             tuple(
                 (resource, fingerprint_path(resource))
-                for resource in annotation_resources(
+                for resource in self.annotation_workspace.resources_for(
                     annotation_format, annotation_path
                 )
             ),
@@ -1856,15 +1865,61 @@ class AnnotationActionsMixin:
         self.label_list.viewport().update()
 
 
-    def save_labels(self, annotation_file_path):
+    def _sync_annotation_target_ui(self):
+        if not hasattr(self, 'annotation_target_label'):
+            return
+        target = self._current_annotation_target()
+        if not target:
+            text = tr('annotationTarget.noImage')
+            tooltip = text
+        elif self.annotation_workspace.needs_target_selection(self.file_path, target):
+            text = tr('annotationTarget.choose')
+            tooltip = tr('annotationTarget.chooseTooltip')
+        else:
+            text = tr('annotationTarget.path', path=target)
+            tooltip = target
+        self.annotation_target_label.setText(text)
+        self.annotation_target_label.setToolTip(tooltip)
+        self.annotation_target_label.setAccessibleName(text)
+        self.annotation_target_label.setAccessibleDescription(tooltip)
+
+
+    @contextmanager
+    def _suspend_annotation_watches(self):
+        watcher = self._annotation_file_watcher
+        watched = watcher.files() + watcher.directories()
+        if watched:
+            # Windows file watches can race atomic replacement of the YOLO
+            # annotation/classes pair. Fingerprint checks still guard writes.
+            watcher.removePaths(watched)
+        try:
+            yield
+        finally:
+            if watched:
+                self._watch_current_annotation_document()
+
+
+    def save_labels(self, annotation_file_path, *, explicit=False):
         annotation_file_path = ustr(annotation_file_path)
         if self.annotation_editing.view is None:
             return None
-        outcome = self.annotation_persistence.save(
-            self.file_path,
-            self.annotation_format,
-            target=annotation_file_path,
-        )
+        if not explicit and self.annotation_workspace.needs_target_selection(self.file_path, annotation_file_path):
+            if self._autosave_request:
+                self.status(tr('annotationTarget.chooseTooltip'))
+                return None
+            annotation_file_path = self.save_file_dialog()
+            if not annotation_file_path:
+                return None
+            explicit = True
+        if explicit:
+            self.annotation_workspace.confirm_save_target(self.file_path, annotation_file_path, self.annotation_format)
+        with self._suspend_annotation_watches():
+            outcome = self.annotation_persistence.save(
+                self.file_path,
+                self.annotation_format,
+                target=annotation_file_path,
+            )
+        self._sync_annotation_target_ui()
         if not outcome.ok:
             error = outcome.failure.error
             if isinstance(error, AnnotationStorageConflict):

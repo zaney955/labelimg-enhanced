@@ -37,6 +37,7 @@ from labelimg.annotations.infrastructure.storage import (
     ResourceFingerprint,
     fingerprint_path,
 )
+from labelimg.annotations.application.yolo_vocabulary import plan_yolo_vocabulary, shared_yolo_classes_path
 
 
 @dataclass(frozen=True)
@@ -111,6 +112,7 @@ class AnnotationWorkspace:
         self._resource_fingerprints = {}
         self._resource_bytes = {}
         self._active_paths = {}
+        self._confirmed_paths = {}
         self._ambiguous_annotation_paths = set()
         self._held_resources = {}
         self._create_ml_paths_by_image_name = {}
@@ -241,6 +243,7 @@ class AnnotationWorkspace:
         if new_value != self._save_dir:
             self._approved_yolo_mappings.clear()
             self._active_paths.clear()
+            self._confirmed_paths.clear()
             self._ambiguous_annotation_paths.clear()
             self._ambiguous_create_ml_records.clear()
             self._in_memory_labels_by_image.clear()
@@ -289,10 +292,16 @@ class AnnotationWorkspace:
     def confirm_class_mapping(self, mapping):
         """UI-owned approval; workers only collect potential mapping sources."""
         token = (mapping.source, mapping.content_digest)
+        root = self._save_dir or self._image_dir
+        workspace_classes = (
+            mapping.source and root
+            and _cache_key(mapping.source) == _cache_key(os.path.join(root, "classes.txt"))
+        )
         if (
             mapping.requires_confirmation
             and self.confirm_yolo_mapping is not None
             and token not in self._approved_yolo_mappings
+            and not workspace_classes
         ):
             if not self.confirm_yolo_mapping(mapping):
                 raise YoloClassMappingDeclined(mapping.source)
@@ -332,7 +341,8 @@ class AnnotationWorkspace:
         )
         if annotation_format is AnnotationFormat.YOLO:
             self.reserve_yolo_labels(document.class_names)
-        for resource in annotation_resources(
+        self._confirmed_paths[_cache_key(image_path)] = annotation_path
+        for resource in self.resources_for(
             annotation_format,
             annotation_path,
         ):
@@ -490,16 +500,65 @@ class AnnotationWorkspace:
                 "Annotation choice does not belong to this image"
             )
         self._active_paths[_cache_key(image_path)] = selected
+        self._confirmed_paths[_cache_key(image_path)] = selected
         return selected
 
     def active_document_path(self, image_path):
         return self._active_paths.get(_cache_key(image_path))
+
+    def confirm_save_target(self, image_path, target, annotation_format):
+        target = os.path.abspath(os.fspath(target))
+        if not target.lower().endswith(annotation_format.extension):
+            target += annotation_format.extension
+        self._confirmed_paths[_cache_key(image_path)] = target
+
+    def needs_target_selection(self, image_path, target):
+        """Require an explicit destination when no directory mapping is known."""
+        image_path = os.path.abspath(os.fspath(image_path))
+        confirmed = self._confirmed_paths.get(_cache_key(image_path))
+        if confirmed and _cache_key(confirmed) == _cache_key(target):
+            return False
+        if confirmed and os.path.isfile(target):
+            return True  # Converting into an existing, different document.
+        if not self._save_dir:
+            return False
+        if _cache_key(os.path.dirname(image_path)) == _cache_key(self._save_dir):
+            return False
+        if self._image_dir:
+            try:
+                if os.path.commonpath((image_path, self._image_dir)) == self._image_dir:
+                    return False
+            except ValueError:
+                pass
+        if len(self._annotation_stems_for_image(image_path)) > 1:
+            return False  # Conventional images/<split> -> labels/<split>.
+        return confirmed is None
+
+    def resources_for(self, annotation_format, annotation_path):
+        resources = annotation_resources(annotation_format, annotation_path)
+        if annotation_format is AnnotationFormat.YOLO:
+            shared = shared_yolo_classes_path(annotation_path, self._save_dir, self._image_dir)
+            if not any(_cache_key(path) == _cache_key(shared) for path in resources):
+                resources = (*resources, shared)
+        return resources
+
+    def _expected_resource_fingerprint(self, resource, fallback=None):
+        key = _cache_key(resource)
+        fingerprint = self._resource_fingerprints.get(key)
+        if fingerprint is None:
+            fingerprint = fallback if fallback is not None else fingerprint_path(resource)
+            self._resource_fingerprints[key] = fingerprint
+            self._remember_resource_bytes(resource)
+        return fingerprint
 
     def migrate_images(self, path_mapping, target_mapping=None):
         target_mapping = target_mapping or {}
         for source, destination in path_mapping.items():
             source_key = _cache_key(source)
             active = self._active_paths.pop(source_key, None)
+            confirmed = self._confirmed_paths.pop(source_key, None)
+            if confirmed is not None:
+                self._confirmed_paths[_cache_key(destination)] = target_mapping.get(source, confirmed)
             if active is not None:
                 active = target_mapping.get(source, active)
                 self._active_paths[_cache_key(destination)] = active
@@ -541,6 +600,14 @@ class AnnotationWorkspace:
             document = self._bind_create_ml_record(
                 document, annotation_path
             )
+        vocabulary = None
+        if annotation_format is AnnotationFormat.YOLO:
+            vocabulary = plan_yolo_vocabulary(
+                annotation_path, save_dir=self._save_dir, image_dir=self._image_dir,
+                reserved=(*self.yolo_vocabulary, *document.class_names),
+                labels=tuple(box.label for box in document.boxes),
+            )
+            document = replace(document, class_names=vocabulary.names)
 
         empty_pascal = (
             annotation_format is AnnotationFormat.PASCAL_VOC
@@ -548,16 +615,16 @@ class AnnotationWorkspace:
             and not document.verified
             and not document.questioned
         )
-        resources = annotation_resources(
+        resources = self.resources_for(
             annotation_format,
             annotation_path,
         )
+        expected = dict(vocabulary.fingerprints) if vocabulary else {}
+        resources = tuple(dict.fromkeys((*resources, *expected)))
         resource_bindings = tuple(
             AnnotationResource(
                 resource,
-                self._resource_fingerprints.get(
-                    _cache_key(resource)
-                ),
+                self._expected_resource_fingerprint(resource, expected.get(resource)),
             )
             for resource in resources
         )
@@ -584,10 +651,14 @@ class AnnotationWorkspace:
                     ) is not None
                 },
                 precommit=_request.precommit,
+                **({"shared_classes_path": vocabulary.shared_path} if vocabulary else {}),
             ),
         )
         saved_path, removed = storage_result.writer_result
         self._active_paths[_cache_key(document.image_path)] = saved_path
+        self._confirmed_paths[_cache_key(document.image_path)] = saved_path
+        if vocabulary:
+            self.reserve_yolo_labels(vocabulary.names)
         for resource, fingerprint in storage_result.fingerprints:
             self._resource_fingerprints[_cache_key(resource)] = fingerprint
             self._remember_resource_bytes(resource)
@@ -638,9 +709,7 @@ class AnnotationWorkspace:
         bindings = tuple(
             AnnotationResource(
                 resource,
-                self._resource_fingerprints.get(
-                    _cache_key(resource)
-                ),
+                self._expected_resource_fingerprint(resource),
             )
             for resource in resources
         )
@@ -688,6 +757,7 @@ class AnnotationWorkspace:
             self._active_paths[_cache_key(document.image_path)] = (
                 annotation_path
             )
+            self._confirmed_paths[_cache_key(document.image_path)] = annotation_path
             saves.append(
                 WorkspaceSave(
                     annotation_path,
@@ -998,6 +1068,8 @@ class AnnotationWorkspace:
                 self._create_ml_status_by_record.pop(source, None)
         for paths in self._create_ml_paths_by_image_name.values():
             paths.discard(path)
+        for paths in self._create_ml_paths_by_match_key.values():
+            paths.discard(path)
         try:
             collection = CreateMLAnnotationCollection.read(
                 path, content=content
@@ -1009,10 +1081,20 @@ class AnnotationWorkspace:
             self._create_ml_paths_by_image_name.setdefault(
                 image_name_key, set()
             ).add(path)
-            for match_key in _create_ml_match_keys(path, record.reference):
-                self._create_ml_paths_by_match_key.setdefault(
-                    match_key, set()
-                ).add(path)
+            # A single-record a.json referring to a.png is a per-image
+            # document. Resolve it through the workspace's directory mapping,
+            # rather than offering it to every a.png in other subdirectories.
+            sidecar = (
+                len(collection.records) == 1
+                and "\\" not in image_name_key
+                and os.path.splitext(image_name_key)[0]
+                == os.path.splitext(os.path.basename(path))[0].casefold()
+            )
+            if not sidecar:
+                for match_key in _create_ml_match_keys(path, record.reference):
+                    self._create_ml_paths_by_match_key.setdefault(
+                        match_key, set()
+                    ).add(path)
             self._create_ml_labels_by_record[
                 (path_key, image_name_key)
             ] = set(record.labels)

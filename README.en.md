@@ -30,7 +30,15 @@ labelImg
 
 You can also run `python -m labelimg`. Use the interface to open an image directory, choose an annotation directory, and select the save format.
 
+The file panel shows the current annotation's actual save target, with the complete path on hover. Existing documents are updated in place; new documents preserve relative subdirectories. When a standalone image has no known mapping to a separate annotation directory, choose its destination with `Ctrl+S` before autosave writes anything. Cancelling keeps edits unsaved. Converting into an existing destination also requires explicit selection.
+
+The file panel shows the current annotation's actual save target, with the complete path on hover. Existing documents are updated in place; new documents preserve relative subdirectories. When a standalone image has no known mapping to a separate annotation directory, choose its destination with `Ctrl+S` before autosave writes anything. Cancelling keeps edits unsaved. Converting into an existing destination also requires explicit selection.
+
 For split YOLO datasets, select `images` as the image directory and `labels` as the annotation directory. Relative paths match `images/train/a.jpg` to `labels/train/a.txt`, with support for flat annotation directories. When both locations contain annotations, choose the active document. Class names come from the annotation directory's `classes.txt`, then the `labels` root's `classes.txt`, then `names` in the dataset root's `data.yaml`. Missing or empty mappings fall back to other ancestor locations within that dataset only. Non-recommended locations require confirmation showing the configuration path and ordered class IDs before use in the workspace. Cancelling preserves current annotations; changed configuration content requires confirmation again. Saving preserves all existing class IDs and appends new classes.
+
+YOLO saves maintain a shared `classes.txt` at the workspace annotation root (the `labels` root in a conventional dataset) alongside the current subdirectory's mapping. Existing mappings must be compatible prefixes of one class-ID order. Conflicting definitions identify both configurations and stop saving instead of silently renumbering annotations. The TXT and mappings commit together with rollback on failure; existing `data.yaml` files remain read-only.
+
+YOLO saves maintain a shared `classes.txt` at the workspace annotation root (the `labels` root in a conventional dataset) alongside the current subdirectory's mapping. Existing mappings must be compatible prefixes of one class-ID order. Conflicting definitions identify both configurations and stop saving instead of silently renumbering annotations. The TXT and mappings commit together with rollback on failure; existing `data.yaml` files remain read-only.
 
 ## Updates
 

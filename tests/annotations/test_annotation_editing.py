@@ -533,6 +533,7 @@ class MainWindowHistoryIntegrationTest(unittest.TestCase):
                 os.path.abspath("tests/test.512.512.bmp")
             )
         )
+        self.window.annotation_workspace.set_image_dir(os.path.abspath("tests"))
 
     def tearDown(self):
         self.window.deleteLater()

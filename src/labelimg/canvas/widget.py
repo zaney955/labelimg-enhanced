@@ -1171,7 +1171,10 @@ class Canvas(QWidget):
         return hit[0] if hit is not None else None
 
     def nearest_vertex_hit(self, shape, point):
-        tolerance = self.resize_hit_tolerance(shape, self.epsilon)
+        tolerance = self.resize_hit_tolerance(
+            shape,
+            self.epsilon / max(self.scale, 0.01),
+        )
         nearest = None
         for index, vertex in enumerate(shape.points):
             point_distance = distance(vertex - point)
@@ -1788,7 +1791,7 @@ class Canvas(QWidget):
 
     def transform_pos(self, point):
         """Convert from widget-logical coordinates to painter-logical coordinates."""
-        return point / self.scale - self.offset_to_center()
+        return QPointF(point) / self.scale - self.offset_to_center()
 
     def image_to_widget(self, point):
         """Convert one image-coordinate point to Canvas widget coordinates."""

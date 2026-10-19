@@ -2,7 +2,7 @@
 
 from html import escape
 
-from labelimg.annotations.domain.model import YoloClassMappingError
+from labelimg.annotations.domain.model import YoloClassMappingError, YoloWorkspaceMappingConflict
 from labelimg.localization.runtime import tr
 
 
@@ -11,6 +11,13 @@ def annotation_error_text(error):
     visited = set()
     while cause is not None and id(cause) not in visited:
         visited.add(id(cause))
+        if isinstance(cause, YoloWorkspaceMappingConflict):
+            return tr(
+                "annotation.yoloWorkspaceConflict",
+                first_path=cause.first_path, second_path=cause.second_path,
+                class_index=cause.class_index, first_label=cause.first_label,
+                second_label=cause.second_label,
+            )
         if isinstance(cause, YoloClassMappingError):
             values = {
                 "annotation_path": cause.annotation_path,
