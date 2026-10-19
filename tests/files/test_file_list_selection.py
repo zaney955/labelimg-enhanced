@@ -165,7 +165,7 @@ class FileListSelectionTest(unittest.TestCase):
             )
         )
         self.assertEqual(
-            self.window.file_selection_count_label.text(),
+            self.window.file_selection_count_label.toolTip(),
             "共 4 个文件",
         )
 
@@ -183,7 +183,7 @@ class FileListSelectionTest(unittest.TestCase):
             [self.paths[2], self.paths[3]],
         )
         self.assertEqual(
-            self.window.file_selection_count_label.text(),
+            self.window.file_selection_count_label.toolTip(),
             "已选 2 / 共 4",
         )
 
@@ -397,8 +397,9 @@ class FileListSelectionTest(unittest.TestCase):
         self.assertEqual(layout["review"].width(), 20)
         self.assertEqual(layout["quality"].width(), 20)
         self.assertEqual(layout["alert"].width(), 20)
-        self.assertLess(layout["annotation"].right(), layout["review"].left())
-        self.assertLess(layout["review"].right(), layout["name"].left())
+        self.assertLess(layout["annotation"].right(), layout["name"].left())
+        self.assertLess(layout["name"].right(), layout["review"].left())
+        self.assertLess(layout["review"].right(), layout["quality"].left())
         self.assertLess(layout["name"].right(), layout["quality"].left())
         self.assertLess(layout["quality"].right(), layout["alert"].left())
 
@@ -906,7 +907,7 @@ class FileListSelectionTest(unittest.TestCase):
         )
         self.assertEqual(self.window.file_path, current_before)
         self.assertEqual(
-            self.window.file_selection_count_label.text(),
+            self.window.file_selection_count_label.toolTip(),
             "显示 1/4 · 已选 2（隐藏 1） · 当前图像已被搜索或筛选隐藏",
         )
 
@@ -927,7 +928,7 @@ class FileListSelectionTest(unittest.TestCase):
         )
         self.assertEqual(self.window.file_path, current_before)
         self.assertEqual(
-            self.window.file_selection_count_label.text(),
+            self.window.file_selection_count_label.toolTip(),
             "显示 0/4 · 当前图像已被搜索或筛选隐藏",
         )
 

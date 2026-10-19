@@ -33,8 +33,6 @@ from labelimg.platform.settings_keys import (
     SETTING_AUTO_SAVE,
     SETTING_DRAW_SQUARE,
     SETTING_FILENAME,
-    SETTING_FILE_LIST_SORT_DESCENDING,
-    SETTING_FILE_LIST_SORT_KEY,
     SETTING_LABEL_FILE_FORMAT,
     SETTING_LANGUAGE,
     SETTING_LAST_OPEN_DIR,
@@ -56,6 +54,7 @@ from labelimg.ui.actions import (
 from labelimg.annotations.ui.style import LabelColorPalette
 from labelimg.workbench.label_color_settings import LabelColorAlgorithmMenu
 from labelimg.workbench.annotation_panel import build_annotation_panel
+from labelimg.workbench.file_panel import build_file_panel
 from labelimg.platform.settings import Settings
 from labelimg.canvas.shape import Shape, DEFAULT_LINE_COLOR
 from labelimg.localization.runtime import (
@@ -133,9 +132,6 @@ from labelimg.files.ui.list_widget import (
     FILE_PERSISTENCE_FLAGS_ROLE,
     FILE_QUALITY_FINDINGS_ROLE,
     FILE_REVIEW_STATE_ROLE,
-    FileListControlBar,
-    FileListItemDelegate,
-    FileListWidget,
     compare_relative_image_paths,
     validate_base_name,
     validate_rename_mapping,
@@ -270,111 +266,7 @@ class WorkbenchComposer:
 
         build_annotation_panel(self)
 
-        self.file_list_widget = FileListWidget()
-        self.file_list_widget.setItemDelegate(
-            FileListItemDelegate(self.file_list_widget)
-        )
-        self.file_list_widget.itemOpenRequested.connect(
-            self.file_item_double_clicked
-        )
-        self.file_list_widget.itemSelectionChanged.connect(
-            self.update_file_selection_count
-        )
-        self.file_list_widget.openRequested.connect(
-            self.open_selected_file
-        )
-        self.file_list_widget.renameRequested.connect(
-            self.rename_selected_files
-        )
-        self.file_list_widget.deleteRequested.connect(
-            self.delete_selected_files
-        )
-        self.file_list_widget.searchRequested.connect(
-            self.focus_image_search
-        )
-        self.file_list_widget.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.file_list_widget.customContextMenuRequested.connect(
-            self.pop_file_list_menu
-        )
-        file_list_layout = QVBoxLayout()
-        file_list_layout.setContentsMargins(6, 4, 6, 6)
-        file_list_layout.setSpacing(6)
-        self.annotation_directory_bar = QWidget()
-        annotation_directory_layout = QHBoxLayout(
-            self.annotation_directory_bar
-        )
-        annotation_directory_layout.setContentsMargins(0, 0, 0, 0)
-        annotation_directory_layout.setSpacing(4)
-        self.annotation_directory_label = QLabel()
-        self.annotation_directory_label.setTextInteractionFlags(
-            Qt.TextSelectableByMouse
-        )
-        self.annotation_directory_label.setSizePolicy(
-            QSizePolicy.Ignored,
-            QSizePolicy.Preferred,
-        )
-        self.annotation_directory_button = QToolButton()
-        self.annotation_directory_button.setAutoRaise(True)
-        self.annotation_directory_button.setToolButtonStyle(
-            Qt.ToolButtonIconOnly
-        )
-        annotation_directory_layout.addWidget(
-            self.annotation_directory_label,
-            1,
-        )
-        annotation_directory_layout.addWidget(
-            self.annotation_directory_button,
-        )
-        file_list_layout.addWidget(self.annotation_directory_bar)
-        self.file_list_controls = FileListControlBar(
-            settings.get(SETTING_FILE_LIST_SORT_KEY, 'name'),
-            settings.get(SETTING_FILE_LIST_SORT_DESCENDING, False),
-        )
-        self.file_list_controls.viewChanged.connect(
-            self.apply_file_list_view
-        )
-        self.file_list_controls.openFirstSearchResultRequested.connect(
-            self.open_first_image_search_result
-        )
-        file_list_layout.addWidget(self.file_list_controls)
-        self.file_list_stack = QStackedWidget()
-        self.file_list_stack.addWidget(self.file_list_widget)
-        self.file_list_empty_state = QWidget()
-        empty_layout = QVBoxLayout(self.file_list_empty_state)
-        empty_layout.addStretch(1)
-        self.file_list_empty_label = QLabel(tr('files.noMatch'))
-        self.file_list_empty_label.setAlignment(Qt.AlignCenter)
-        self.file_list_empty_label.setStyleSheet('color: palette(mid);')
-        empty_layout.addWidget(self.file_list_empty_label)
-        self.file_list_clear_filter_button = QPushButton(tr('files.clearFilter'))
-        self.file_list_clear_filter_button.setSizePolicy(
-            QSizePolicy.Fixed,
-            QSizePolicy.Fixed,
-        )
-        self.file_list_clear_filter_button.clicked.connect(
-            self.file_list_controls.clear_all_conditions
-        )
-        empty_layout.addWidget(
-            self.file_list_clear_filter_button,
-            0,
-            Qt.AlignHCenter,
-        )
-        empty_layout.addStretch(1)
-        self.file_list_stack.addWidget(self.file_list_empty_state)
-        self.file_list_stack.setCurrentWidget(self.file_list_widget)
-        file_list_layout.addWidget(self.file_list_stack)
-        self.file_selection_count_label = QLabel()
-        self.file_selection_count_label.setContentsMargins(6, 2, 6, 2)
-        self.file_selection_count_label.setStyleSheet(
-            "color: palette(mid);"
-        )
-        file_list_layout.addWidget(self.file_selection_count_label)
-        self.update_file_selection_count()
-        file_list_container = QWidget()
-        file_list_container.setLayout(file_list_layout)
-        self.file_dock = QDockWidget(get_str('fileList'), self)
-        self.file_dock.setObjectName(get_str('files'))
-        self.file_dock.setWidget(file_list_container)
+        build_file_panel(self, settings)
 
         from labelimg.image_tools.domain.quality import (
             ImageQualityCache,
@@ -627,7 +519,7 @@ class WorkbenchComposer:
         change_save_dir = action(get_str('changeSaveDir'), self.change_save_dir_dialog,
                                  None, 'choose-annotation-directory',
                                  get_str('changeSavedAnnotationDir'))
-        self.annotation_directory_button.setDefaultAction(change_save_dir)
+        self.annotation_directory_button.clicked.connect(change_save_dir.trigger)
 
         open_annotation = action(get_str('openAnnotation'), self.open_annotation_dialog,
                                  None, 'replace-annotation',

@@ -413,9 +413,8 @@ class CommandSurfacesTest(unittest.TestCase):
             self.window.annotation_directory_bar,
             self.window.file_list_controls,
             self.window.file_list_stack,
-            self.window.file_selection_count_label,
         ]
-        for rows, margin in ((annotation_rows, 12), (file_rows, 6)):
+        for rows, margin in ((annotation_rows, 12), (file_rows, 12)):
             self.assertEqual({row.x() for row in rows}, {margin})
             self.assertEqual({row.width() for row in rows}, {rows[0].width()})
 

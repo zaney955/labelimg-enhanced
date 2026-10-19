@@ -260,6 +260,9 @@ class MainWindow(
         self.file_list_clear_filter_button.setText(tr('files.clearFilter'))
         self.dock.setWindowTitle(tr('boxLabelText'))
         self.file_dock.setWindowTitle(tr('fileList'))
+        from labelimg.workbench.file_panel import retranslate_file_panel
+        retranslate_file_panel(self)
+        self.update_file_selection_count()
         self.image_quality_dock.setWindowTitle(tr('quality.panelTitle'))
         set_action_copy(
             self.display_adjustment_action,
@@ -1378,6 +1381,9 @@ class MainWindow(
             )
         self.annotation_directory_label.setText(status_text)
         self.annotation_directory_label.setToolTip(tooltip)
+        self.annotation_directory_bar.setToolTip(tooltip)
+        self.annotation_directory_bar.setAccessibleName(status_text)
+        self.annotation_directory_bar.setAccessibleDescription(tr('changeSaveDir'))
         if hasattr(self, 'actions') and hasattr(
             self.actions,
             'annotationDirectoryCurrent',

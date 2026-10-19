@@ -39,13 +39,17 @@ During the system double-click interval, a prior selection may retain only its b
 
 ## Status and review
 
-Two fixed leading status columns precede each path: annotation presence, then review state. Slots stay reserved when empty and remain read-only; clicking them follows ordinary file selection/opening behavior.
+The dock header shows a compact total or visible/total count and the current sort key and direction. A full-row annotation-directory button precedes the search field and filter button. Active advanced filters appear as removable chips; removing one preserves the other filters and search text, and Clear removes only advanced filters. Longer condition sets wrap into two rows. Counts and accessible tooltips include hidden current and selected images.
+
+Selection-dependent actions appear in the bottom bar: rename and locate for one file, batch rename and review for multiple files, and a More menu using the same command builder as the context menu. Hidden selected files remain targets. Controls retain existing transaction confirmations, format restrictions, and shortcuts.
+
+File rows have a minimum 26-pixel height and middle-elided relative paths. A narrow leading stripe and bold filename identify the current image independently of selection. The annotation-presence slot precedes the path; review and quality slots follow it. The rightmost slot is reserved for persistence, including the blue unsaved-change dot, even when the filename is long. Slots remain read-only; clicking them follows ordinary file selection/opening behavior.
 
 | Dimension | States and presentation |
 | --- | --- |
 | Annotation presence | Hollow bounding box for one or more boxes; empty for no boxes |
 | Review | Empty for unreviewed, amber circled question for questioned, green circled check for verified; full names on hover |
-| Persistence | One trailing warning for the highest active severity: degraded, conflict, ambiguous document choice, dirty; tooltip lists all conditions |
+| Persistence | The rightmost slot shows the highest active severity: degraded, conflict, ambiguous document choice, dirty (blue dot); tooltip lists all conditions. A successful save clears dirty immediately, without a minimum display time. |
 
 Annotation presence and review are independent: state selection and filters never infer one from the other. Persistence alerts do not modify filename text.
 

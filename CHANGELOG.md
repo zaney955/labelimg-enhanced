@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Reorganize the file dock with header counts and readable sort state, a full-row annotation-directory entry, removable filter chips, compact middle-elided file rows, and selection-dependent actions; keep unsaved changes and persistence warnings in the rightmost status slot.
+
 - Preserve original box coordinates when duplicating with Ctrl+D, matching Ctrl+C / Ctrl+V without an automatic offset, including repeated duplication and multi-selection at image boundaries.
 
 - Reorganize the annotation dock into global header controls, a compact Default Category selector, filtering, and a selection-dependent bottom bar; preserve annotation transactions and restore the all-annotation visibility button's enabled state.

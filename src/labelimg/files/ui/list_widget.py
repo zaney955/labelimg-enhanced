@@ -28,6 +28,7 @@ from PyQt5.QtWidgets import (
     QComboBox,
     QFormLayout,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -478,9 +479,12 @@ class FileListControlBar(QWidget):
         self.state = FileListViewState(sort_key, descending)
         self._workspace_available = False
         self._index_complete = True
-        layout = QHBoxLayout(self)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
+        layout.setSpacing(8)
+        search_row = QHBoxLayout()
+        search_row.setContentsMargins(0, 0, 0, 0)
+        search_row.setSpacing(6)
         self.search_edit = ImageSearchLineEdit(self)
         self.search_icon_action = decorate_list_query_field(
             self.search_edit,
@@ -490,11 +494,32 @@ class FileListControlBar(QWidget):
         self.search_edit.openFirstResultRequested.connect(
             self.openFirstSearchResultRequested
         )
-        layout.addWidget(self.search_edit, 1)
-        self.sort_button = FileListControlButton("sort", self)
+        search_row.addWidget(self.search_edit, 1)
+        self.sort_button = QToolButton(self)
+        self.sort_button.setAutoRaise(True)
+        self.sort_button.setFixedHeight(28)
         self.filter_button = FileListControlButton("filter", self)
-        layout.addWidget(self.sort_button)
-        layout.addWidget(self.filter_button)
+        search_row.addWidget(self.filter_button)
+        layout.addLayout(search_row)
+        # Composition moves this control into the dock header.
+        layout.addWidget(self.sort_button, 0, Qt.AlignRight)
+        self.filter_chips = QWidget()
+        self.chip_layout = QGridLayout(self.filter_chips)
+        self.chip_layout.setContentsMargins(0, 0, 0, 0)
+        self.chip_layout.setHorizontalSpacing(5)
+        self.chip_layout.setVerticalSpacing(5)
+        self.chip_layout.setColumnStretch(1, 1)
+        self.chip_buttons = {}
+        for key in ('annotation', 'review', 'alert', 'quality'):
+            chip = QToolButton(self.filter_chips)
+            chip.setObjectName('fileFilterChip')
+            chip.setFixedHeight(25)
+            chip.clicked.connect(lambda checked=False, field=key: self.clear_filter_field(field))
+            self.chip_buttons[key] = chip
+        self.clear_chips_button = QToolButton(self.filter_chips)
+        self.clear_chips_button.setFixedHeight(25)
+        self.clear_chips_button.clicked.connect(self.clear_advanced_filters)
+        layout.addWidget(self.filter_chips)
         self.sort_menu = QMenu(self.sort_button)
         self.sort_group = QActionGroup(self.sort_menu)
         self.sort_group.setExclusive(True)
@@ -610,7 +635,7 @@ class FileListControlBar(QWidget):
         self.sort_actions[self.state.sort_key].setChecked(True)
         self.ascending_action.setChecked(not self.state.descending)
         self.descending_action.setChecked(self.state.descending)
-        self.sort_button.set_descending(self.state.descending)
+        self.sort_button.setText(tr(self.SORT_LABEL_IDS[self.state.sort_key]) + (' ↓' if self.state.descending else ' ↑'))
         direction = tr(
             "fileSort.descending"
             if self.state.descending
@@ -638,6 +663,7 @@ class FileListControlBar(QWidget):
             self.state.quality_filter,
         )
         self.state.set_filter(annotation, review, alert, quality)
+        self.filter_panel.set_filter(annotation, review, alert, quality)
         after = (
             self.state.annotation_filter,
             self.state.review_filter,
@@ -681,6 +707,7 @@ class FileListControlBar(QWidget):
 
     def _update_filter_presentation(self):
         self.filter_button.set_active(self.state.advanced_filter_active)
+        self._update_filter_chips()
         if not self.state.advanced_filter_active:
             self.filter_button.setToolTip(tr("fileFilter.disabled"))
             return
@@ -721,6 +748,34 @@ class FileListControlBar(QWidget):
         self.filter_button.setToolTip(
             tr("fileFilter.tooltip", details=" · ".join(labels))
         )
+
+    def clear_filter_field(self, field):
+        values = {key: getattr(self.state, key + '_filter') for key in self.chip_buttons}
+        values[field] = 'all'
+        self.filter_panel.set_filter(*(values[key] for key in self.chip_buttons))
+        self._set_filter(*(values[key] for key in self.chip_buttons))
+
+    def _update_filter_chips(self):
+        combos = (self.filter_panel.annotation_combo, self.filter_panel.review_combo,
+                  self.filter_panel.alert_combo, self.filter_panel.quality_combo)
+        active = 0
+        for (key, chip), combo in zip(self.chip_buttons.items(), combos):
+            self.chip_layout.removeWidget(chip)
+            value = getattr(self.state, key + '_filter')
+            chip.setVisible(value != 'all')
+            if value != 'all':
+                index = combo.findData(value)
+                caption = combo.itemText(index)
+                detail = tr({'annotation': 'fileFilter.annotation', 'review': 'fileFilter.review',
+                             'alert': 'fileFilter.persistence', 'quality': 'fileFilter.quality'}[key]) + ': ' + caption
+                chip.setText(caption + ' ×')
+                chip.setToolTip(detail)
+                chip.setAccessibleName(tr('filePanel.removeFilter', filter=detail))
+                self.chip_layout.addWidget(chip, active // 2, active % 2, Qt.AlignLeft)
+                active += 1
+        self.chip_layout.addWidget(self.clear_chips_button, 0, 2, Qt.AlignRight)
+        self.clear_chips_button.setText(tr('filePanel.clear'))
+        self.filter_chips.setVisible(active > 0)
 
     def show_filter_panel(self, _checked=False):
         if not self.filter_button.isEnabled():
@@ -1331,7 +1386,6 @@ class FileListWidget(QListView):
 class FileListItemDelegate(QStyledItemDelegate):
     selection_background_alpha = 28
     hover_background_alpha = 45
-    separator_alpha = 45
     status_column_width = 20
     alert_column_width = 20
     status_name_gap = 6
@@ -1340,6 +1394,11 @@ class FileListItemDelegate(QStyledItemDelegate):
     questioned_color = QColor(217, 145, 0)
     verified_color = QColor(46, 160, 67)
     error_color = QColor(200, 55, 55)
+
+    def sizeHint(self, option, index):
+        size = super().sizeHint(option, index)
+        size.setHeight(max(26, option.fontMetrics.height() + 8))
+        return size
 
     def paint(self, painter, option, index):
         paint_option = QStyleOptionViewItem(option)
@@ -1376,12 +1435,14 @@ class FileListItemDelegate(QStyledItemDelegate):
             paint_option.state &= ~QStyle.State_MouseOver
         if current_image:
             paint_option.font.setBold(True)
+            painter.fillRect(QRect(row_rect.left() + 2, row_rect.top() + 5,
+                                   3, max(0, row_rect.height() - 10)), accent)
 
         layout = self.row_layout(row_rect)
         paint_option.rect = layout["name"]
+        paint_option.textElideMode = Qt.ElideMiddle
         super().paint(painter, paint_option, index)
 
-        self._paint_separator(painter, option, layout)
         self._paint_annotation_indicator(
             painter,
             option,
@@ -1434,18 +1495,11 @@ class FileListItemDelegate(QStyledItemDelegate):
     def row_layout(cls, row_rect):
         row_rect = QRect(row_rect)
         annotation = QRect(
-            row_rect.left(),
+            row_rect.left() + 6,
             row_rect.top(),
             cls.status_column_width,
             row_rect.height(),
         )
-        review = QRect(
-            annotation.right() + 1,
-            row_rect.top(),
-            cls.status_column_width,
-            row_rect.height(),
-        )
-        separator_x = review.right() + 1
         alert = QRect(
             row_rect.right() - cls.alert_column_width + 1,
             row_rect.top(),
@@ -1458,8 +1512,14 @@ class FileListItemDelegate(QStyledItemDelegate):
             cls.alert_column_width,
             row_rect.height(),
         )
-        name_left = separator_x + 1 + cls.status_name_gap
-        name_right = quality.left() - cls.name_alert_gap - 1
+        review = QRect(
+            quality.left() - cls.status_column_width,
+            row_rect.top(),
+            cls.status_column_width,
+            row_rect.height(),
+        )
+        name_left = annotation.right() + 2 + cls.status_name_gap
+        name_right = review.left() - cls.name_alert_gap - 1
         name = QRect(
             name_left,
             row_rect.top(),
@@ -1470,7 +1530,6 @@ class FileListItemDelegate(QStyledItemDelegate):
             "row": row_rect,
             "annotation": annotation,
             "review": review,
-            "separator_x": separator_x,
             "name": name,
             "quality": quality,
             "alert": alert,
@@ -1511,26 +1570,6 @@ class FileListItemDelegate(QStyledItemDelegate):
         )
 
     @classmethod
-    def _paint_separator(cls, painter, option, layout):
-        palette = (
-            option.widget.palette()
-            if option.widget is not None
-            else option.palette
-        )
-        color = QColor(palette.color(QPalette.Mid))
-        color.setAlpha(cls.separator_alpha)
-        row = layout["row"]
-        painter.fillRect(
-            QRect(
-                layout["separator_x"],
-                row.top() + 4,
-                1,
-                max(0, row.height() - 8),
-            ),
-            color,
-        )
-
-    @classmethod
     def _paint_annotation_indicator(
         cls,
         painter,
@@ -1546,6 +1585,8 @@ class FileListItemDelegate(QStyledItemDelegate):
             else option.palette
         )
         rect = cls._icon_rect(column).adjusted(1.5, 2.0, -1.5, -2.0)
+        # The small corner-box glyph needs optical alignment with filename ink.
+        rect.translate(0, 2.5)
         length = 3.5
         painter.save()
         painter.setPen(QPen(

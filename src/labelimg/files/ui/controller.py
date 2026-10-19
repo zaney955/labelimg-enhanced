@@ -325,13 +325,13 @@ class FileActionsMixin:
             and self.file_list_controls.state.filter_active
         )
         if not filter_active:
-            self.file_selection_count_label.setText(
-                (
-                    tr('fileCount.selected', selected=selected_count, total=total_count)
-                    if selected_count
-                    else tr('fileCount.total', total=total_count)
-                )
+            detail = (
+                tr('fileCount.selected', selected=selected_count, total=total_count)
+                if selected_count
+                else tr('fileCount.total', total=total_count)
             )
+            from labelimg.workbench.file_panel import update_file_panel_selection
+            update_file_panel_selection(self, detail)
             return
         visible_count = len(self.file_list_widget.visible_items())
         hidden_selected = sum(
@@ -351,7 +351,8 @@ class FileActionsMixin:
             and self.file_path not in self.visible_file_paths()
         ):
             parts.append(tr('fileCount.currentHidden'))
-        self.file_selection_count_label.setText(' · '.join(parts))
+        from labelimg.workbench.file_panel import update_file_panel_selection
+        update_file_panel_selection(self, ' · '.join(parts))
 
 
     def update_current_file_marker(self):
@@ -403,6 +404,13 @@ class FileActionsMixin:
             )
             return
 
+        self.populate_file_selection_menu(menu)
+        menu.exec_(self.file_list_widget.viewport().mapToGlobal(point))
+
+
+    def populate_file_selection_menu(self, menu):
+        """Build fresh actions for both the right-click and footer menus."""
+        menu.clear()
         paths = self.selected_file_paths()
         count = len(paths)
 
@@ -514,10 +522,6 @@ class FileActionsMixin:
         )
         delete_files.setEnabled(count > 0)
         delete_files.triggered.connect(self.delete_selected_files)
-
-        menu.exec_(
-            self.file_list_widget.viewport().mapToGlobal(point)
-        )
 
 
     def invert_file_selection(self):
