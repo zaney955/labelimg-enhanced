@@ -254,7 +254,7 @@ class FileListControlsTest(unittest.TestCase):
         self.assertFalse(self.widget.search_icon_action.icon().isNull())
         self.assertEqual(self.widget.search_edit.accessibleName(), "图像搜索")
         self.assertEqual(self.widget.search_edit.toolTip(), "搜索图像（Ctrl+F）")
-        self.assertEqual(self.widget.sort_button.text(), "文件名 ↑")
+        self.assertEqual(self.widget.sort_button.text(), "文件名")
         self.assertEqual(self.widget.sort_button.height(), 28)
         self.assertEqual(self.widget.filter_button.size().height(), 28)
         self.assertIn("文件名", self.widget.sort_button.toolTip())

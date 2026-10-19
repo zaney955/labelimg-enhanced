@@ -228,8 +228,8 @@ class DisplayAdjustmentWorkbenchTest(unittest.TestCase):
         self.window.display_adjustment_controller.finish_master_gesture()
         panel.current_brightness.slider.setValue(-10)
 
-        self.assertTrue(panel.reset_all_button.icon().isNull())
-        self.assertTrue(panel.reset_current_button.icon().isNull())
+        self.assertFalse(panel.reset_all_button.icon().isNull())
+        self.assertFalse(panel.reset_current_button.icon().isNull())
         self.assertEqual(panel.reset_all_button.text(), "")
         self.assertEqual(panel.reset_current_button.text(), "")
         self.assertTrue(panel.reset_current_button.isEnabled())
@@ -264,7 +264,7 @@ class DisplayAdjustmentWorkbenchTest(unittest.TestCase):
         )
         for button in (panel.reset_all_button, panel.reset_current_button):
             self.assertEqual(button.text(), "")
-            self.assertTrue(button.icon().isNull())
+            self.assertFalse(button.icon().isNull())
             self.assertEqual((button.width(), button.height()), (28, 28))
             self.assertTrue(button.accessibleName())
 

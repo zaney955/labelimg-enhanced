@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Unify compact controls, sorting, filtering, visibility states, file status indicators, reset/zoom controls, crop handles and Qt control glyphs with the shared SVG icon system.
+
 - Reorganize the file dock with header counts and readable sort state, a full-row annotation-directory entry, removable filter chips, compact middle-elided file rows, and selection-dependent actions; keep unsaved changes and persistence warnings in the rightmost status slot.
 
 - Preserve original box coordinates when duplicating with Ctrl+D, matching Ctrl+C / Ctrl+V without an automatic offset, including repeated duplication and multi-selection at image boundaries.

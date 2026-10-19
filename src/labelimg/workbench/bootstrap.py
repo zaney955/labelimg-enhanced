@@ -8,6 +8,7 @@ import sys
 from PyQt5.QtWidgets import QApplication
 
 from labelimg.ui.actions import new_icon
+from labelimg.ui.icons import install_icon_style
 from labelimg.workbench.composition import WorkbenchComposer
 from labelimg.workbench.main_window import MainWindow
 from labelimg.workbench.support import APP_NAME
@@ -52,6 +53,7 @@ def create_workbench(
     """Construct the concrete window from feature-neutral launch options."""
     if not isinstance(options, WorkbenchLaunchOptions):
         raise TypeError("create_workbench requires WorkbenchLaunchOptions")
+    install_icon_style()
     window = window_factory()
     composer(
         window,

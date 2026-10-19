@@ -432,8 +432,10 @@ class ZoomControl(QFrame):
         for button in (self.minus, self.plus):
             button.setAutoRaise(True)
             button.setFixedSize(28, 24)
-        self.minus.setText("−")
-        self.plus.setText("+")
+        self.minus.setIcon(new_icon("minus"))
+        self.plus.setIcon(new_icon("plus"))
+        for button in (self.minus, self.plus):
+            button.setIconSize(QSize(18, 18))
         self.slider = QSlider(Qt.Horizontal)
         self.slider.setRange(0, self.SLIDER_STEPS)
         self._compact = False

@@ -93,5 +93,32 @@
 <file alias="image-actions">resources/icons/image-actions.svg</file>
 <file alias="check-updates">resources/icons/check-updates.svg</file>
 <file alias="auto-update">resources/icons/auto-update.svg</file>
+<file alias="more">resources/icons/more.svg</file>
+<file alias="chevron-down">resources/icons/chevron-down.svg</file>
+<file alias="chevron-up">resources/icons/chevron-up.svg</file>
+<file alias="chevron-left">resources/icons/chevron-left.svg</file>
+<file alias="chevron-right">resources/icons/chevron-right.svg</file>
+<file alias="sort-ascending">resources/icons/sort-ascending.svg</file>
+<file alias="sort-descending">resources/icons/sort-descending.svg</file>
+<file alias="visibility-off">resources/icons/visibility-off.svg</file>
+<file alias="visibility-mixed">resources/icons/visibility-mixed.svg</file>
+<file alias="clear">resources/icons/clear.svg</file>
+<file alias="reset">resources/icons/reset.svg</file>
+<file alias="drag-handle">resources/icons/drag-handle.svg</file>
+<file alias="status-annotated">resources/icons/status-annotated.svg</file>
+<file alias="status-dirty">resources/icons/status-dirty.svg</file>
+<file alias="status-ambiguous">resources/icons/status-ambiguous.svg</file>
+<file alias="status-conflict">resources/icons/status-conflict.svg</file>
+<file alias="status-warning">resources/icons/status-warning.svg</file>
+<file alias="status-quality">resources/icons/status-quality.svg</file>
+<file alias="near-duplicate">resources/icons/near-duplicate.svg</file>
+<file alias="category-conflict">resources/icons/category-conflict.svg</file>
+<file alias="plus">resources/icons/plus.svg</file>
+<file alias="minus">resources/icons/minus.svg</file>
+<file alias="color-line">resources/icons/color-line.svg</file>
+<file alias="create-box">resources/icons/create-box.svg</file>
+<file alias="previous">resources/icons/previous.svg</file>
+<file alias="reset-all">resources/icons/reset-all.svg</file>
+<file alias="visibility">resources/icons/visibility.svg</file>
 </qresource>
 </RCC>

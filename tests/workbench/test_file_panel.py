@@ -62,7 +62,7 @@ class FilePanelTest(unittest.TestCase):
         self.assertIs(w.file_dock.titleBarWidget(), w.file_header)
         self.assertIs(w.file_list_controls.sort_button.parentWidget(), w.file_header)
         self.assertEqual(w.file_summary_label.text(), '4 files')
-        self.assertEqual(w.file_list_controls.sort_button.text(), 'File Name ↑')
+        self.assertEqual(w.file_list_controls.sort_button.text(), 'File Name')
         self.assertFalse(w.file_selection_bar.isVisible())
         start = w.file_list_stack.mapTo(w.file_dock, QPoint())
         self.select(1)
@@ -122,7 +122,7 @@ class FilePanelTest(unittest.TestCase):
         w.change_language(SIMPLIFIED_CHINESE)
         self.assertEqual(w.file_panel_title.text(), '文件列表')
         self.assertEqual(w.file_rename_button.text(), '批量重命名')
-        self.assertEqual(w.file_list_controls.sort_button.text(), '文件名 ↑')
+        self.assertEqual(w.file_list_controls.sort_button.text(), '文件名')
         self.assertEqual(w.file_selection_count_label.text(), '已选 2 个')
 
     def test_directory_row_triggers_existing_command(self):
@@ -164,7 +164,7 @@ class FilePanelTest(unittest.TestCase):
         delegate.paint(painter, option, self.window.file_list_widget.indexFromItem(item))
         painter.end()
         center = delegate.row_layout(option.rect)['alert'].center()
-        self.assertEqual(image.pixelColor(center), option.widget.palette().highlight().color())
+        self.assertEqual(image.pixelColor(center), QColor('#E6E2F0'))
         self.assertEqual(option.widget.textElideMode(), Qt.ElideMiddle)
 
 

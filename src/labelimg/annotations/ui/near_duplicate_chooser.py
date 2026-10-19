@@ -18,6 +18,7 @@ from PyQt5.QtWidgets import (
 
 from labelimg.canvas import CATEGORY_CONFLICT
 from labelimg.localization.runtime import language_changed, tr
+from labelimg.ui.actions import new_icon
 
 
 class _MemberRow(QWidget):
@@ -36,6 +37,7 @@ class _MemberRow(QWidget):
         self.visibility_button = QToolButton()
         self.visibility_button.setAutoRaise(True)
         self.visibility_button.setFixedSize(QSize(24, 24))
+        self.visibility_button.setIconSize(QSize(18, 18))
         self.visibility_button.clicked.connect(self._toggle_visibility)
         layout.addWidget(self.ordinal_label)
         layout.addWidget(self.label_label, 1)
@@ -47,7 +49,7 @@ class _MemberRow(QWidget):
         self.retranslate_ui()
 
     def retranslate_ui(self):
-        self.visibility_button.setText("◉" if self.visible else "⊘")
+        self.visibility_button.setIcon(new_icon("visibility" if self.visible else "visibility-off"))
         self.visibility_button.setToolTip(
             tr(
                 "nearDuplicate.hideMember"
@@ -55,6 +57,7 @@ class _MemberRow(QWidget):
                 else "nearDuplicate.showMember"
             )
         )
+        self.visibility_button.setAccessibleName(self.visibility_button.toolTip())
 
     def _toggle_visibility(self):
         self.visibilityRequested.emit(self.shape, not self.visible)

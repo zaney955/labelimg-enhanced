@@ -34,6 +34,7 @@ from PyQt5.QtWidgets import (
 
 from labelimg.localization.runtime import tr
 from labelimg.ui.actions import new_icon
+from labelimg.ui.icons import IconLabel
 from labelimg.image_tools.domain.crop_geometry import CropRegion
 
 
@@ -549,7 +550,7 @@ class CropControlBar(QFrame):
         layout.setSpacing(5)
         layout.setSizeConstraint(QLayout.SetFixedSize)
 
-        self.drag_handle = QLabel("⋮⋮", self)
+        self.drag_handle = IconLabel("drag-handle", self)
         self.drag_handle.setCursor(Qt.SizeAllCursor)
         self.drag_handle.installEventFilter(self)
         layout.addWidget(self.drag_handle)

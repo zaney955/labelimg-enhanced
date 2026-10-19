@@ -124,7 +124,7 @@ class TestAppIconAssets(unittest.TestCase):
             for path in sorted(ICON_DIRECTORY.glob("*.svg"))
             if path.name != "app.svg"
         ]
-        self.assertEqual(len(operation_paths), 86)
+        self.assertEqual(len(operation_paths), 108)
         for path in operation_paths:
             root = ElementTree.parse(path).getroot()
             with self.subTest(path=path.name):
@@ -165,6 +165,16 @@ class TestAppIconAssets(unittest.TestCase):
                         source_image.bits().asstring(source_image.byteCount()),
                         compiled_image.bits().asstring(compiled_image.byteCount()),
                     )
+
+    def test_every_operation_icon_is_available_by_its_canonical_name(self):
+        for path in sorted(ICON_DIRECTORY.glob("*.svg")):
+            if path.stem == "app":
+                continue
+            with self.subTest(name=path.stem):
+                canonical = QIcon(":/" + path.stem)
+                self.assertFalse(canonical.isNull())
+                self.assertEqual(canonical.pixmap(18, 18).toImage(),
+                                 QIcon(str(path)).pixmap(18, 18).toImage())
 
     def test_operation_svgs_render_cleanly_and_uniquely_at_menu_size(self):
         signatures = {}

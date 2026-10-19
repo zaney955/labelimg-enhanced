@@ -1,0 +1,144 @@
+"""Shared vector artwork for commands, delegates and Qt control chrome."""
+
+from functools import lru_cache
+
+from PyQt5.QtCore import QRectF, Qt
+from PyQt5.QtGui import QIcon, QPainter
+from PyQt5.QtWidgets import (
+    QAbstractSpinBox, QApplication, QLabel, QProxyStyle, QStyle,
+    QStyleOption, QStyleOptionComboBox, QStyleOptionSpinBox,
+)
+
+import labelimg.ui.generated_resources  # noqa: F401 - register icons for standalone widgets
+
+
+@lru_cache(maxsize=256)
+def icon(name):
+    return QIcon(":/" + name)
+
+
+def paint_icon(painter, rect, name, *, enabled=True, size=18):
+    """Center an SVG in logical pixels; QIcon handles the paint device's DPR."""
+    rect = QRectF(rect)
+    side = min(float(size), rect.width(), rect.height())
+    target = QRectF(0, 0, side, side)
+    target.moveCenter(rect.center())
+    icon(name).paint(painter, target.toAlignedRect(), Qt.AlignCenter,
+                     QIcon.Normal if enabled else QIcon.Disabled)
+
+
+class IconLabel(QLabel):
+    """A decorative icon that repaints from SVG at the screen's current scale."""
+
+    def __init__(self, name, parent=None, size=18):
+        super().__init__(parent)
+        self._icon_name = name
+        self._icon_size = size
+        self.setFixedSize(size, size)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        paint_icon(painter, self.rect(), self._icon_name,
+                   enabled=self.isEnabled(), size=self._icon_size)
+
+
+class IconStyle(QProxyStyle):
+    """Keep native control behavior while sharing the application's glyphs."""
+
+    ARROWS = {
+        QStyle.PE_IndicatorArrowDown: "chevron-down",
+        QStyle.PE_IndicatorArrowUp: "chevron-up",
+        QStyle.PE_IndicatorArrowLeft: "chevron-left",
+        QStyle.PE_IndicatorArrowRight: "chevron-right",
+        QStyle.PE_IndicatorSpinDown: "chevron-down",
+        QStyle.PE_IndicatorSpinUp: "chevron-up",
+        QStyle.PE_IndicatorSpinPlus: "plus",
+        QStyle.PE_IndicatorSpinMinus: "minus",
+    }
+    STANDARD_ICONS = {
+        QStyle.SP_LineEditClearButton: "clear",
+        QStyle.SP_DockWidgetCloseButton: "close",
+        QStyle.SP_TitleBarCloseButton: "close",
+        QStyle.SP_ToolBarHorizontalExtensionButton: "chevron-right",
+        QStyle.SP_ToolBarVerticalExtensionButton: "chevron-down",
+        QStyle.SP_MessageBoxInformation: "about",
+        QStyle.SP_MessageBoxQuestion: "help",
+        QStyle.SP_MessageBoxWarning: "status-warning",
+        QStyle.SP_MessageBoxCritical: "status-conflict",
+        QStyle.SP_DialogOkButton: "done",
+        QStyle.SP_DialogCancelButton: "close",
+        QStyle.SP_DialogApplyButton: "done",
+        QStyle.SP_DialogResetButton: "reset",
+        QStyle.SP_DialogSaveButton: "save",
+        QStyle.SP_DialogOpenButton: "open-file",
+        QStyle.SP_DialogCloseButton: "close",
+        QStyle.SP_DialogHelpButton: "help",
+    }
+
+    def standardIcon(self, standard_icon, option=None, widget=None):
+        name = self.STANDARD_ICONS.get(standard_icon)
+        return icon(name) if name else super().standardIcon(standard_icon, option, widget)
+
+    def standardPixmap(self, standard_pixmap, option=None, widget=None):
+        name = self.STANDARD_ICONS.get(standard_pixmap)
+        if name:
+            mode = QIcon.Normal if option is None or option.state & QStyle.State_Enabled else QIcon.Disabled
+            return icon(name).pixmap(24, 24, mode)
+        return super().standardPixmap(standard_pixmap, option, widget)
+
+    def drawPrimitive(self, element, option, painter, widget=None):
+        name = self.ARROWS.get(element)
+        if element == QStyle.PE_IndicatorBranch and option.state & QStyle.State_Children:
+            name = "chevron-down" if option.state & QStyle.State_Open else "chevron-right"
+        if element == QStyle.PE_IndicatorHeaderArrow:
+            name = "sort-ascending" if option.sortIndicator == option.SortDown else "sort-descending"
+        if name:
+            target = QRectF(0, 0, 16, 16)
+            target.moveCenter(QRectF(option.rect).center())
+            paint_icon(painter, target, name,
+                       enabled=bool(option.state & QStyle.State_Enabled), size=16)
+            return
+        super().drawPrimitive(element, option, painter, widget)
+
+    def drawComplexControl(self, control, option, painter, widget=None):
+        # Windows' themed combo/spin controls draw their arrows directly, bypassing
+        # drawPrimitive. Let the base style draw the frame and share only the glyphs.
+        if control == QStyle.CC_ComboBox:
+            frame = QStyleOptionComboBox(option)
+            frame.subControls &= ~QStyle.SC_ComboBoxArrow
+            super().drawComplexControl(control, frame, painter, widget)
+            if option.subControls & QStyle.SC_ComboBoxArrow:
+                arrow = QStyleOption()
+                arrow.rect = self.subControlRect(control, option, QStyle.SC_ComboBoxArrow, widget)
+                arrow.state = option.state
+                self.drawPrimitive(QStyle.PE_IndicatorArrowDown, arrow, painter, widget)
+            return
+        if control == QStyle.CC_SpinBox and option.buttonSymbols != QAbstractSpinBox.NoButtons:
+            frame = QStyleOptionSpinBox(option)
+            frame.subControls &= ~(QStyle.SC_SpinBoxUp | QStyle.SC_SpinBoxDown)
+            super().drawComplexControl(control, frame, painter, widget)
+            for subcontrol, step, arrow_kind, plus_minus in (
+                (QStyle.SC_SpinBoxUp, QAbstractSpinBox.StepUpEnabled,
+                 QStyle.PE_IndicatorSpinUp, QStyle.PE_IndicatorSpinPlus),
+                (QStyle.SC_SpinBoxDown, QAbstractSpinBox.StepDownEnabled,
+                 QStyle.PE_IndicatorSpinDown, QStyle.PE_IndicatorSpinMinus),
+            ):
+                if option.subControls & subcontrol:
+                    arrow = QStyleOption()
+                    arrow.rect = self.subControlRect(control, option, subcontrol, widget)
+                    arrow.state = option.state
+                    if not option.stepEnabled & step:
+                        arrow.state &= ~QStyle.State_Enabled
+                    primitive = plus_minus if option.buttonSymbols == QAbstractSpinBox.PlusMinus else arrow_kind
+                    self.drawPrimitive(primitive, arrow, painter, widget)
+            return
+        super().drawComplexControl(control, option, painter, widget)
+
+
+def install_icon_style():
+    app = QApplication.instance()
+    if app is None or app.property("labelimgIconStyle"):
+        return
+    # Construct by name so Qt never transfers ownership of the existing style.
+    app.setStyle(IconStyle(app.style().objectName()))
+    app.setProperty("labelimgIconStyle", True)

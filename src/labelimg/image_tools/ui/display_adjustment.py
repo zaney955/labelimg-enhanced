@@ -18,7 +18,7 @@ from PyQt5.QtCore import (
     QTimer,
     pyqtSignal,
 )
-from PyQt5.QtGui import QColor, QImage, QPainter, QPainterPath, QPen, QPixmap
+from PyQt5.QtGui import QColor, QImage, QPainter, QPixmap
 from PyQt5.QtWidgets import (
     QFrame,
     QGraphicsDropShadowEffect,
@@ -45,6 +45,7 @@ from labelimg.image_tools.application.display_adjustment import (
 )
 from labelimg.localization.runtime import language_changed, tr
 from labelimg.ui.actions import new_icon
+from labelimg.ui.icons import paint_icon
 
 
 PREVIEW_MAX_PIXELS = 1_500_000
@@ -59,11 +60,13 @@ def display_adjustment_icon():
 
 
 class ResetIconButton(QToolButton):
-    """Compact accessible reset button with a project-drawn arc arrow."""
+    """Compact accessible reset button using the shared reset artwork."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("displayAdjustmentResetButton")
+        self.setIcon(new_icon("reset"))
+        self.setIconSize(QSize(18, 18))
         self.setAutoRaise(False)
         self.setToolButtonStyle(Qt.ToolButtonIconOnly)
         self.setFixedSize(28, 28)
@@ -86,30 +89,6 @@ class ResetIconButton(QToolButton):
                 border-color: palette(midlight);
             }
         """)
-
-    def paintEvent(self, event):
-        super().paintEvent(event)
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        color = (
-            self.palette().mid().color()
-            if not self.isEnabled()
-            else self.palette().buttonText().color()
-        )
-        pen = QPen(color)
-        pen.setWidthF(1.6)
-        pen.setCapStyle(Qt.RoundCap)
-        pen.setJoinStyle(Qt.RoundJoin)
-        painter.setPen(pen)
-
-        arc = QPainterPath(QPointF(8.5, 11.0))
-        arc.cubicTo(10.0, 7.5, 14.3, 6.4, 17.7, 8.3)
-        arc.cubicTo(21.5, 10.5, 22.0, 15.5, 19.0, 18.5)
-        arc.cubicTo(16.0, 21.5, 11.0, 21.0, 8.8, 17.3)
-        painter.drawPath(arc)
-        painter.drawLine(QPointF(8.5, 11.0), QPointF(8.5, 7.5))
-        painter.drawLine(QPointF(8.5, 11.0), QPointF(12.0, 11.0))
-        painter.end()
 
 
 class DisplayAdjustmentButton(QToolButton):
@@ -237,19 +216,9 @@ class CurrentImageDisclosure(QToolButton):
             Qt.AlignLeft | Qt.AlignVCenter,
             self.text(),
         )
-        pen = QPen(color)
-        pen.setWidthF(1.8)
-        pen.setCapStyle(Qt.RoundCap)
-        pen.setJoinStyle(Qt.RoundJoin)
-        painter.setPen(pen)
-        x = self.width() - 12
-        y = self.height() / 2.0
-        if self.isChecked():
-            painter.drawLine(QPointF(x - 4, y - 2), QPointF(x, y + 2))
-            painter.drawLine(QPointF(x, y + 2), QPointF(x + 4, y - 2))
-        else:
-            painter.drawLine(QPointF(x - 2, y - 4), QPointF(x + 2, y))
-            painter.drawLine(QPointF(x + 2, y), QPointF(x - 2, y + 4))
+        paint_icon(painter, QRectF(self.width() - 22, 0, 20, self.height()),
+                   "chevron-down" if self.isChecked() else "chevron-right",
+                   enabled=self.isEnabled(), size=16)
         painter.end()
 
 

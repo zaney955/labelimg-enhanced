@@ -14,12 +14,13 @@ from PyQt5.QtCore import (
     QRect,
     QRectF,
     QSignalBlocker,
+    QSize,
     QSortFilterProxyModel,
     QTimer,
     Qt,
     pyqtSignal,
 )
-from PyQt5.QtGui import QColor, QPainter, QPainterPath, QPalette, QPen
+from PyQt5.QtGui import QColor, QPainter, QPalette, QPen
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -59,6 +60,7 @@ from labelimg.files.model import (
     quality_finding_value,
 )
 from labelimg.localization.runtime import language_changed, localize_dialog_buttons, tr
+from labelimg.ui.icons import icon as new_icon, paint_icon
 from labelimg.ui.query_field import decorate_list_query_field
 
 
@@ -213,6 +215,8 @@ class FileListControlButton(QToolButton):
         self.descending = False
         self._hovered = False
         self.setFixedSize(28, 28)
+        self.setIconSize(QSize(18, 18))
+        self.setIcon(new_icon("filter" if kind == "filter" else "sort-ascending"))
         self.setAutoRaise(True)
         self.setFocusPolicy(Qt.StrongFocus)
 
@@ -224,6 +228,8 @@ class FileListControlButton(QToolButton):
 
     def set_descending(self, descending):
         self.descending = bool(descending)
+        if self.kind != "filter":
+            self.setIcon(new_icon("sort-descending" if self.descending else "sort-ascending"))
         self.update()
 
     def enterEvent(self, event):
@@ -257,37 +263,9 @@ class FileListControlButton(QToolButton):
             painter.setBrush(Qt.NoBrush)
             painter.setPen(QPen(accent, 1.2))
             painter.drawRoundedRect(QRectF(self.rect()).adjusted(1, 1, -1, -1), 4, 4)
-        color = (
-            palette.color(QPalette.Disabled, QPalette.ButtonText)
-            if not self.isEnabled()
-            else (
-                accent
-                if self.active
-                else palette.color(QPalette.ButtonText)
-            )
-        )
-        painter.setPen(QPen(color, 1.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-        painter.setBrush(Qt.NoBrush)
-        if self.kind == "filter":
-            path = QPainterPath()
-            path.moveTo(7, 8)
-            path.lineTo(21, 8)
-            path.lineTo(16, 14)
-            path.lineTo(16, 20)
-            path.lineTo(12, 18)
-            path.lineTo(12, 14)
-            path.closeSubpath()
-            painter.drawPath(path)
-        else:
-            painter.drawLine(7, 9, 15, 9)
-            painter.drawLine(7, 14, 13, 14)
-            painter.drawLine(7, 19, 11, 19)
-            top, bottom = (19, 8) if self.descending else (8, 19)
-            painter.drawLine(20, top, 20, bottom)
-            arrow_y = bottom
-            arrow_step = -3 if self.descending else 3
-            painter.drawLine(20, arrow_y, 17, arrow_y - arrow_step)
-            painter.drawLine(20, arrow_y, 23, arrow_y - arrow_step)
+        paint_icon(painter, self.rect(), "filter" if self.kind == "filter" else
+                   ("sort-descending" if self.descending else "sort-ascending"),
+                   enabled=self.isEnabled())
         if self.active:
             painter.setPen(Qt.NoPen)
             painter.setBrush(accent)
@@ -498,6 +476,8 @@ class FileListControlBar(QWidget):
         self.sort_button = QToolButton(self)
         self.sort_button.setAutoRaise(True)
         self.sort_button.setFixedHeight(28)
+        self.sort_button.setIconSize(QSize(18, 18))
+        self.sort_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.filter_button = FileListControlButton("filter", self)
         search_row.addWidget(self.filter_button)
         layout.addLayout(search_row)
@@ -514,6 +494,9 @@ class FileListControlBar(QWidget):
             chip = QToolButton(self.filter_chips)
             chip.setObjectName('fileFilterChip')
             chip.setFixedHeight(25)
+            chip.setIcon(new_icon("clear"))
+            chip.setIconSize(QSize(16, 16))
+            chip.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
             chip.clicked.connect(lambda checked=False, field=key: self.clear_filter_field(field))
             self.chip_buttons[key] = chip
         self.clear_chips_button = QToolButton(self.filter_chips)
@@ -635,7 +618,8 @@ class FileListControlBar(QWidget):
         self.sort_actions[self.state.sort_key].setChecked(True)
         self.ascending_action.setChecked(not self.state.descending)
         self.descending_action.setChecked(self.state.descending)
-        self.sort_button.setText(tr(self.SORT_LABEL_IDS[self.state.sort_key]) + (' ↓' if self.state.descending else ' ↑'))
+        self.sort_button.setText(tr(self.SORT_LABEL_IDS[self.state.sort_key]))
+        self.sort_button.setIcon(new_icon("sort-descending" if self.state.descending else "sort-ascending"))
         direction = tr(
             "fileSort.descending"
             if self.state.descending
@@ -768,7 +752,7 @@ class FileListControlBar(QWidget):
                 caption = combo.itemText(index)
                 detail = tr({'annotation': 'fileFilter.annotation', 'review': 'fileFilter.review',
                              'alert': 'fileFilter.persistence', 'quality': 'fileFilter.quality'}[key]) + ': ' + caption
-                chip.setText(caption + ' ×')
+                chip.setText(caption)
                 chip.setToolTip(detail)
                 chip.setAccessibleName(tr('filePanel.removeFilter', filter=detail))
                 self.chip_layout.addWidget(chip, active // 2, active % 2, Qt.AlignLeft)
@@ -1390,10 +1374,6 @@ class FileListItemDelegate(QStyledItemDelegate):
     alert_column_width = 20
     status_name_gap = 6
     name_alert_gap = 4
-    icon_size = 14
-    questioned_color = QColor(217, 145, 0)
-    verified_color = QColor(46, 160, 67)
-    error_color = QColor(200, 55, 55)
 
     def sizeHint(self, option, index):
         size = super().sizeHint(option, index)
@@ -1539,18 +1519,7 @@ class FileListItemDelegate(QStyledItemDelegate):
     def _paint_quality_indicator(cls, painter, column, findings):
         if not findings:
             return
-        painter.save()
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(cls.questioned_color)
-        center = column.center()
-        painter.drawEllipse(center, 5, 5)
-        painter.setPen(QColor("white"))
-        font = painter.font()
-        font.setBold(True)
-        font.setPixelSize(9)
-        painter.setFont(font)
-        painter.drawText(column, Qt.AlignCenter, "!")
-        painter.restore()
+        paint_icon(painter, column, "status-quality", size=16)
 
     @classmethod
     def highest_alert(cls, flags):
@@ -1559,15 +1528,6 @@ class FileListItemDelegate(QStyledItemDelegate):
             if flag in flags:
                 return flag
         return None
-
-    @classmethod
-    def _icon_rect(cls, column):
-        return QRectF(
-            column.center().x() - cls.icon_size / 2.0,
-            column.center().y() - cls.icon_size / 2.0,
-            cls.icon_size,
-            cls.icon_size,
-        )
 
     @classmethod
     def _paint_annotation_indicator(
@@ -1579,77 +1539,13 @@ class FileListItemDelegate(QStyledItemDelegate):
     ):
         if state != "annotated":
             return
-        palette = (
-            option.widget.palette()
-            if option.widget is not None
-            else option.palette
-        )
-        rect = cls._icon_rect(column).adjusted(1.5, 2.0, -1.5, -2.0)
-        # The small corner-box glyph needs optical alignment with filename ink.
-        rect.translate(0, 2.5)
-        length = 3.5
-        painter.save()
-        painter.setPen(QPen(
-            palette.color(QPalette.Highlight),
-            1.5,
-            Qt.SolidLine,
-            Qt.RoundCap,
-            Qt.RoundJoin,
-        ))
-        for start, corner, end in (
-            (
-                QPointF(rect.left() + length, rect.top()),
-                rect.topLeft(),
-                QPointF(rect.left(), rect.top() + length),
-            ),
-            (
-                QPointF(rect.right() - length, rect.top()),
-                rect.topRight(),
-                QPointF(rect.right(), rect.top() + length),
-            ),
-            (
-                QPointF(rect.left(), rect.bottom() - length),
-                rect.bottomLeft(),
-                QPointF(rect.left() + length, rect.bottom()),
-            ),
-            (
-                QPointF(rect.right(), rect.bottom() - length),
-                rect.bottomRight(),
-                QPointF(rect.right() - length, rect.bottom()),
-            ),
-        ):
-            painter.drawLine(start, corner)
-            painter.drawLine(corner, end)
-        painter.restore()
+        paint_icon(painter, column, "status-annotated", size=16)
 
     @classmethod
     def _paint_review_indicator(cls, painter, column, state):
         if state not in ("questioned", "verified"):
             return
-        color = (
-            cls.questioned_color
-            if state == "questioned"
-            else cls.verified_color
-        )
-        rect = cls._icon_rect(column).adjusted(1.0, 1.0, -1.0, -1.0)
-        painter.save()
-        painter.setRenderHint(QPainter.Antialiasing, True)
-        painter.setBrush(Qt.NoBrush)
-        painter.setPen(QPen(color, 1.5))
-        painter.drawEllipse(rect)
-        if state == "questioned":
-            font = painter.font()
-            font.setBold(True)
-            font.setPixelSize(10)
-            painter.setFont(font)
-            painter.drawText(rect, Qt.AlignCenter, "?")
-        else:
-            path = QPainterPath()
-            path.moveTo(rect.left() + 3.0, rect.center().y())
-            path.lineTo(rect.center().x() - 0.5, rect.bottom() - 3.0)
-            path.lineTo(rect.right() - 2.5, rect.top() + 3.0)
-            painter.drawPath(path)
-        painter.restore()
+        paint_icon(painter, column, "review-" + state, size=16)
 
     @classmethod
     def _paint_alert_indicator(
@@ -1662,54 +1558,8 @@ class FileListItemDelegate(QStyledItemDelegate):
         alert = cls.highest_alert(flags)
         if alert is None:
             return
-        palette = (
-            option.widget.palette()
-            if option.widget is not None
-            else option.palette
-        )
-        rect = cls._icon_rect(column).adjusted(1.0, 1.0, -1.0, -1.0)
-        painter.save()
-        painter.setRenderHint(QPainter.Antialiasing, True)
-        painter.setBrush(Qt.NoBrush)
-        if alert == "dirty":
-            painter.setPen(Qt.NoPen)
-            painter.setBrush(palette.color(QPalette.Highlight))
-            painter.drawEllipse(rect.center(), 3.0, 3.0)
-        elif alert == "ambiguous":
-            painter.setPen(QPen(cls.questioned_color, 1.5, Qt.SolidLine, Qt.RoundCap))
-            left = rect.left() + 1.5
-            middle = rect.center().x()
-            right = rect.right() - 1.5
-            painter.drawLine(QPointF(left, rect.top() + 3), QPointF(middle, rect.top() + 3))
-            painter.drawLine(QPointF(left, rect.bottom() - 3), QPointF(middle, rect.bottom() - 3))
-            painter.drawLine(QPointF(middle, rect.top() + 3), QPointF(right, rect.center().y()))
-            painter.drawLine(QPointF(middle, rect.bottom() - 3), QPointF(right, rect.center().y()))
-        elif alert == "conflict":
-            painter.setPen(QPen(cls.error_color, 1.5))
-            painter.drawEllipse(rect)
-            cls._paint_exclamation(painter, rect, cls.error_color)
-        else:
-            painter.setPen(QPen(cls.error_color, 1.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-            triangle = QPainterPath()
-            triangle.moveTo(rect.center().x(), rect.top())
-            triangle.lineTo(rect.right(), rect.bottom())
-            triangle.lineTo(rect.left(), rect.bottom())
-            triangle.closeSubpath()
-            painter.drawPath(triangle)
-            cls._paint_exclamation(painter, rect, cls.error_color)
-        painter.restore()
-
-    @staticmethod
-    def _paint_exclamation(painter, rect, color):
-        painter.save()
-        painter.setPen(QPen(color, 1.5, Qt.SolidLine, Qt.RoundCap))
-        center = rect.center().x()
-        painter.drawLine(
-            QPointF(center, rect.top() + 3.0),
-            QPointF(center, rect.center().y() + 1.0),
-        )
-        painter.drawPoint(QPointF(center, rect.bottom() - 2.5))
-        painter.restore()
+        name = "status-warning" if alert == "degraded" else "status-" + alert
+        paint_icon(painter, column, name, size=16)
 
 
 class BatchRenameDialog(QDialog):

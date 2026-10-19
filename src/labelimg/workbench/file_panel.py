@@ -2,7 +2,7 @@
 
 from functools import partial
 
-from PyQt5.QtCore import QEvent, Qt
+from PyQt5.QtCore import QEvent, QSize, Qt
 from PyQt5.QtGui import QPainter
 from PyQt5.QtWidgets import (
     QDockWidget, QFrame, QHBoxLayout, QLabel, QMenu, QPushButton,
@@ -14,6 +14,7 @@ from labelimg.files.ui.list_widget import FileListControlBar, FileListItemDelega
 from labelimg.localization.runtime import tr
 from labelimg.platform.settings_keys import SETTING_FILE_LIST_SORT_DESCENDING, SETTING_FILE_LIST_SORT_KEY
 from labelimg.ui.actions import new_icon
+from labelimg.ui.icons import IconLabel
 
 
 class _ElidedLabel(QLabel):
@@ -75,8 +76,7 @@ def build_file_panel(w, settings):
     w.annotation_directory_label = _ElidedLabel()
     w.annotation_directory_label.setAttribute(Qt.WA_TransparentForMouseEvents)
     directory.addWidget(w.annotation_directory_label, 1)
-    icon = QLabel()
-    icon.setPixmap(new_icon('choose-annotation-directory').pixmap(16, 16))
+    icon = IconLabel('choose-annotation-directory')
     icon.setAttribute(Qt.WA_TransparentForMouseEvents)
     directory.addWidget(icon)
     w.annotation_directory_button = w.annotation_directory_bar
@@ -125,6 +125,7 @@ def build_file_panel(w, settings):
 
     def button(slot=None):
         result = QToolButton()
+        result.setIconSize(QSize(18, 18))
         result.setFixedHeight(28)
         if slot:
             result.clicked.connect(lambda: slot())
@@ -143,7 +144,7 @@ def build_file_panel(w, settings):
     w.file_review_button.setMenu(w.file_review_menu)
     w.file_review_button.setPopupMode(QToolButton.InstantPopup)
     w.file_more_button = button()
-    w.file_more_button.setText('…')
+    w.file_more_button.setIcon(new_icon('more'))
     w.file_more_button.setFixedWidth(26)
     w.file_more_menu = QMenu(w.file_more_button)
     w.file_more_menu.aboutToShow.connect(lambda: w.populate_file_selection_menu(w.file_more_menu))

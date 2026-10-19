@@ -370,11 +370,13 @@ class NearDuplicateListAndChooserTest(unittest.TestCase):
 
     def test_list_conflict_icons_use_not_equal_strokes(self):
         painter = RecordingPainter()
-        LabelGroupListWidget._paint_group_risk_icon(
-            painter,
-            self._icon_rect(),
-            CATEGORY_CONFLICT,
-        )
+        with mock.patch("labelimg.annotations.ui.label_group_list.paint_icon") as draw_icon:
+            LabelGroupListWidget._paint_group_risk_icon(
+                painter, self._icon_rect(), CATEGORY_CONFLICT,
+            )
+            draw_icon.assert_called_once_with(
+                painter, self._icon_rect(), "category-conflict", size=16,
+            )
         LabelGroupListWidget._paint_near_duplicate_corner(
             painter,
             self._icon_rect(),
@@ -384,7 +386,7 @@ class NearDuplicateListAndChooserTest(unittest.TestCase):
         )
 
         self.assertNotIn("!", [args[-1] for args in painter.texts])
-        self.assertEqual(len(painter.lines), 6)
+        self.assertEqual(len(painter.lines), 3)
 
     def test_group_risk_and_total_use_centered_fixed_slots(self):
         dog = rectangle("dog")
@@ -397,12 +399,13 @@ class NearDuplicateListAndChooserTest(unittest.TestCase):
         count_rect = widget._group_count_value_rect(status_rect)
         painter = RecordingPainter()
 
-        widget._paint_count(
-            painter,
-            widget._groups_by_label["cat"],
-            status_rect,
-            QColor("black"),
-        )
+        with mock.patch("labelimg.annotations.ui.label_group_list.paint_icon") as draw_icon:
+            widget._paint_count(
+                painter, widget._groups_by_label["cat"], status_rect, QColor("black"),
+            )
+            draw_icon.assert_called_once_with(
+                painter, risk_rect, "category-conflict", size=16,
+            )
 
         self.assertEqual(widget.count_area_width, 50)
         self.assertEqual(risk_rect.center().y(), status_rect.center().y())

@@ -61,7 +61,7 @@ def build_annotation_panel(window):
     w.label_color_button.setIcon(new_icon("color"))
     w.label_color_button.clicked.connect(w.manage_label_colors)
     w.near_duplicate_more_button = button("nearDuplicateMoreButton")
-    w.near_duplicate_more_button.setText("…")
+    w.near_duplicate_more_button.setIcon(new_icon("more"))
     w.near_duplicate_more_button.setPopupMode(QToolButton.InstantPopup)
     w.near_duplicate_more_menu = QMenu(w.near_duplicate_more_button)
     w.restore_near_duplicate_action = QAction(w)
@@ -125,9 +125,10 @@ def build_annotation_panel(window):
         QToolButton { border: none; border-radius: 4px; padding: 0; }
         QToolButton:hover { background: palette(alternate-base); }
         QToolButton::menu-indicator { image: none; }
-        QToolButton#nearDuplicateMoreButton { font-size: 18px; }
         QComboBox { min-height: 28px; padding: 0 8px; border: 1px solid #DFE5ED;
             border-radius: 4px; background: palette(alternate-base); color: palette(text); }
+        QComboBox::drop-down { border: none; width: 24px; }
+        QComboBox::down-arrow { image: url(:/chevron-down); width: 16px; height: 16px; }
         QLineEdit { min-height: 28px; padding: 0 6px 0 0; border: 1px solid #D7DEE8; border-radius: 4px; }
         QLineEdit:focus { border-color: #756B9E; }
         QFrame#annotationSelectionBar { border: none; border-top: 1px solid #E2E7EF; background: palette(alternate-base); }

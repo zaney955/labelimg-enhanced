@@ -2,14 +2,11 @@
 
 import re
 
-from PyQt5.QtGui import QIcon, QKeySequence
+from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import QAction, QMenu, QPushButton
 
 from labelimg.localization.runtime import tr
-
-
-def new_icon(icon):
-    return QIcon(":/" + icon)
+from labelimg.ui.icons import icon as new_icon
 
 
 def new_button(text, icon=None, slot=None):

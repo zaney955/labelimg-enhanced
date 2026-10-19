@@ -2,7 +2,7 @@
 
 ## Scope
 
-The operation icon set contains the 86 SVG files used by actions, buttons, and
+The operation icon set contains the 108 SVG files used by actions, buttons, and
 query-field decorations, including the [Canvas rail and top command surface](design/canvas-tool-rail.md).
 The application identity asset, `app.svg`, is outside this system.
 
@@ -91,3 +91,34 @@ images, scripts, and styles, checks nonempty inset rendering at 16, 20, and 24
 pixels and unique 24-pixel output, and compares each source SVG with its compiled
 Qt resource for byte-identical rendering. Button states, translated accessible
 names, and focus behavior belong to the command-surface contract.
+
+## Control and status coverage
+
+The annotated-file status keeps its original four-corner rectangle silhouette,
+without a checkmark or fill, while sharing the icon set's stroke and color.
+This status glyph is an exception to the complete-contour operation grammar.
+
+All application glyphs use this same resource set, including compact dock
+headers, filter controls and removable chips, sort directions, group and popup
+visibility states, file annotation/review/quality/persistence indicators, reset
+buttons, zoom steps, and the crop drag handle. Text characters must not substitute
+for operation icons. Tiny colored annotation chips and risk corner badges remain
+data visualizations rather than command artwork.
+
+`labelimg.ui.icons` caches SVG icons and paints delegate glyphs centered in logical
+pixels, with Qt handling device pixel ratio and disabled rendering. Compact
+controls use an 18-pixel icon; dense row/status and disclosure controls use 16;
+the main command surfaces retain 24. Containers and hit targets stay independent
+of the artwork size. Active filters keep their outline and activity dot.
+
+Every operation SVG is registered under its filename stem as a canonical resource
+alias; historical action aliases remain available. The asset checks verify both
+canonical lookup and source/compiled rendering.
+
+The application proxy style supplies the same SVGs for native combo/spin controls,
+arrow primitives,
+header sorting, line-edit clearing, message boxes, dialog actions and dock closing.
+The styled annotation selector explicitly shares the chevron resource and removes
+the platform drop-down border. Native window chrome and operating-system dialogs
+remain platform-owned. Application identity, color swatches and annotation geometry
+are outside the operation-icon system.

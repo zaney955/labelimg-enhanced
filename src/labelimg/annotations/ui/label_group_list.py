@@ -1,9 +1,10 @@
 from PyQt5.QtCore import QEvent, QPoint, QPointF, QRect, QRectF, Qt, pyqtSignal
-from PyQt5.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPalette, QPen
+from PyQt5.QtGui import QColor, QFont, QFontMetrics, QPainter, QPalette, QPen
 from PyQt5.QtWidgets import QAbstractScrollArea, QToolTip
 
 from labelimg.localization.runtime import language_changed, tr
 from labelimg.canvas import CATEGORY_CONFLICT
+from labelimg.ui.icons import paint_icon
 from labelimg.ui.risk_glyphs import draw_not_equal_glyph
 from labelimg.annotations.ui.style import LABEL_INDICATOR_FILL_ALPHA, natural_label_key
 
@@ -504,9 +505,9 @@ class LabelGroupListWidget(QAbstractScrollArea):
             text,
         )
 
-        self._paint_strip(painter, group, layout, foreground)
+        self._paint_strip(painter, group, layout)
         self._paint_count(painter, group, layout["count"], foreground)
-        self._paint_visibility(painter, group, layout["visibility"], foreground)
+        self._paint_visibility(painter, group, layout["visibility"])
         self._paint_column_dividers(painter, layout)
 
         if row_hovered:
@@ -521,7 +522,7 @@ class LabelGroupListWidget(QAbstractScrollArea):
             painter.drawRoundedRect(QRectF(row_rect.adjusted(1, 1, -1, -1)), 3, 3)
         painter.restore()
 
-    def _paint_strip(self, painter, group, layout, row_foreground):
+    def _paint_strip(self, painter, group, layout):
         strip = layout["buttons"]
         painter.save()
         painter.setClipRect(strip)
@@ -571,39 +572,28 @@ class LabelGroupListWidget(QAbstractScrollArea):
         painter.restore()
 
         if layout["show_arrows"]:
-            self._paint_arrow(painter, group, layout["left_arrow"], -1, row_foreground)
-            self._paint_arrow(painter, group, layout["right_arrow"], 1, row_foreground)
+            self._paint_arrow(painter, group, layout["left_arrow"], -1)
+            self._paint_arrow(painter, group, layout["right_arrow"], 1)
 
-    def _paint_arrow(self, painter, group, rect, direction, color):
+    def _paint_arrow(self, painter, group, rect, direction):
         enabled = group.scroll > 0 if direction < 0 else group.scroll < self.maximum_group_scroll(group.label)
         target = self._projected_hover_shape
-        target_group = self._shape_to_group.get(target)
         emphasized = False
-        if target_group is group and target is not None:
+        if target is not None and self._shape_to_group.get(target) is group:
             index = group.shapes.index(target)
-            content_left = index * self.chip_step
-            content_right = content_left + self.chip_size
-            if direction < 0:
-                emphasized = content_left < group.scroll
-            else:
-                emphasized = content_right > group.scroll + self._button_view_width(group)
+            left = index * self.chip_step
+            right = left + self.chip_size
+            emphasized = left < group.scroll if direction < 0 else right > group.scroll + self._button_view_width(group)
         painter.save()
         painter.setOpacity(1.0 if enabled else 0.25)
-        pen = QPen(
-            color,
-            1.2,
-            Qt.DashLine if emphasized else Qt.SolidLine,
-            Qt.RoundCap,
-            Qt.RoundJoin,
-        )
-        painter.setPen(pen)
-        center = rect.center()
-        dx = 3 * direction
-        path = QPainterPath()
-        path.moveTo(center.x() - dx, center.y() - 4)
-        path.lineTo(center.x() + dx, center.y())
-        path.lineTo(center.x() - dx, center.y() + 4)
-        painter.drawPath(path)
+        if emphasized:
+            background = QColor(self.palette().color(QPalette.Highlight))
+            background.setAlpha(45)
+            painter.setBrush(background)
+            painter.setPen(Qt.NoPen)
+            painter.drawRoundedRect(QRectF(rect).adjusted(1, 3, -1, -3), 2, 2)
+        paint_icon(painter, rect, "chevron-left" if direction < 0 else "chevron-right",
+                   size=16)
         painter.restore()
 
     def _paint_count(self, painter, group, rect, foreground):
@@ -625,26 +615,13 @@ class LabelGroupListWidget(QAbstractScrollArea):
 
     @staticmethod
     def _paint_group_risk_icon(painter, rect, risk):
-        color = QColor(
-            "#C026D3" if risk == CATEGORY_CONFLICT else "#D97706"
-        )
-        painter.save()
-        painter.setPen(QPen(color, 1.2, Qt.SolidLine, Qt.RoundCap))
-        painter.setBrush(Qt.NoBrush)
-        center = rect.center()
-        icon = QRectF(center.x() - 6, center.y() - 6, 12, 12)
-        if risk == CATEGORY_CONFLICT:
-            draw_not_equal_glyph(painter, icon, color, width=1.2)
-        else:
-            box = icon.adjusted(1, 4, -3, -1)
-            painter.drawRect(box)
-            painter.drawRect(box.translated(3, -3))
-        painter.restore()
+        paint_icon(painter, rect, "category-conflict" if risk == CATEGORY_CONFLICT
+                   else "near-duplicate", size=16)
 
     @staticmethod
     def _paint_near_duplicate_corner(painter, rect, cluster):
         color = QColor(
-            "#C026D3" if cluster.risk == CATEGORY_CONFLICT else "#D97706"
+            "#A65F5F" if cluster.risk == CATEGORY_CONFLICT else "#9A7640"
         )
         corner = QRectF(rect.right() - 10, rect.top(), 10, 10)
         painter.save()
@@ -681,34 +658,11 @@ class LabelGroupListWidget(QAbstractScrollArea):
         )
         painter.restore()
 
-    def _paint_visibility(self, painter, group, rect, color):
+    def _paint_visibility(self, painter, group, rect):
         state = self.group_visibility(group.label)
-        center = rect.center()
-        icon = QRectF(center.x() - 8, center.y() - 8, 16, 16)
-        left = icon.left() + 1.5
-        right = icon.right() - 1.5
-        top = center.y() - 4
-        bottom = center.y() + 4
-        path = QPainterPath()
-        path.moveTo(left, center.y())
-        path.cubicTo(left + 3, top, right - 3, top, right, center.y())
-        path.cubicTo(right - 3, bottom, left + 3, bottom, left, center.y())
-        painter.save()
-        painter.setOpacity(0.8 if state != Qt.Unchecked else 0.35)
-        painter.setPen(QPen(color, 1.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-        painter.setBrush(Qt.NoBrush)
-        painter.drawPath(path)
-        if state == Qt.Checked:
-            painter.setPen(Qt.NoPen)
-            painter.setBrush(color)
-            painter.drawEllipse(center, 2.25, 2.25)
-        elif state == Qt.PartiallyChecked:
-            painter.setPen(QPen(color, 2, Qt.SolidLine, Qt.RoundCap))
-            painter.drawLine(QPointF(center.x() - 3, center.y()), QPointF(center.x() + 3, center.y()))
-        else:
-            painter.setPen(QPen(color, 2, Qt.SolidLine, Qt.RoundCap))
-            painter.drawLine(icon.topLeft() + QPointF(2, 2), icon.bottomRight() - QPointF(2, 2))
-        painter.restore()
+        name = {Qt.Checked: "visibility", Qt.PartiallyChecked: "visibility-mixed",
+                Qt.Unchecked: "visibility-off"}[state]
+        paint_icon(painter, rect, name, enabled=self.isEnabled(), size=18)
 
     def _paint_empty_state(self, painter):
         painter.save()

@@ -1,13 +1,14 @@
 """Shared presentation for text fields that narrow list content."""
 
-from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import QLineEdit
+
+from labelimg.ui.icons import icon
 
 
 def decorate_list_query_field(field, icon_alias):
     """Apply the shared, non-interactive leading-icon query-field treatment."""
     icon_action = field.addAction(
-        QIcon(":/" + icon_alias),
+        icon(icon_alias),
         QLineEdit.LeadingPosition,
     )
     icon_action.setEnabled(False)
