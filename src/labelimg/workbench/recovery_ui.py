@@ -14,6 +14,7 @@ import labelimg.ui.generated_resources  # noqa: F401 - registers Qt resources
 from labelimg.localization.runtime import localize_dialog_buttons, question as localized_question, tr, warning as localized_warning
 from labelimg.files import FileRecoveryBlocked
 from labelimg.image_tools import ImageProcessingOperation, ImageRecoveryBlocked
+from labelimg.annotations.ui.errors import annotation_error_text
 
 
 class RecoveryActionsMixin:
@@ -132,7 +133,7 @@ class RecoveryActionsMixin:
             localized_warning(
                 self,
                 tr('recovery.failed'),
-                str(error),
+                annotation_error_text(error),
             )
             return
 
@@ -149,6 +150,8 @@ class RecoveryActionsMixin:
             self.workbench_session.activate(renamed[self.file_path])
         if outcome.review_result is not None:
             self._project_review_recovery(outcome.review_result)
+        if outcome.label_replacement_result is not None:
+            self._project_label_replacement(outcome.label_replacement_result)
         restored_images = []
         if outcome.restored_paths:
             image_extensions = {

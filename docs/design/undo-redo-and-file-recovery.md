@@ -7,7 +7,7 @@ Status: implemented. This document owns the detailed history, persistence, synch
 LabelImg Enhanced has two recovery systems:
 
 1. Per-image annotation Undo and Redo for current-image document edits.
-2. A session-only recent file operations center for cross-file deletion, annotation clearing, synchronized rename, and batch review-state recovery.
+2. A session-only recent file operations center for cross-file deletion, annotation clearing, synchronized rename, batch label replacement, and batch review-state recovery.
 
 `Ctrl+Z`, `Ctrl+Y`, and `Ctrl+Shift+Z` operate only on the current image's annotation history. They never restore deleted files, reverse file-list selection, or undo a batch file operation. File operation recovery is explicit from the File menu and always confirms before changing the filesystem.
 
@@ -58,6 +58,16 @@ The domain and application owners are Qt-free; Canvas and workbench adapters pro
 | [SystemTrashAdapter](../../src/labelimg/files/application/operations.py) | Opaque recovery identities or an explicit manual-trash result; the [Qt adapter](../../src/labelimg/files/infrastructure/qt_trash.py) supplies portable trash operations. |
 
 `MainWindow` composes these owners and presents outcomes; it does not own inverse edits or move history cursors directly. At rest, the controller's immutable revision is the canonical annotation document and Canvas shapes are its projection. During a gesture, Canvas is a transient working copy: commit captures a revision, cancel restores the source. `SelectionSet` owns only transient selection. Saves build adapter documents from immutable revisions, never a timer-fired Canvas capture.
+
+## Workspace label replacement
+
+Edit → Replace Label Names… previews a complete, case-sensitive label mapping across all workspace images, including filtered images, or the explicit file selection, including hidden selected members. The source chooser uses workspace candidates and also accepts a typed name. Scope or name changes invalidate the preview; confirmation requires at least one matching box and identifies the image and box counts. Existing destination labels merge by name. Empty, identical, multiline, and null-containing destination names are rejected.
+
+Each image's active annotation document is the target; inactive formats are not converted or modified. Retained snapshots take precedence over disk, including unsaved new documents. Missing annotations are skipped; malformed or ambiguous documents prevent the batch. Complete discovery, rather than the currently loaded file-list subset, defines the whole-workspace scope.
+
+`LabelReplacementTransaction` preflights resources and retained histories before any write, leases shared resources, and rolls back the complete batch on a write failure. VOC and CreateML persist changed labels through their adapters; shared CreateML records are saved together. YOLO retains append-only class IDs: the destination's existing ID is reused or a new ID is appended, and matching boxes are remapped. Unused old class names remain reserved so unselected annotations and outside consumers retain their meanings. YAML mapping sources are read but not rewritten.
+
+Confirmation saves affected documents, including their other unsaved changes, and establishes fresh per-image history baselines. The dialog states this explicitly. `Ctrl+Z` does not reverse the batch. Recent File Operations retains one complete recovery entry, checking post-operation file fingerprints, image identity, and unsaved changes sharing any affected resource. Recovery restores exact original resource bytes and pre-operation retained snapshots, preserving their prior dirty state. Later conflicting edits block recovery; there is no automatic overwrite, inverse-name substitution, or partial recovery.
 
 ## Immutable history state
 

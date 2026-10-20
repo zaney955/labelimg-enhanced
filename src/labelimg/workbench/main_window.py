@@ -1470,6 +1470,7 @@ class MainWindow(
         self.annotation_persistence.replace_workspace(replacement)
         self.annotation_workspace = replacement
         self.review_state_transaction.replace_workspace(replacement)
+        self.label_replacement.replace_workspace(replacement)
         self.file_operations.replace_workspace(replacement)
         self.image_processing.replace_workspace(replacement)
         self._default_save_dir = directory
@@ -1528,6 +1529,7 @@ class MainWindow(
         self.annotation_persistence.replace_workspace(replacement)
         self.annotation_workspace = replacement
         self.review_state_transaction.replace_workspace(replacement)
+        self.label_replacement.replace_workspace(replacement)
         self.file_operations.replace_workspace(replacement)
         self.image_processing.replace_workspace(replacement)
         self._default_save_dir = directory
@@ -1699,6 +1701,7 @@ class MainWindow(
             self.annotation_persistence.replace_workspace(staged)
             self.annotation_workspace = staged
             self.review_state_transaction.replace_workspace(staged)
+            self.label_replacement.replace_workspace(staged)
             self.file_operations.replace_workspace(staged)
             self.image_processing.replace_workspace(staged)
         else:
@@ -1757,6 +1760,7 @@ class MainWindow(
             self.annotation_persistence.replace_workspace(replacement)
             self.annotation_workspace = replacement
             self.review_state_transaction.replace_workspace(replacement)
+            self.label_replacement.replace_workspace(replacement)
             self.file_operations.replace_workspace(replacement)
             self.image_processing.replace_workspace(replacement)
             self.annotation_editing.clear_workspace()

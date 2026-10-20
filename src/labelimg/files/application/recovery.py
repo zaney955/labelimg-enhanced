@@ -19,6 +19,7 @@ class RecoveryOperation(str, Enum):
     CLEAR = "clear"
     RENAME = "rename"
     REVIEW = "review"
+    LABEL_REPLACE = "label-replace"
 
     def __str__(self):
         return self.value
@@ -131,6 +132,19 @@ class FileRecoveryCenter:
         if not entry.detail:
             entry.detail = "Recovered successfully"
         return result
+
+    def record_label_replacement(self, record):
+        entry = FileRecoveryEntry(
+            entry_id=uuid.uuid4().hex,
+            operation=RecoveryOperation.LABEL_REPLACE,
+            created_at=datetime.now(timezone.utc),
+            target_count=len(record.plan.items),
+            payload=record,
+            status=RecoveryStatus.RECOVERABLE,
+            detail="%s → %s" % (record.plan.old_label, record.plan.new_label),
+        )
+        self._prepend(entry)
+        return entry
 
     def _entry(self, entry_id):
         for entry in self._entries:

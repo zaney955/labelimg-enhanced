@@ -116,6 +116,7 @@ from labelimg.annotations.ui.controller import (
 )
 from labelimg.annotations.domain.history import UnknownImageHistory
 from labelimg.annotations.application.review import ReviewStateTransaction
+from labelimg.annotations import LabelReplacementTransaction
 from labelimg.annotations.application.persistence import AnnotationSaveCoordinator
 from labelimg.annotations.infrastructure.storage import (
     AnnotationStorageConflict,
@@ -366,6 +367,12 @@ class WorkbenchComposer:
             self.annotation_persistence,
             image_data_for=self._annotation_image_data,
         )
+        self.label_replacement = LabelReplacementTransaction(
+            self.annotation_workspace,
+            self.annotation_editing,
+            self.annotation_persistence,
+            image_data_for=self._annotation_image_data,
+        )
         self.file_operations = FileOperationTransaction(
             self.annotation_workspace,
             self.annotation_editing,
@@ -373,6 +380,7 @@ class WorkbenchComposer:
             self.annotation_persistence,
             self.review_state_transaction,
             self.system_trash,
+            label_replacement=self.label_replacement,
         )
         self.image_processing_transaction = ImageProcessingTransaction(
             self.annotation_editing,
@@ -788,6 +796,10 @@ class WorkbenchComposer:
         edit = action(get_str('editLabel'), self.edit_label,
                       'Ctrl+E', 'edit-label', get_str('editLabelDetail'),
                       enabled=False)
+        replace_labels = action(
+            tr('labelReplace.title'), self.replace_label_names,
+            None, 'replace-labels', tr('labelReplace.tip'), enabled=False,
+        )
         self.edit_button.setDefaultAction(edit)
         self.copy_button.setDefaultAction(copy)
         self.delete_button.setDefaultAction(delete)
@@ -833,6 +845,7 @@ class WorkbenchComposer:
                               selectTool=select_tool,
                               panTool=pan_tool, create=create, delete=delete,
                               edit=edit, copy=copy,
+                              replaceLabels=replace_labels,
                                copyAnnotations=copy_annotations, pasteAnnotations=paste_annotations,
                                copyPrevBounding=copy_prev_bounding,
                               hideAll=hide_all, showAll=show_all,
@@ -853,14 +866,15 @@ class WorkbenchComposer:
                               editMenu=(undo_annotation, redo_annotation, None,
                                         edit, copy_annotations, paste_annotations,
                                         copy_prev_bounding, copy, delete,
-                                        None, self.draw_squares_option),
+                                        None, self.draw_squares_option,
+                                        None, replace_labels),
                                onLoadActive=(
                                    close, select_tool, pan_tool, create,
                                    remove_colored_frames, crop_image,
                                    rotate_clockwise, rotate_counterclockwise,
                                    rotate_180, flip_horizontal, flip_vertical,
                                    transform_image, adjust_image,
-                                   check_image_quality),
+                                   check_image_quality, replace_labels),
                               onShapesPresent=(save_as, hide_all, show_all, toggle_visibility))
 
         self.menus = SimpleNamespace(
@@ -1214,6 +1228,7 @@ class WorkbenchComposer:
             fit_window: ('fitWin', 'fitWinDetail'),
             fit_width: ('fitWidth', 'fitWidthDetail'),
             edit: ('editLabel', 'editLabelDetail'),
+            replace_labels: ('labelReplace.title', 'labelReplace.tip'),
             labels: ('showHide', None),
             self.draw_squares_option: ('drawSquares', None),
             self.auto_saving: ('autoSaveMode', None),

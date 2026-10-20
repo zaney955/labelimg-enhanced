@@ -11,7 +11,7 @@ This document owns menu order and command placement; [Canvas command surfaces](c
 
 File owns workspace entry, annotation storage, the current image file, file-operation recovery, and application exit. Annotation copy, paste, duplication, and previous-image copy belong only to Edit. Reset All Settings belongs only to Settings.
 
-Edit owns current-image annotation creation, Undo and Redo, label and box operations, previous-image annotation copy, and default drawing constraints.
+Edit owns current-image annotation creation, Undo and Redo, label and box operations, previous-image annotation copy, and default drawing constraints. A final separate group contains **Replace Label Names…**, an explicitly scoped cross-image content operation with a preview. It has no Canvas or annotation-group context-menu entry because those surfaces target the current image's boxes.
 
 Image is the complete catalog for annotation-preparation image work. Its separators distinguish geometry preparation, pixel correction, analysis-only quality checks, specialized repair, and committed image-processing recovery; [Image Tools](image-tools.md#approved-capability-boundary) specifies the commands and processing contracts.
 

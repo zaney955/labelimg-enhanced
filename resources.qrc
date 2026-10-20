@@ -25,6 +25,8 @@
 <file alias="edit">resources/icons/select-edit.svg</file>
 <file alias="select-edit">resources/icons/select-edit.svg</file>
 <file alias="edit-label">resources/icons/edit-label.svg</file>
+<file alias="replace-labels">resources/icons/replace-labels.svg</file>
+<file alias="replace-labels">resources/icons/replace-labels.svg</file>
 <file alias="pan">resources/icons/pan.svg</file>
 <file alias="open">resources/icons/open.svg</file>
 <file alias="open-recent">resources/icons/open-recent.svg</file>

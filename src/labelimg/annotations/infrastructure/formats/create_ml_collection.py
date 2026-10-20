@@ -317,14 +317,17 @@ class CreateMLAnnotationCollection:
         questioned=False,
     ):
         reference = os.fspath(reference)
-        payload = {
+        existing = next((record for record in self._records
+                         if record.identity.reference_key == normalize_image_reference(reference)), None)
+        payload = existing._payload_copy() if existing is not None else {}
+        payload.update({
             "image": reference,
             "annotations": tuple(
                 _annotation_from_shape(shape) for shape in shapes
             ),
             "verified": bool(verified),
             "questioned": bool(questioned),
-        }
+        })
         payload["annotations"] = list(payload["annotations"])
         replacement = CreateMLRecord(
             CreateMLRecordIdentity(self.path, reference), payload

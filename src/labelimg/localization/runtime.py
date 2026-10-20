@@ -211,6 +211,8 @@ _HISTORY_MESSAGE_IDS = {
 def translate_history_description(description):
     """Translate stable internal edit descriptions without translating labels."""
     description = " ".join(str(description or "").split())
+    if description == "Replace label names":
+        return tr("recovery.operation.label-replace")
     message_id = _HISTORY_MESSAGE_IDS.get(description)
     if message_id:
         return tr(message_id)

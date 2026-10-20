@@ -829,11 +829,14 @@ class CommandSurfacesTest(unittest.TestCase):
                 self.window.actions.delete,
                 edit_actions[12],
                 self.window.draw_squares_option,
+                edit_actions[14],
+                self.window.actions.replaceLabels,
             ],
         )
         self.assertTrue(edit_actions[1].isSeparator())
         self.assertTrue(edit_actions[5].isSeparator())
         self.assertTrue(edit_actions[12].isSeparator())
+        self.assertTrue(edit_actions[14].isSeparator())
 
     def test_annotation_header_exposes_session_label_color_palette(self):
         self.assertEqual(

@@ -45,6 +45,7 @@ class FileRecoveryOutcome:
     renamed: tuple = ()
     review_result: object = None
     reload_images: tuple = ()
+    label_replacement_result: object = None
 
 
 class FileOperationTransaction:
@@ -60,6 +61,7 @@ class FileOperationTransaction:
         trash_adapter,
         *,
         recovery_center=None,
+        label_replacement=None,
     ):
         self._workspace = workspace
         self._editing = editing
@@ -68,6 +70,7 @@ class FileOperationTransaction:
         self._review_transaction = review_transaction
         self._trash = trash_adapter
         self._recovery = recovery_center or FileRecoveryCenter()
+        self._label_replacement = label_replacement
 
     @property
     def recovery_entries(self):
@@ -104,6 +107,9 @@ class FileOperationTransaction:
 
     def record_review(self, changes):
         return self._recovery.record_review(changes)
+
+    def record_label_replacement(self, record):
+        return self._recovery.record_label_replacement(record)
 
     def recover(self, entry_id, selected_paths=None):
         """Recover one complete recorded operation."""
@@ -224,6 +230,12 @@ class FileOperationTransaction:
             return self._recover_rename(entry)
         if entry.operation is RecoveryOperation.REVIEW:
             return self._recover_review(entry)
+        if entry.operation is RecoveryOperation.LABEL_REPLACE:
+            try:
+                result = self._label_replacement.recover(entry.payload)
+            except Exception as error:
+                raise FileRecoveryError(str(error)) from error
+            return FileRecoveryOutcome(entry, label_replacement_result=result)
         raise FileRecoveryError(
             "unsupported recovery operation: %s" % entry.operation
         )

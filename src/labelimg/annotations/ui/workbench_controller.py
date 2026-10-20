@@ -43,6 +43,65 @@ from labelimg.workbench.support import document_format_name, read_image as read
 
 
 class AnnotationActionsMixin:
+    def replace_label_names(self, _checked=False):
+        from labelimg.annotations.ui.label_replace_dialog import LabelReplaceDialog
+
+        if self.annotation_editing.pending or self.annotation_editing.edit_open:
+            self.status(tr('status.finishEdit'))
+            return
+        if not self.file_path and not self.m_img_list:
+            return
+        # File-list filters and incomplete background discovery must not
+        # silently reduce an operation advertised as the whole workspace.
+        all_paths = tuple(self.scan_all_images(self.dir_name)) if self.dir_name else (self.file_path,)
+        selected = tuple(self.selected_file_paths())
+
+        def preview(scope, old, new, progress):
+            return self.label_replacement.preview(
+                selected if scope == 'selected' else all_paths,
+                old, new, self.annotation_format, progress,
+            )
+
+        dialog = LabelReplaceDialog(
+            self.candidate_labels, selected_count=len(selected), preview=preview, parent=self,
+        )
+        self.auto_save_timer.stop()
+        self.annotation_editing.set_pending('Replace label names', dialog.reject)
+        self._sync_annotation_history_ui()
+        try:
+            accepted = dialog.exec_()
+        finally:
+            self.annotation_editing.clear_pending()
+        try:
+            if not accepted or dialog.plan is None:
+                return
+            self.invalidate_directory_load_for_file_operation()
+            result = self.label_replacement.apply(dialog.plan)
+            if result.recovery is not None:
+                self.file_operations.record_label_replacement(result.recovery)
+            self._project_label_replacement(result)
+            if self.dir_name and tuple(self.m_img_list) != all_paths:
+                self.populate_file_list(all_paths)
+            self.rescan_annotation_workspace()
+            self.refresh_file_list_statuses()
+            self.status(tr('labelReplace.completed', images=len(result.updates), boxes=dialog.plan.box_count))
+        except Exception as error:
+            self.error_message(tr('labelReplace.failed'), annotation_error_html(error))
+        finally:
+            self._sync_annotation_history_ui()
+            self._watch_current_annotation_document()
+
+    def _project_label_replacement(self, result):
+        for update in result.updates:
+            if update.image_path == self.file_path:
+                if update.snapshot is not None:
+                    self.annotation_scene.project(self._history_projection_request(
+                        update.snapshot, direction='label-replace', preserve_selection=True,
+                    ))
+                self.annotation_document = update.document
+                self._sync_annotation_history_ui()
+        self.refresh_candidate_labels()
+
     def _initialize_annotation_live_sync(self):
         self._annotation_file_watcher = QFileSystemWatcher(self)
         self._annotation_file_watcher.fileChanged.connect(

@@ -7,6 +7,7 @@ from labelimg.annotations.domain.model import (
     YoloWorkspaceMappingConflict,
 )
 from labelimg.annotations.ui.errors import annotation_error_text, annotation_error_html
+from labelimg.annotations.application.label_replace import LabelReplacementConflict
 from labelimg.localization.runtime import ENGLISH, SIMPLIFIED_CHINESE, set_language
 
 
@@ -49,6 +50,14 @@ class AnnotationErrorPresenterTest(unittest.TestCase):
     def test_unrelated_errors_keep_their_details(self):
         error = ValueError("ordinary failure")
         self.assertEqual(annotation_error_text(error), "ordinary failure")
+
+    def test_label_replacement_conflict_is_localized_through_recovery_wrapper(self):
+        inner = LabelReplacementConflict('previewChanged', '<image>.png')
+        outer = RuntimeError(str(inner))
+        outer.__cause__ = inner
+        set_language(SIMPLIFIED_CHINESE)
+        self.assertIn('请重新预览', annotation_error_text(outer))
+        self.assertIn('&lt;image&gt;.png', annotation_error_html(outer))
 
     def test_workspace_class_conflict_names_both_sources_in_both_languages(self):
         error = YoloWorkspaceMappingConflict("left/classes.txt", "right/classes.txt", 1, "cat", "dog")
