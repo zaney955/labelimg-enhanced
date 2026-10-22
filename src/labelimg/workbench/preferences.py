@@ -9,6 +9,7 @@ from PyQt5.QtWidgets import (
 from labelimg.localization.runtime import language_changed, localize_dialog_buttons, tr
 from labelimg.ui.presentation import present_dialog, role, section
 from labelimg.ui.query_field import decorate_list_query_field
+from labelimg.ui.flow_layout import ActionFlowLayout
 
 
 class _ActionControl(QCheckBox):
@@ -66,6 +67,8 @@ class PreferencesDialog(QDialog):
         body = QWidget()
         rows = QVBoxLayout(body)
         rows.setContentsMargins(0, 0, 0, 0)
+        action_row = QWidget()
+        action_layout = ActionFlowLayout(action_row)
         controls = []
         for action in actions:
             if action.isCheckable():
@@ -74,21 +77,28 @@ class PreferencesDialog(QDialog):
                 control = QPushButton()
                 control.clicked.connect(self._reset_all if action is self.window.actions.resetAll else action.trigger)
             controls.append((control, action, None))
-            rows.addWidget(control)
+            if action.isCheckable():
+                rows.addWidget(control)
+            else:
+                action_layout.addWidget(control)
         for menu in menus:
             control = QPushButton()
             control.setMenu(menu)
             controls.append((control, None, menu))
-            rows.addWidget(control)
+            action_layout.addWidget(control)
         if manage_colors:
             default_control = QPushButton()
             default_control.clicked.connect(self._show_default_category)
             controls.append((default_control, None, 'preferences.defaultCategory'))
-            rows.addWidget(default_control)
+            action_layout.addWidget(default_control)
             control = QPushButton()
             control.clicked.connect(self.window.manage_label_colors)
             controls.append((control, None, 'labelColor.manageTitle'))
-            rows.addWidget(control)
+            action_layout.addWidget(control)
+        if action_layout.count():
+            rows.addWidget(action_row)
+        else:
+            action_row.deleteLater()
         frame = section(key, body)
         layout.addWidget(frame)
         self.groups.append((key, frame, controls))

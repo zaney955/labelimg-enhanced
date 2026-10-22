@@ -2,7 +2,7 @@
 
 from labelimg.ui.presentation import present_surface, role
 
-from labelimg.ui.theme import COLORS, theme_changed, theme_style
+from labelimg.ui.theme import theme_changed, theme_style
 
 from PyQt5.QtCore import QEvent, QRectF, QSize, Qt, QSignalBlocker
 from PyQt5.QtGui import QColor, QCursor, QFontMetrics, QPainter, QPainterPath, QPalette, QPen
@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import (
 )
 
 from labelimg.annotations.ui.style import (
-    label_display_color, label_validator,
+    LABEL_INDICATOR_FILL_ALPHA, label_display_color, label_validator,
     natural_label_key, trimmed,
 )
 from labelimg.localization.runtime import language_changed, localize_dialog_buttons, tr
@@ -69,7 +69,7 @@ class CandidateLabelDelegate(QStyledItemDelegate):
     horizontal_padding = 6
     horizontal_inset = 3
     vertical_inset = 3
-    stripe_width = 4
+    stripe_width = 8
     outline_width = 1.4
     radius = 4
 
@@ -94,19 +94,18 @@ class CandidateLabelDelegate(QStyledItemDelegate):
         path.addRoundedRect(box, self.radius, self.radius)
         painter.save()
         painter.setRenderHint(QPainter.Antialiasing)
-        fill = QColor(COLORS['selection_background'] if selected else
-                      COLORS['background'] if hovered else COLORS['surface'])
+        fill = QColor(color)
+        fill.setAlpha(LABEL_INDICATOR_FILL_ALPHA)
         painter.fillPath(path, fill)
         painter.save()
         painter.setClipPath(path)
         painter.fillRect(QRectF(box.left(), box.top(), self.stripe_width, box.height()), color)
         painter.restore()
         painter.setBrush(Qt.NoBrush)
-        painter.setPen(QPen(QColor(COLORS['selection_border'] if selected else
-                                  COLORS['border'] if hovered else COLORS['divider']), 1))
+        painter.setPen(QPen(color, 2.2 if selected else 1.8 if hovered else self.outline_width))
         painter.drawPath(path)
         painter.setFont(option.font)
-        painter.setPen(QColor(COLORS['selection_foreground'] if selected else COLORS['text']))
+        painter.setPen(option.palette.color(QPalette.Text))
         text_box = box.adjusted(
             self.stripe_width + self.horizontal_padding + self.outline_width / 2, 0,
             -self.horizontal_padding - self.outline_width / 2, 0,

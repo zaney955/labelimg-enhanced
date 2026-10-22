@@ -2,11 +2,13 @@
 
 from labelimg.ui.actions import add_actions
 from labelimg.ui.tool_bar import ToolBar
+from labelimg.ui.menu import Menu
 
 class WindowMixin(object):
 
     def menu(self, title, actions=None):
-        menu = self.menuBar().addMenu(title)
+        menu = Menu(title, self)
+        self.menuBar().addMenu(menu)
         if actions:
             add_actions(menu, actions)
         return menu

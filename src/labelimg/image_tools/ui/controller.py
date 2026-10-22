@@ -3,10 +3,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 from functools import wraps
+from concurrent.futures import CancelledError
 import os.path
 
 
-from PyQt5.QtCore import QSignalBlocker, QThread, Qt
+from PyQt5.QtCore import QBuffer, QByteArray, QIODevice, QSignalBlocker, QThread, Qt
 from PyQt5.QtGui import QImage, QImageReader, QPixmap
 from PyQt5.QtWidgets import QApplication, QDialog, QMessageBox, QProgressDialog
 
@@ -25,7 +26,11 @@ def _image_menu_boundary(title_key, message_key=None):
         @wraps(command)
         def guarded(self, *args, **kwargs):
             try:
+                # A modal tool is bound to the image on which it was invoked.
+                self.cancel_image_navigation()
                 return command(self, *args, **kwargs)
+            except CancelledError:
+                return False
             except Exception as error:
                 message = (
                     str(error)
@@ -42,6 +47,25 @@ def _image_menu_boundary(title_key, message_key=None):
 
 
 class ImageToolsActionsMixin:
+    @staticmethod
+    def _decode_prepared_image(content):
+        # PyQt's static fromData binding holds the Python GIL for the whole
+        # decode. QImageReader.read releases it so GUI Python slots keep running.
+        buffer = QBuffer()
+        buffer.setData(QByteArray(content))
+        buffer.open(QIODevice.ReadOnly)
+        reader = QImageReader(buffer)
+        reader.setAutoTransform(True)
+        image = reader.read()
+        if image.isNull():
+            raise ValueError('prepared image could not be decoded')
+        return image
+
+    def _run_image_preparation(self, work):
+        from labelimg.image_tools.ui.preparation import run_preparation
+
+        return run_preparation(work, self)
+
     def update_image_menu(self):
         image_available = (
             bool(self.file_path)
@@ -127,7 +151,11 @@ class ImageToolsActionsMixin:
             }
             zoom = self.zoom_widget.value()
             self.image_data = target.prepared.image_replacement.content
-            self.image = QImage.fromData(self.image_data)
+            self.image = (
+                QImage(target.display_image)
+                if isinstance(target.display_image, QImage)
+                else QImage.fromData(self.image_data)
+            )
             self.canvas.replace_pixmap(
                 self._activate_display_adjustment_source(
                     self.image, self.file_path
@@ -329,6 +357,7 @@ class ImageToolsActionsMixin:
                 else GeometryOperation(preselected)
             ),
             parent=self,
+            preview_image=self.image,
         )
         if dialog.exec_() != QDialog.Accepted or dialog.request is None:
             return False
@@ -362,6 +391,8 @@ class ImageToolsActionsMixin:
             )
         try:
             return self._apply_geometry_transform_batch(request)
+        except CancelledError:
+            return False
         except Exception as error:
             localized_warning(
                 self,
@@ -417,6 +448,8 @@ class ImageToolsActionsMixin:
             if plan is None:
                 return False
             self.image_processing.commit(plan)
+        except CancelledError:
+            return False
         except Exception as error:
             localized_warning(
                 self,
@@ -633,6 +666,8 @@ class ImageToolsActionsMixin:
                 preserve_current=True,
             ))
             self.image_processing.commit(plan)
+        except CancelledError:
+            return False
         except Exception as error:
             localized_warning(
                 self,
@@ -752,6 +787,9 @@ class ImageToolsActionsMixin:
                 if answer != QMessageBox.Yes:
                     return False
             self.image_processing.commit(plan)
+        except CancelledError:
+            self.crop_overlay.setFocus(Qt.OtherFocusReason)
+            return False
         except Exception as error:
             localized_warning(
                 self,

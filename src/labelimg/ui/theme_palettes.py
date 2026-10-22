@@ -113,12 +113,12 @@ def appearance_colors(base, mode, accent_id):
     bodies = (colors["surface"], colors["background"])
     accent = readable(preset.color, bodies)
     for _ in range(8):
-        selected = blend(accent, colors["surface"], 0.20 if dark else 0.10)
+        selected = blend(accent, colors["surface"], 0.20 if dark else 0.22)
         adjusted = readable(accent, (*bodies, selected))
         if adjusted == accent:
             break
         accent = adjusted
-    selected = blend(accent, colors["surface"], 0.20 if dark else 0.10)
+    selected = blend(accent, colors["surface"], 0.20 if dark else 0.22)
     hover = blend("#FFFFFF" if dark else "#000000", accent, 0.10)
     colors.update(accent=accent, accent_hover=hover, selected=selected)
     colors["on_accent"] = max(
@@ -175,11 +175,11 @@ def appearance_colors(base, mode, accent_id):
     colors["danger_border"] = readable(
         blend(colors["danger"], colors["surface"], 0.65), bodies, 3.05
     )
-    # File selection needs a persistent, opaque fill, distinct from subtle
-    # control/chip selection. Never fade a stylesheet Highlight a second time.
-    colors["selection_background"] = blend(accent, colors["surface"], 0.16 if dark else 0.14)
-    colors["selection_border"] = blend(accent, colors["surface"], 0.32 if dark else 0.38)
+    # Controls, tabs and lists share one opaque selection surface.
+    colors["selection_background"] = selected
+    colors["selection_border"] = blend(accent, colors['surface'], 0.32 if dark else 0.42)
     colors["selection_foreground"] = readable(
-        colors["text"], (colors["selection_background"],)
+        colors["text"], (selected, *(blend(category, selected, 48 / 255)
+                                    for category in ('#000000', '#FFFFFF')))
     )
     return colors

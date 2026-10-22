@@ -11,7 +11,6 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QMenu,
     QSizePolicy,
     QToolButton,
     QVBoxLayout,
@@ -20,6 +19,7 @@ from PyQt5.QtWidgets import (
     QStyle,
     QStyleOption,
 )
+from labelimg.ui.menu import Menu as QMenu
 
 from labelimg.annotations.ui.default_category_selector import DefaultCategorySelector
 from labelimg.annotations.ui.label_group_list import LabelGroupListWidget

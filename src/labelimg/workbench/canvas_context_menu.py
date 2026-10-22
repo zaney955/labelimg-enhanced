@@ -1,6 +1,6 @@
 """Target-scoped Canvas context command menus."""
 
-from PyQt5.QtWidgets import QMenu
+from labelimg.ui.menu import Menu as QMenu
 
 from labelimg.localization.runtime import tr
 from labelimg.ui.actions import new_icon

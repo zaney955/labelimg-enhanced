@@ -55,6 +55,98 @@ class UiAuditRegressionTest(unittest.TestCase):
             menu.hide()
         self.assertNotEqual(images[0], images[1], "Settings switches must visibly show their state")
 
+    def test_menu_keeps_action_artwork_while_checkmark_changes(self):
+        menu = self.window.menus.settings
+        action = self.window.auto_saving
+        self.assertFalse(action.icon().isNull())
+        self.assertTrue(action.isIconVisibleInMenu())
+        images = []
+        for checked in (False, True):
+            action.setChecked(checked)
+            menu.popup(QPoint(40, 40))
+            self.app.processEvents()
+            row = menu.actionGeometry(action)
+            images.append(menu.grab(row).toImage())
+            menu.hide()
+        # The shared menu reserves independent 20px check and icon columns.
+        self.assertEqual(images[0].copy(28, 0, 20, images[0].height()),
+                         images[1].copy(28, 0, 20, images[1].height()))
+        self.assertNotEqual(images[0].copy(4, 0, 20, images[0].height()),
+                            images[1].copy(4, 0, 20, images[1].height()))
+        menu.popup(QPoint(40, 40))
+        menu.setActiveAction(action)
+        before = action.isChecked()
+        QTest.keyClick(menu, Qt.Key_Return)
+        self.assertEqual(action.isChecked(), not before)
+
+    def test_dropdown_rows_have_readable_height_and_can_be_selected(self):
+        from labelimg.ui.control_style import ComboBox as QComboBox
+        combo = self.window.default_category_selector
+        self.window.show()
+        combo.showPopup()
+        self.app.processEvents()
+        view = combo.view()
+        for row in range(combo.count()):
+            rect = view.visualRect(combo.model().index(row, 0))
+            self.assertGreaterEqual(rect.height(), max(32, combo.fontMetrics().height() + 12))
+        QTest.mouseClick(view.viewport(), Qt.LeftButton,
+                         pos=view.visualRect(combo.model().index(1, 0)).center())
+        self.assertEqual(combo.currentIndex(), 1)
+        combo.hidePopup()
+        # A fresh editable combo uses the same popup delegate, including long labels.
+        other = QComboBox(self.window)
+        other.setEditable(True)
+        other.addItems(['IPD_BTLY', 'Very long category name with spaces'])
+        other.show()
+        other.showPopup()
+        self.app.processEvents()
+        self.assertGreaterEqual(other.view().sizeHintForRow(0), 32)
+        other.hidePopup()
+        other.hide()
+        other.deleteLater()
+        self.app.processEvents()
+
+    def test_preferences_action_buttons_are_content_sized(self):
+        from PyQt5.QtWidgets import QPushButton
+        from labelimg.workbench.preferences import PreferencesDialog
+        dialog = PreferencesDialog(self.window)
+        self.widgets.append(dialog)
+        dialog.show()
+        self.app.processEvents()
+        for _key, _frame, controls in dialog.groups:
+            for button, _action, _menu in controls:
+                if isinstance(button, QPushButton):
+                    self.assertLess(button.width(), button.parentWidget().width() * .85)
+
+    def test_document_choice_input_uses_spaced_rows_and_returns_the_chosen_item(self):
+        from PyQt5.QtCore import QTimer
+        from PyQt5.QtWidgets import QComboBox
+        from labelimg.ui.input_dialog import InputDialog
+        heights = []
+        def choose():
+            dialog = self.app.activeModalWidget()
+            combo = dialog.findChild(QComboBox)
+            combo.showPopup()
+            self.app.processEvents()
+            heights.append(combo.view().sizeHintForRow(0))
+            combo.hidePopup()
+            combo.setCurrentIndex(1)
+            dialog.accept()
+        QTimer.singleShot(0, choose)
+        value, accepted = InputDialog.getItem(self.window, 'Choose document', 'Document',
+                                             ['sample.xml', 'sample.txt'], 0, False)
+        self.assertTrue(accepted)
+        self.assertEqual(value, 'sample.txt')
+        self.assertGreaterEqual(heights[0], 32)
+        QTimer.singleShot(0, lambda: self.app.activeModalWidget().reject())
+        self.assertEqual(InputDialog.getItem(self.window, 'Choose document', 'Document',
+                                            ['sample.xml', 'sample.txt'], 1, False), ('', False))
+
+    def test_help_contains_no_tutorial_command(self):
+        self.assertFalse(hasattr(self.window.actions, 'helpDefault'))
+        self.assertFalse(any('tutorial' in action.text().lower()
+                             for action in self.window.menus.help.actions()))
+
     def test_canceling_close_during_reset_keeps_settings_and_does_not_restart(self):
         self.window.settings['audit-sentinel'] = 'keep'
         self.window.settings.save()

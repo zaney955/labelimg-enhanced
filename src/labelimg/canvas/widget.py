@@ -23,6 +23,7 @@ from labelimg.ui.risk_glyphs import draw_not_equal_glyph
 from labelimg.canvas.shape import Shape
 from labelimg.canvas.drawing_preview import paint_drawing_crosshair, paint_pending_box
 from labelimg.canvas.drawing_scene import DrawingSceneCache
+from labelimg.canvas.image_layer import ImageLayerCache
 from labelimg.canvas.magnifier import paint_magnifier
 from labelimg.canvas.interaction import (
     CanvasContextRequest,
@@ -113,6 +114,7 @@ class Canvas(QWidget):
         self.hide_at_crosshair = False
         self.protect_selected_annotations = False
         self._drawing_scene_cache = DrawingSceneCache()
+        self._image_layer_cache = ImageLayerCache()
         self._painter = QPainter()
         self._cursor = CURSOR_DEFAULT
         # Set widget options.
@@ -838,7 +840,7 @@ class Canvas(QWidget):
                 self._emit_annotation_size(self.current)
             else:
                 self.prev_point = pos
-            self.repaint()
+            self.update()
             return
 
         # Polygon/Vertex moving.
@@ -848,7 +850,7 @@ class Canvas(QWidget):
                 self.bounded_move_vertex(pos)
                 self.override_cursor(self.vertex_cursor())
                 self.shapeMoved.emit()
-                self.repaint()
+                self.update()
 
                 # Display annotation width and height while moving vertex
                 self._emit_coordinates(
@@ -858,7 +860,7 @@ class Canvas(QWidget):
                 self._overlap_drag_shape = self.interaction_snapshot.hover.shape
                 self.bounded_move_edge(pos)
                 self.shapeMoved.emit()
-                self.repaint()
+                self.update()
 
                 # Display annotation width and height while moving edge
                 self._emit_coordinates(
@@ -869,7 +871,7 @@ class Canvas(QWidget):
                 self.override_cursor(CURSOR_MOVE)
                 self.bounded_move_shape(self.selected_shape, pos)
                 self.shapeMoved.emit()
-                self.repaint()
+                self.update()
 
                 # Display annotation width and height while moving shape
                 self._emit_coordinates(pos, self.selected_shape)
@@ -1409,14 +1411,10 @@ class Canvas(QWidget):
         p.translate(self.offset_to_center())
 
         image_size = self.pixmap_size
-        if self.pixmap.size() == image_size:
-            p.drawPixmap(0, 0, self.pixmap)
-        else:
-            p.drawPixmap(
-                QRectF(0, 0, image_size.width(), image_size.height()),
-                self.pixmap,
-                QRectF(self.pixmap.rect()),
-            )
+        self._image_layer_cache.paint(
+            p, self.pixmap, image_size,
+            self.visibleRegion().boundingRect().united(event.rect()),
+        )
         Shape.scale = self.scale
         Shape.label_font_size = self.label_font_size
         Shape.line_width = self.annotation_line_width
@@ -2163,7 +2161,7 @@ class Canvas(QWidget):
             self.selected_shape.points[2] += QPointF(0, 1.0)
             self.selected_shape.points[3] += QPointF(0, 1.0)
         self.shapeMoved.emit()
-        self.repaint()
+        self.update()
 
     def move_out_of_bound(self, step):
         points = [p1 + p2 for p1, p2 in zip(self.selected_shape.points, [step] * 4)]
@@ -2217,6 +2215,7 @@ class Canvas(QWidget):
         return QSize()
 
     def load_pixmap(self, pixmap, logical_size=None):
+        self._image_layer_cache.clear()
         self.pixmap = pixmap
         self._pixmap_logical_size = self._coerce_pixmap_size(
             pixmap, logical_size
@@ -2235,15 +2234,16 @@ class Canvas(QWidget):
         self.questioned = False
         self.visible.clear()
         self.set_near_duplicate_clusters(())
-        self.repaint()
+        self.update()
 
     def replace_pixmap(self, pixmap, logical_size=None):
         """Refresh only image pixels while preserving annotation view state."""
+        self._image_layer_cache.clear()
         self.pixmap = pixmap
         self._pixmap_logical_size = self._coerce_pixmap_size(
             pixmap, logical_size
         )
-        self.repaint()
+        self.update()
 
     @staticmethod
     def _coerce_pixmap_size(pixmap, logical_size):
@@ -2315,6 +2315,7 @@ class Canvas(QWidget):
 
     def reset_state(self):
         self.restore_cursor()
+        self._image_layer_cache.clear()
         self.pixmap = None
         self._pixmap_logical_size = QSize()
         self.shapes = []

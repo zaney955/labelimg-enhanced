@@ -4,10 +4,11 @@ from labelimg.ui.presentation import present_dialog, role, section
 
 from PyQt5.QtCore import QEventLoop, Qt
 from PyQt5.QtWidgets import (
-    QApplication, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
+    QApplication, QDialog, QDialogButtonBox, QFormLayout,
     QLabel, QLineEdit, QProgressDialog, QPushButton, QTableWidget,
     QTableWidgetItem, QVBoxLayout, QHeaderView, QHBoxLayout,
 )
+from labelimg.ui.control_style import ComboBox as QComboBox
 
 from labelimg.annotations.ui.errors import annotation_error_text
 from labelimg.localization.runtime import localize_dialog_buttons, tr

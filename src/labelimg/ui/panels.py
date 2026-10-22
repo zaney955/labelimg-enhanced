@@ -6,10 +6,10 @@ from PyQt5.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QMenu,
     QSizePolicy,
     QVBoxLayout,
 )
+from labelimg.ui.menu import Menu as QMenu
 from labelimg.localization.runtime import language_changed, tr
 from labelimg.ui.icons import IconLabel, icon
 from labelimg.ui.theme import theme_style

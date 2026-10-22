@@ -19,7 +19,7 @@ from labelimg.annotations.ui.candidate_label_dialog import (
     CandidateLabelDialog,
     CandidateLabelList,
 )
-from labelimg.annotations.ui.style import label_display_color
+from labelimg.annotations.ui.style import LABEL_INDICATOR_FILL_ALPHA, label_display_color
 from labelimg.localization.runtime import ENGLISH, SIMPLIFIED_CHINESE, set_language
 
 
@@ -179,7 +179,7 @@ class CandidateLabelDialogSortingTest(unittest.TestCase):
             0,
         )
 
-    def test_candidate_preserves_category_stripe_on_quiet_theme_surface(self):
+    def test_candidate_reuses_annotation_color_for_stripe_outline_and_light_fill(self):
         label = "apple"
         item = self.dialog.list_widget.item(0)
         background = item.data(Qt.BackgroundRole)
@@ -207,8 +207,12 @@ class CandidateLabelDialogSortingTest(unittest.TestCase):
         painter.end()
 
         self.assertEqual(image.pixelColor(6, 15), background)
-        from labelimg.ui.theme import COLORS
-        expected = QColor(COLORS['surface'])
+        # Away from text and border, match the annotation-list alpha-48 fill.
+        expected = QColor(*(
+            round(255 * (1 - LABEL_INDICATOR_FILL_ALPHA / 255)
+                  + channel * LABEL_INDICATOR_FILL_ALPHA / 255)
+            for channel in background.getRgb()[:3]
+        ))
         self.assertEqual(image.pixelColor(113, 15), expected)
         edge = image.pixelColor(60, 3)
         self.assertNotEqual(edge, expected)
@@ -227,7 +231,7 @@ class CandidateLabelDialogSortingTest(unittest.TestCase):
         self.assertEqual(self.dialog.list_widget.gridSize(), before_grid)
         delegate = self.dialog.list_widget.itemDelegate()
         text_width = QFontMetrics(self.dialog.list_widget.font()).horizontalAdvance(max(labels, key=len))
-        self.assertGreaterEqual(before_grid.width(), text_width + delegate.stripe_width)
+        self.assertGreaterEqual(before_grid.width(), text_width + 2 * delegate.horizontal_padding)
 
     def test_live_filter_ranks_exact_prefix_then_contained_matches_naturally(self):
         labels = ["aLM10", "LM2", "LM10", "LM1", "zLM1", "other"]

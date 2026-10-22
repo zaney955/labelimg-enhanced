@@ -11,7 +11,6 @@ try:
         QFrame,
         QHBoxLayout,
         QLabel,
-        QMenu,
         QSizePolicy,
         QSlider,
         QToolBar,
@@ -19,6 +18,7 @@ try:
         QWidget,
         QWidgetAction,
     )
+    from labelimg.ui.menu import Menu as QMenu
 except ImportError:  # pragma: no cover - legacy Qt4 compatibility
     from PyQt4.QtCore import QEvent, QSignalBlocker, Qt, QSize, pyqtSignal
     from PyQt4.QtGui import (
@@ -164,7 +164,7 @@ class FormatSelector(MenuButton):
         for value, title, icon_name in self.FORMATS:
             action = self.menu.addAction(new_icon(icon_name), title)
             action.setCheckable(True)
-            action.setIconVisibleInMenu(False)
+            action.setIconVisibleInMenu(True)
             action.triggered.connect(
                 lambda checked=False, fmt=value:
                 self.formatRequested.emit(fmt) if checked else None

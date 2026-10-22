@@ -384,7 +384,7 @@ class AboutDialog(QDialog):
         self.repository_button.setIcon(new_icon("external-link"))
         self.repository_button.setToolTip(REPOSITORY_URL)
         self.repository_button.clicked.connect(self._open_repository)
-        layout.addWidget(self.repository_button)
+        layout.addWidget(self.repository_button, 0, Qt.AlignLeft)
         apply_theme_style(self, theme_style("""
             QFrame#aboutIdentity { background: ${selected}; border: 1px solid ${accent_border}; border-radius: 10px; }
             QLabel#aboutProductName { color: ${text}; font-size: ${font_product}px; font-weight: 600; }

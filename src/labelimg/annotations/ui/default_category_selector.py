@@ -1,7 +1,8 @@
 """Window-local default category, independent of the workspace vocabulary."""
 
 from PyQt5.QtCore import QSignalBlocker, pyqtSignal
-from PyQt5.QtWidgets import QComboBox
+
+from labelimg.ui.control_style import ComboBox as QComboBox
 
 from labelimg.annotations.ui.style import natural_label_key, trimmed
 from labelimg.localization.runtime import language_changed, tr

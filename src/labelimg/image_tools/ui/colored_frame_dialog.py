@@ -26,7 +26,6 @@ from PyQt5.QtGui import QColor, QImage, QKeySequence, QPainter, QPen, QPixmap
 from PyQt5.QtWidgets import (
     QAction,
     QCheckBox,
-    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
@@ -46,6 +45,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from labelimg.ui.control_style import ComboBox as QComboBox
 
 from labelimg.localization.runtime import localize_dialog_buttons, tr, warning
 from labelimg.image_tools.domain.colored_frame_removal import (

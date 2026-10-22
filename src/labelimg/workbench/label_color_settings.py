@@ -1,6 +1,7 @@
 """Exclusive Settings menu for automatic label-color allocation."""
 
-from PyQt5.QtWidgets import QActionGroup, QMenu
+from PyQt5.QtWidgets import QActionGroup
+from labelimg.ui.menu import Menu as QMenu
 
 from labelimg.annotations.ui.color_algorithms import FIXED, MAXIMIN
 from labelimg.localization.runtime import tr

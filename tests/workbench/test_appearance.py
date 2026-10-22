@@ -198,6 +198,28 @@ class AppearanceTest(unittest.TestCase):
         self.assertEqual(restored.get(SETTING_COLOR_MODE), "system")
         self.assertEqual(restored.get(SETTING_ACCENT_COLOR), "green")
 
+    def test_focus_on_another_mode_does_not_paint_a_second_selected_surface(self):
+        from PyQt5.QtGui import QColor
+        self.controller.apply_preferences('dark', 'plum')
+        dialog = self.dialog()
+        selected = dialog.mode_buttons['dark']
+        focused = dialog.mode_buttons['system']
+        focused.setFocus(Qt.TabFocusReason)
+        self.app.processEvents()
+        self.assertTrue(focused.hasFocus())
+        self.assertFalse(focused.isChecked())
+        self.assertTrue(selected.isChecked())
+        def fill(button):
+            pixels = button.grab().toImage()
+            return pixels.pixelColor(pixels.width() // 2, pixels.height() - 8)
+        self.assertEqual(fill(selected), QColor(COLORS['selected']))
+        self.assertNotEqual(fill(focused), QColor(COLORS['selected']))
+        before = selected.geometry()
+        QTest.keyClick(focused, Qt.Key_Space)
+        self.assertEqual(self.controller.mode, 'system')
+        self.assertEqual(sum(button.isChecked() for button in dialog.mode_buttons.values()), 1)
+        self.assertEqual(selected.geometry(), before)
+
     def test_cancel_system_preview_resolves_the_latest_system_mode(self):
         self.controller.apply_preferences("system", "amber")
         dialog = self.dialog()

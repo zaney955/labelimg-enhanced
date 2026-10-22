@@ -33,7 +33,6 @@ from PyQt5.QtWidgets import (
     QButtonGroup,
     QDialog,
     QDialogButtonBox,
-    QComboBox,
     QFormLayout,
     QFrame,
     QGridLayout,
@@ -44,7 +43,6 @@ from PyQt5.QtWidgets import (
     QListView,
     QListWidget,
     QListWidgetItem,
-    QMenu,
     QPushButton,
     QSizePolicy,
     QSpinBox,
@@ -61,6 +59,8 @@ from PyQt5.QtWidgets import (
     QWidget,
     QActionGroup,
 )
+from labelimg.ui.control_style import ComboBox as QComboBox
+from labelimg.ui.menu import Menu as QMenu
 
 from labelimg.files.application.operations import exact_annotation_paths
 from labelimg.files.model import (
@@ -518,14 +518,15 @@ class FileListFilterPanel(QFrame):
                 border-radius: 3px; color: ${muted}; }
             QFrame#fileFilterMatchControl QToolButton:checked { background: ${selected}; color: ${accent_hover}; border-color: ${accent_border}; }
             QFrame#fileFilterMatchControl QToolButton:hover { color: ${accent_hover}; }
-            QFrame#fileFilterMatchControl QToolButton:focus { border-color: ${accent}; }
+            QFrame#fileFilterMatchControl QToolButton:focus { border-color: ${accent}; border-style: dotted; }
             QComboBox { min-height: 28px; padding: 0 8px; background: ${surface};
                 border: 1px solid ${border}; border-radius: 4px; color: ${text}; }
             QComboBox:focus { border-color: ${accent}; }
             QComboBox::drop-down { border: none; width: 24px; }
             QComboBox::down-arrow { image: url(:/chevron-down); width: 16px; height: 16px; }
             QToolButton { border: none; border-radius: 4px; padding: 3px 5px; color: ${accent_hover}; }
-            QToolButton:hover, QToolButton:focus { background: ${selected}; }
+            QToolButton:hover { background: ${background}; }
+            QToolButton:focus { border: 1px dotted ${accent}; }
             QToolButton:disabled { color: ${disabled_text}; }
             QPushButton { min-height: 28px; padding: 0 10px; border: 1px solid ${border};
                 border-radius: 4px; background: ${surface}; color: ${text}; }

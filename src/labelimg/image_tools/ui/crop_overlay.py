@@ -24,17 +24,16 @@ from PyQt5.QtGui import (
 )
 from PyQt5.QtWidgets import (
     QApplication,
-    QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
     QLayout,
-    QMenu,
-    QMenu,
     QPushButton,
     QSpinBox,
     QWidget,
 )
+from labelimg.ui.control_style import ComboBox as QComboBox
+from labelimg.ui.menu import Menu as QMenu
 
 from labelimg.localization.runtime import tr
 from labelimg.ui.actions import new_icon

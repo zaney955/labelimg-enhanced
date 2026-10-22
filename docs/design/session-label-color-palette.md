@@ -29,7 +29,7 @@ The conversion and distance definitions follow [OKLab/OKLCH](https://www.w3.org/
 
 ## Appearance
 
-The resolved color is always opaque. It drives box outlines, narrow color stripes in the candidate picker, and annotation-instance outlines. Unselected instance buttons retain the theme background; their selected, hovered, and hidden treatments follow [annotation interaction](annotation-interaction.md). The group label remains plain text. A selected Canvas box derives its translucent fill from the resolved color at the fixed selection opacity; text contrast and hover treatments are derived rather than stored independently.
+The resolved color is always opaque. It drives box outlines, category stripes, outlines and lightly tinted fills in the candidate picker, and annotation-instance outlines. Unselected instance buttons retain the theme background; their selected, hovered, and hidden treatments follow [annotation interaction](annotation-interaction.md). The group label remains plain text. A selected Canvas box derives its translucent fill from the resolved color at the fixed selection opacity; text contrast and hover treatments are derived rather than stored independently.
 
 There are no default drawing colors, per-box colors, independent fill colors, or user-adjustable alpha values.
 
@@ -41,7 +41,7 @@ A label-group context menu provides the direct **Set Category Color** command an
 
 Palette changes refresh every matching current-canvas box and label surface immediately without creating an annotation-history transition.
 
-The Settings submenu has two exclusive choices: **Fixed by Full Category Name (Default)** and **Maximum Color Separation**, with concise bilingual purpose descriptions. Switching algorithms refreshes Canvas boxes, narrow color stripes in the candidate picker, and annotation-instance outlines immediately while retaining custom overrides. Returning to the session algorithm within the same workspace reuses its existing assignments. Reset All Settings restores the fixed algorithm.
+The Settings submenu has two exclusive choices: **Fixed by Full Category Name (Default)** and **Maximum Color Separation**, with concise bilingual purpose descriptions. Switching algorithms refreshes Canvas boxes, category stripes, outlines and lightly tinted fills in the candidate picker, and annotation-instance outlines immediately while retaining custom overrides. Returning to the session algorithm within the same workspace reuses its existing assignments. Reset All Settings restores the fixed algorithm.
 
 ## Lifetime
 

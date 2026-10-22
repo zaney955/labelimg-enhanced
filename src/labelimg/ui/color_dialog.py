@@ -1,7 +1,7 @@
 """Compact color entry, with the full Qt picker available on demand."""
 
 import re
-from PyQt5.QtCore import QSignalBlocker, QSize
+from PyQt5.QtCore import QSignalBlocker, QSize, Qt
 from PyQt5.QtGui import QColor, QIcon, QPixmap
 from PyQt5.QtWidgets import (
     QColorDialog, QDialog, QDialogButtonBox, QFormLayout, QGridLayout,
@@ -53,7 +53,7 @@ class ColorDialog(QDialog):
         layout.addWidget(self.error)
         self.more = QPushButton()
         self.more.clicked.connect(self._more_colors)
-        layout.addWidget(self.more)
+        layout.addWidget(self.more, 0, Qt.AlignLeft)
         self.bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel | QDialogButtonBox.RestoreDefaults)
         self.bb.accepted.connect(self.accept)
         self.bb.rejected.connect(self.reject)

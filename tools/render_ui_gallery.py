@@ -194,6 +194,10 @@ def capture(name, widget, hide=True):
         "71-preferences",
         "73-settings-on",
         "74-settings-off",
+        "29-menu", "30-menu", "31-menu", "32-menu",
+        "76-category-dropdown", "77-replace-dropdown", "78-cleanup-skipped",
+        "79-mode-focus", "80-review-unreviewed", "81-review-questioned",
+        "82-review-verified", "83-candidates-long", "84-preferences-narrow",
     }:
         if hide:
             widget.hide()
@@ -323,11 +327,19 @@ try:
     window.import_dir_images(str(images))
     app.processEvents()
     capture("01-workbench", window, False)
+    for index, state in enumerate(('unreviewed', 'questioned', 'verified'), 80):
+        window.review_control.set_state(state)
+        capture(f'{index}-review-{state}', window.scroll_area.viewport(), False)
+    window.review_control.set_state('unreviewed')
     controls = window.file_list_controls
     controls.set_category_filter({"裂纹", "缺损"}, "any")
     controls.filter_panel.show_for(controls.filter_button)
     capture("02-filter-reference", controls.filter_panel)
     controls.clear_all_conditions()
+    capture('83-candidates-long', CandidateLabelDialog(
+        parent=window,
+        list_item=[f'长类别名称示例_{i}_需要完整识别的部件缺陷类型' for i in range(30)],
+        color_for_label=window.label_color_palette.color))
     capture(
         "03-candidate-reference",
         CandidateLabelDialog(
@@ -381,6 +393,22 @@ try:
         window.menus.settings.popup(window.mapToGlobal(QPoint(200, 60)))
         capture('73-settings-on' if enabled else '74-settings-off', window.menus.settings)
     window.single_class_mode.setChecked(False)
+    selector = window.default_category_selector
+    selector.showPopup()
+    capture('76-category-dropdown', selector.view().window())
+    selector.hidePopup()
+    replacement = LabelReplaceDialog(
+        ['IPD_BTLY', '长类别名称_Long_category_name'], selected_count=2,
+        preview=lambda *_args: None, parent=window)
+    replacement.show()
+    replacement.old_label.showPopup()
+    capture('77-replace-dropdown', replacement.old_label.view().window())
+    replacement.old_label.hidePopup()
+    widgets.append(replacement)
+    replacement.hide()
+    preferences.search.clear()
+    preferences.resize(480, 640)
+    capture('84-preferences-narrow', preferences)
     geometry = GeometryTransformDialog(
         paths[0], paths[:2], workspace_paths=paths, parent=window
     )
@@ -414,6 +442,8 @@ try:
     cleanup = AnnotationCleanupDialog(str(images), str(annotations), (".png",), window)
     cleanup.scan()
     capture("13-cleanup", cleanup)
+    cleanup.tabs.setCurrentIndex(1)
+    capture('78-cleanup-skipped', cleanup)
     capture(
         "14-recovery-selection",
         ImageRecoverySelectionDialog(
@@ -536,6 +566,9 @@ try:
 
     appearance = AppearanceDialog(window.appearance, window)
     capture("47-appearance", appearance)
+    appearance.show()
+    appearance.mode_buttons['system' if args.mode != 'system' else 'light'].setFocus(Qt.TabFocusReason)
+    capture('79-mode-focus', appearance)
     appearance.reject()
     window.appearance.system_probe = lambda: args.mode
     window.appearance.apply_preferences("system", args.accent)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 import sys
-from PyQt5.QtCore import QObject, QRectF, QSize, Qt, QTimer, pyqtSignal
+from PyQt5.QtCore import QObject, QRect, QRectF, QSize, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QColor, QPainter, QPainterPath, QPen
 from PyQt5.QtWidgets import (
     QApplication,
@@ -37,7 +37,7 @@ from labelimg.ui.theme import (
     theme_changed,
 )
 from labelimg.ui.theme_palettes import available_accents, luminance
-from labelimg.ui.icons import icon
+from labelimg.ui.icons import icon, outline_icon
 
 COLOR_MODES = ("system", "light", "dark")
 
@@ -193,6 +193,17 @@ class AccentButton(QAbstractButton):
         )
 
 
+class ModeButton(QToolButton):
+    """A check identifies the saved choice; a dotted outline is keyboard focus."""
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if self.isChecked():
+            painter = QPainter(self)
+            outline_icon('done', COLORS['selection_foreground']).paint(
+                painter, QRect(self.width() - 24, (self.height() - 16) // 2, 16, 16))
+
+
 class AppearanceDialog(QDialog):
     def __init__(self, controller, parent=None):
         super().__init__(parent)
@@ -211,7 +222,7 @@ class AppearanceDialog(QDialog):
         self.mode_group = QButtonGroup(self)
         self.mode_buttons = {}
         for mode in COLOR_MODES:
-            button = QToolButton()
+            button = ModeButton()
             button.setProperty("uiRole", "appearanceMode")
             button.setCheckable(True)
             button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
@@ -255,9 +266,12 @@ class AppearanceDialog(QDialog):
             self,
             theme_style("""
             QFrame#appearanceModeBar { background: ${background}; border: 1px solid ${divider}; border-radius: 7px; }
-            QToolButton[uiRole="appearanceMode"] { color: ${muted}; border: 1px solid transparent; padding: 0 8px; }
-            QToolButton[uiRole="appearanceMode"]:checked { background: ${selected}; color: ${accent_hover}; border-color: ${accent_border}; }
-            QToolButton[uiRole="appearanceMode"]:focus { border-color: ${accent}; }
+            QToolButton[uiRole="appearanceMode"] { background: transparent; color: ${muted};
+                border: 1px solid transparent; padding: 0 28px 0 8px; }
+            QToolButton[uiRole="appearanceMode"]:hover { background: ${surface}; }
+            QToolButton[uiRole="appearanceMode"]:checked { background: ${selected};
+                color: ${selection_foreground}; border-color: ${accent_border}; }
+            QToolButton[uiRole="appearanceMode"]:focus { border-color: ${accent}; border-style: dotted; }
         """),
         )
         self.resize(600, 330)

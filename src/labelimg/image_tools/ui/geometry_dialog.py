@@ -16,7 +16,6 @@ import numpy as np
 from PyQt5.QtCore import QEvent, QTimer, Qt
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtWidgets import (
-    QComboBox,
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
@@ -29,8 +28,10 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from labelimg.ui.control_style import ComboBox as QComboBox
 
 from labelimg.localization.runtime import localize_dialog_buttons, tr
+from labelimg.image_tools.ui.preview_pixels import preview_from_qimage
 from labelimg.image_tools.application.geometry_transform import (
     GeometryOperation,
     transform_pixels,
@@ -58,6 +59,7 @@ class GeometryTransformDialog(QDialog):
         workspace_paths=(),
         preselected=GeometryOperation.ROTATE_CLOCKWISE,
         parent=None,
+        preview_image=None,
     ):
         super().__init__(parent)
         self.current_path = os.path.abspath(os.fspath(current_path))
@@ -71,9 +73,11 @@ class GeometryTransformDialog(QDialog):
         self.workspace_paths = tuple(dict.fromkeys(workspace))
         self.request = None
         self._codec = ImageFileCodec()
-        self._preview = self._codec.load_preview(
-            self.current_path,
-            max_pixels=self.PREVIEW_MAX_PIXELS,
+        self._preview = (
+            preview_from_qimage(preview_image, max_pixels=self.PREVIEW_MAX_PIXELS)
+            if isinstance(preview_image, QImage) and not preview_image.isNull()
+            else self._codec.load_preview(
+                self.current_path, max_pixels=self.PREVIEW_MAX_PIXELS)
         )
         self._source_size = self._preview.size
         self._updating_size = False

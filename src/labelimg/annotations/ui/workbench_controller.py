@@ -8,7 +8,8 @@ from contextlib import contextmanager
 
 from PyQt5.QtCore import QFileSystemWatcher, QPointF, QSignalBlocker, QTimer, Qt
 from PyQt5.QtGui import QCursor
-from PyQt5.QtWidgets import QApplication, QMenu, QMessageBox
+from PyQt5.QtWidgets import QApplication, QMessageBox
+from labelimg.ui.menu import Menu as QMenu
 
 import labelimg.ui.generated_resources  # noqa: F401 - registers Qt resources
 from labelimg.ui.actions import set_action_copy
@@ -699,6 +700,7 @@ class AnnotationActionsMixin:
 
 
     def _begin_annotation_gesture(self, description):
+        self.cancel_image_navigation()
         if not self.file_path or self.annotation_editing.edit_open:
             return
         self.annotation_editing.begin_edit(description)
@@ -1409,7 +1411,9 @@ class AnnotationActionsMixin:
                     self.annotation_document.create_ml_record_name
                 )
             return document
-        image_data = read(image_path, None)
+        image_data = self._run_image_preparation(
+            lambda cancelled: read(image_path, None)
+        )
         loaded = self.annotation_workspace.load_for_image(
             image_path,
             image_data,

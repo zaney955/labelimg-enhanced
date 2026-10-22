@@ -31,13 +31,14 @@ def prepare_crop_annotations(
     *,
     class_names=(),
     create_ml_record_name=None,
+    image_data=None,
 ):
     """Serialize one transformed snapshot without touching live resources."""
     target = os.path.abspath(os.fspath(annotation_target))
     annotation_format = AnnotationFormat.from_path(target)
     document = AnnotationDocument(
         image_path=snapshot.image_key,
-        image_data=image_content,
+        image_data=image_content if image_data is None else image_data,
         boxes=tuple(
             AnnotationBox(
                 label=box.label,

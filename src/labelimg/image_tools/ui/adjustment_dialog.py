@@ -8,16 +8,12 @@ from labelimg.ui.theme import apply_theme_style, theme_style
 from labelimg.ui.presentation import present_dialog, section
 
 from dataclasses import dataclass
-import math
 import os
 
-import cv2
-import numpy as np
 from PyQt5.QtCore import QEvent, QTimer, Qt
 from PyQt5.QtGui import QImage
 from PyQt5.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
@@ -31,6 +27,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from labelimg.ui.control_style import ComboBox as QComboBox
 
 from labelimg.localization.runtime import localize_dialog_buttons, tr
 from labelimg.image_tools.application.adjustment import (
@@ -40,18 +37,13 @@ from labelimg.image_tools.application.adjustment import (
 )
 from labelimg.image_tools.infrastructure.image_codec import ImageFileCodec
 from labelimg.image_tools.ui.geometry_dialog import _array_pixmap
+from labelimg.image_tools.ui.preview_pixels import preview_from_qimage as _preview_from_qimage
 
 
 @dataclass(frozen=True)
 class ImageAdjustmentRequest:
     paths: tuple[str, ...]
     options: ImageAdjustmentOptions
-
-
-@dataclass(frozen=True)
-class _AdjustmentPreview:
-    pixels: np.ndarray
-    source_size: tuple[int, int]
 
 
 class _AdjustmentSliderRow(QWidget):
@@ -378,31 +370,3 @@ class ImageAdjustmentDialog(QDialog):
 
 def _format_brightness(value):
     return "0%" if not value else f"{value:+d}%"
-
-
-def _preview_from_qimage(image, *, max_pixels):
-    """Build bounded processing pixels from an already decoded Qt image."""
-    source_size = (image.width(), image.height())
-    working = QImage(image)
-    pixel_count = image.width() * image.height()
-    if pixel_count > max_pixels:
-        ratio = math.sqrt(max_pixels / float(pixel_count))
-        working = image.scaled(
-            max(1, int(image.width() * ratio)),
-            max(1, int(image.height() * ratio)),
-            Qt.KeepAspectRatio,
-            Qt.SmoothTransformation,
-        )
-    rgba = working.convertToFormat(QImage.Format_RGBA8888)
-    pointer = rgba.bits()
-    pointer.setsize(rgba.byteCount())
-    rows = np.frombuffer(pointer, dtype=np.uint8).reshape(
-        rgba.height(), rgba.bytesPerLine()
-    )
-    pixels = rows[:, : rgba.width() * 4].reshape(
-        rgba.height(), rgba.width(), 4
-    ).copy()
-    return _AdjustmentPreview(
-        cv2.cvtColor(pixels, cv2.COLOR_RGBA2BGRA),
-        source_size,
-    )

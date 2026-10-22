@@ -52,15 +52,44 @@ class DecodedImageCache:
         self._store(_path_key(path), token, image)
         return True
 
+    def load(self, path):
+        """Blocking decode for a worker; reuse any already running prefetch."""
+        image = self.get(path)
+        if image is not None:
+            return image
+        key, token = _path_key(path), _source_token(path)
+        with self._lock:
+            future = self._jobs.get(key)
+        if future is not None and not future.cancelled():
+            _key, job_token, image = future.result()
+            if job_token == token and _source_token(path) == token:
+                return QImage(image)
+        _key, decoded_token, image = _decode_image(path, token)
+        if _source_token(path) != decoded_token:
+            raise OSError('image changed while it was being decoded')
+        self._store(key, token, image)
+        return image
+
     def prefetch(self, paths):
-        for path in tuple(dict.fromkeys(
+        paths = tuple(dict.fromkeys(
             os.path.abspath(os.fspath(path))
             for path in paths
             if path
-        )):
+        ))
+        wanted = {_path_key(path) for path in paths}
+        with self._lock:
+            for key, future in tuple(self._jobs.items()):
+                if key not in wanted:
+                    future.cancel()
+        for path in paths:
             key = _path_key(path)
             token = _source_token(path)
             if token is None:
+                continue
+            # An oversized decode cannot enter this LRU. Prefetching it only
+            # wastes CPU and multiplies peak memory while the user navigates.
+            size = QImageReader(path).size()
+            if size.width() * size.height() * 4 > self._max_bytes // 2:
                 continue
             with self._lock:
                 if self._shutdown:
@@ -115,6 +144,8 @@ class DecodedImageCache:
     def _store(self, key, token, image):
         stored = QImage(image)
         size = _image_bytes(stored)
+        if size > self._max_bytes:
+            return  # Do not evict useful neighbors for an uncacheable image.
         with self._lock:
             if self._shutdown:
                 return

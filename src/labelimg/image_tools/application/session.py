@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import CancelledError, ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from enum import Enum
 import os
@@ -101,6 +101,7 @@ class PreparedGeometryTarget:
     annotation_target: str | None
     annotation_preparation: object | None
     document: object | None
+    display_image: object | None = None
 
     @property
     def replacements(self):
@@ -185,6 +186,8 @@ class ImageProcessingSession:
         document_for_path,
         *,
         codec=None,
+        run_preparation=None,
+        prepare_display=None,
     ):
         self._workspace = workspace
         self._editing = editing
@@ -193,6 +196,8 @@ class ImageProcessingSession:
         self._project = project
         self._document_for_path = document_for_path
         self._codec = codec or ImageFileCodec()
+        self._run_preparation = run_preparation or (lambda work: work(lambda: False))
+        self._prepare_display = prepare_display
         self._consumed_plans = set()
 
     @property
@@ -276,7 +281,7 @@ class ImageProcessingSession:
                 else None
             )
             image_infos = tuple(self._codec.inspect(path) for path in paths)
-            prepared = _parallel_map(
+            prepared = self._run_preparation(lambda cancelled: _parallel_map(
                 lambda path: processor.prepare(
                     path,
                     change.options,
@@ -288,7 +293,8 @@ class ImageProcessingSession:
                 ),
                 paths,
                 _image_worker_count(image_infos, live_copies=3.0),
-            )
+                cancelled=cancelled,
+            ))
             replacements = tuple(
                 result.replacement
                 for result in prepared
@@ -375,48 +381,63 @@ class ImageProcessingSession:
 
             sources.append(_GeometryPreparationSource(
                 path=path,
-                document=document,
+                # Serialization needs labels and identity, not another retained
+                # full decoded image for every member of a batch.
+                document=replace(document, image_data=None),
                 image_info=image_info,
                 snapshot=snapshot,
                 annotation_target=annotation_target,
             ))
 
-        prepared_images = _parallel_map(
-            lambda source: prepare(
+        vocabulary = tuple(self._workspace.yolo_vocabulary)
+
+        def prepare_source(source):
+            prepared = prepare(
                 source.path,
                 source.snapshot,
                 source.image_info.size,
-            ),
-            tuple(sources),
-            _image_worker_count(
-                tuple(source.image_info for source in sources),
-                live_copies=2.25,
-            ),
-        )
-        targets = []
-        for source, prepared in zip(sources, prepared_images):
+            )
             path = source.path
             document = source.document
             annotation_target = source.annotation_target
+            has_annotation = annotation_target and os.path.isfile(annotation_target)
+            display_image = (
+                self._prepare_display(prepared.image_replacement.content)
+                if self._prepare_display is not None
+                and (_path_key(path) == current_key or has_annotation)
+                else None
+            )
             annotation_preparation = None
-            if annotation_target and os.path.isfile(annotation_target):
+            if has_annotation:
                 annotation_preparation = prepare_crop_annotations(
                     prepared.snapshot,
                     prepared.image_replacement.content,
                     annotation_target,
-                    class_names=(
-                        self._workspace.yolo_vocabulary
-                        or document.class_names
-                    ),
+                    class_names=vocabulary or document.class_names,
                     create_ml_record_name=document.create_ml_record_name,
+                    image_data=display_image,
                 )
-            targets.append(PreparedGeometryTarget(
+                if _path_key(path) != current_key:
+                    annotation_preparation = replace(
+                        annotation_preparation,
+                        document=replace(annotation_preparation.document,
+                                         image_data=prepared.image_replacement.content),
+                    )
+            return PreparedGeometryTarget(
                 path=path,
                 prepared=prepared,
                 annotation_target=annotation_target,
                 annotation_preparation=annotation_preparation,
                 document=document,
-            ))
+                display_image=display_image if _path_key(path) == current_key else None,
+            )
+
+        targets = self._run_preparation(lambda cancelled: _parallel_map(
+            prepare_source, tuple(sources),
+            _image_worker_count(
+                tuple(source.image_info for source in sources), live_copies=2.25),
+            cancelled=cancelled,
+        ))
         return GeometryProcessingPlan(tuple(targets))
 
     def _commit_pixel(
@@ -616,15 +637,22 @@ def _image_worker_count(image_infos, *, live_copies):
     return max(1, min(len(image_infos), memory_workers, cpu_workers))
 
 
-def _parallel_map(function, items, workers):
+def _parallel_map(function, items, workers, *, cancelled=lambda: False):
     items = tuple(items)
+    def prepare(item):
+        if cancelled():
+            raise CancelledError()
+        result = function(item)
+        if cancelled():
+            raise CancelledError()
+        return result
     if workers <= 1 or len(items) <= 1:
-        return tuple(function(item) for item in items)
+        return tuple(prepare(item) for item in items)
     with ThreadPoolExecutor(
         max_workers=workers,
         thread_name_prefix="labelimg-image",
     ) as executor:
-        return tuple(executor.map(function, items))
+        return tuple(executor.map(prepare, items))
 
 
 def _annotation_baseline(annotation_target):

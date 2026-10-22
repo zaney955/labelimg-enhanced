@@ -913,16 +913,15 @@ class CommandSurfacesTest(unittest.TestCase):
         self.assertEqual(
             help_actions,
             [
-                self.window.actions.helpDefault,
                 self.window.actions.showShortcut,
-                help_actions[2],
+                help_actions[1],
                 self.window.actions.checkUpdates,
-                help_actions[4],
+                help_actions[3],
                 self.window.actions.showInfo,
             ],
         )
-        self.assertTrue(help_actions[2].isSeparator())
-        self.assertTrue(help_actions[4].isSeparator())
+        self.assertTrue(help_actions[1].isSeparator())
+        self.assertTrue(help_actions[3].isSeparator())
         self.assertEqual(
             self.window.actions.showInfo.text(),
             "About LabelImg Enhanced",

@@ -16,7 +16,8 @@ from types import SimpleNamespace
 
 from PyQt5.QtCore import QByteArray, QDateTime, QEvent, QFileInfo, QItemSelectionModel, QModelIndex, QPersistentModelIndex, QPoint, QPointF, QProcess, QRect, QRectF, QSignalBlocker, QSize, QThread, QTimer, Qt, pyqtSignal
 from PyQt5.QtGui import QBrush, QColor, QCursor, QImage, QImageReader, QKeySequence, QPainter, QPainterPath, QPalette, QPen, QPixmap
-from PyQt5.QtWidgets import QAbstractItemView, QAction, QActionGroup, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDockWidget, QFileDialog, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QProgressDialog, QPushButton, QScrollArea, QShortcut, QSizePolicy, QStackedWidget, QStyle, QStyleOptionViewItem, QStyledItemDelegate, QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QAbstractItemView, QAction, QActionGroup, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDockWidget, QFileDialog, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QProgressDialog, QPushButton, QScrollArea, QShortcut, QSizePolicy, QStackedWidget, QStyle, QStyleOptionViewItem, QStyledItemDelegate, QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget
+from labelimg.ui.menu import Menu as QMenu
 
 import labelimg.ui.generated_resources  # noqa: F401 - registers Qt resources
 from labelimg import __version__
@@ -242,7 +243,6 @@ class WorkbenchComposer:
         self._autosave_request = False
         self.system_trash = SystemTrashAdapter()
 
-        self.screencast = "https://youtu.be/p0nR2YsCY_U"
 
         # Load predefined classes to the list
         self.load_predefined_classes(default_prefdef_class_file)
@@ -408,6 +408,8 @@ class WorkbenchComposer:
             self.image_processing_transaction,
             self._project_image_processing,
             self.annotation_document_for_path,
+            run_preparation=self._run_image_preparation,
+            prepare_display=self._decode_prepared_image,
         )
         self._image_processing_projection_blocked = False
         self.canvas.newShape.connect(self.new_shape)
@@ -750,7 +752,6 @@ class WorkbenchComposer:
         )
         toggle_visibility.setChecked(True)
 
-        help_default = action(get_str('tutorialDefault'), self.show_default_tutorial_dialog, None, 'tutorial', get_str('tutorialDetail'))
         self.update_ui = UpdateUiCoordinator(
             self,
             settings,
@@ -882,7 +883,6 @@ class WorkbenchComposer:
                                toggleVisibility=toggle_visibility,
                                labels=labels,
                                displayAdjustment=self.display_adjustment_action,
-                               helpDefault=help_default,
                                searchImages=search_images,
                                checkUpdates=check_updates,
                                showInfo=show_info,
@@ -982,7 +982,7 @@ class WorkbenchComposer:
                 else 'language-english'
             ))
             language_action.setCheckable(True)
-            language_action.setIconVisibleInMenu(False)
+            language_action.setIconVisibleInMenu(True)
             language_action.setData(language)
             language_action.setChecked(current_language() == language)
             language_action.triggered.connect(
@@ -1125,7 +1125,7 @@ class WorkbenchComposer:
         ))
         add_actions(
             self.menus.help,
-            (help_default, show_shortcut, None, check_updates, None, show_info),
+            (show_shortcut, None, check_updates, None, show_info),
         )
         add_actions(self.menus.view, (
             self.display_label_option,
@@ -1271,7 +1271,6 @@ class WorkbenchComposer:
             hide_all: ('hideAllBox', 'hideAllBoxDetail'),
             show_all: ('showAllBox', 'showAllBoxDetail'),
             toggle_visibility: ('hideAllBox', 'hideAllBoxDetail'),
-            help_default: ('tutorialDefault', 'tutorialDetail'),
             check_updates: ('updates.check', 'updates.checkDetail'),
             show_info: ('info', 'infoDetail'),
             show_shortcut: ('shortcut', 'shortcutDetail'),

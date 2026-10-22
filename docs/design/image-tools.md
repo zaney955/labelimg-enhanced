@@ -189,12 +189,48 @@ releases the cache. Brightness, contrast, and Gamma share cached 8-bit lookup
 tables, and the common RGBA path adjusts all color channels while preserving
 alpha in one OpenCV pass.
 
+Cold navigation to images above four million pixels decodes away from the GUI
+thread. The previous image remains current until the latest requested destination
+is ready; successive Previous/Next commands advance from the pending destination.
+There is one active demand decode and one replaceable pending destination, so key
+repeat cannot build an unbounded decode queue. Direct loads, workspace resets,
+image-tool commands, and starting a new annotation gesture cancel pending
+navigation. Completion rechecks the source token, workspace membership, and
+annotation navigation guard before publishing pixels. Failure retains the prior
+image and counter. Demand loading reuses an in-flight adjacent prefetch. Images
+too large to share the LRU with another neighbor are not speculatively decoded;
+inserting an uncacheable image does not evict useful cached neighbors.
+
+Canvas retains a separate image raster for the visible viewport, capped at
+16 million device pixels. It is rebuilt only when source pixels, logical image
+dimensions, transform, viewport, DPR, or render hints change. Annotation geometry,
+reverse-screen drawing feedback, and magnifier sampling continue to use original
+image coordinates and the current display pixmap. Pointer motion, box dragging,
+and repeated keyboard nudges queue repaint requests so Qt can coalesce a burst.
+The cache is cleared when pixels are replaced or the image session resets.
+
 Committed 90/180-degree rotations, flips, and crops use the codec's native
 Pillow geometry operations so pixels do not make an intermediate full-image
 NumPy round trip. Proportional resize keeps the faster OpenCV resampler.
 Multi-image geometry and adjustment preparation may run concurrently, but the
 worker count is capped by both CPU count and a 768 MiB estimated live-pixel
 budget; atomic commit still begins only after every output is ready.
+
+The GUI snapshots annotation and workspace state before background pixel
+preparation. A modal progress dialog keeps event processing alive and permits
+cancellation without writing user files. Cancellation discards the plan and
+prevents pending targets from starting; an already running codec may finish in
+the background. One owned preparation queue serializes operations, including
+cancelled work still finishing, so repeated cancellation cannot multiply large
+pixel buffers. Image encoding, annotation serialization, and decoding the
+current geometry result happen during preparation. The ready decoded result is
+reused during the synchronous GUI projection after atomic commit. Worker-side
+byte decoding uses `QImageReader.read()` through a `QBuffer`: the PyQt static
+`QImage.fromData()` binding otherwise retains the Python GIL during decoding.
+Only metadata is retained for non-current source documents, avoiding a full
+decoded image per batch member. Current-image geometry and adjustment dialogs
+both reuse bounded preview pixels from the workbench image; full-resolution
+encoding is reserved for Apply.
 
 Failures identify the affected image and phase under the [bilingual interface contract](bilingual-interface.md#translation-boundary).
 
@@ -206,5 +242,22 @@ preview failed disables Apply and leaves source files unchanged.
 ## Validation
 
 Validation must exercise the behavioral contracts above through pixel preparation/commit/recovery, crop geometry and joint annotation projection in all three formats, and display-adjustment state/rendering. Failure coverage includes cancellation, rollback, external changes, stale work, allocation/codec failures, and preservation of the active Canvas and annotation state. No-op repair must retain exact source bytes; color/metadata checks include negative objects, alpha, and explicit grayscale normalization.
+
+With the source environment described in the root README, run:
+
+```powershell
+$env:PYTHONPATH = "src"
+python tools/benchmark_interaction.py --assert-budget --output .test-state/latency/result.json
+```
+
+This runs a disposable 10000 × 7000 image through
+crosshair motion, drawing with 500 boxes, cold/warm direct loads, rapid alternating
+navigation, preview opening, and geometry preparation. It reports input-handler
+latency, paint latency, final destination correctness, and GUI heartbeat gaps
+separately from total decode/processing time. The frame/request budget assertions
+are a local diagnostic, while deterministic regressions verify work coalescing,
+cache bounds, pixel equivalence, stale results, cancellation, and thread ownership.
+Offscreen timings are comparative evidence; they do not certify native desktop
+frame pacing, slow network storage, all codecs, or all image sizes.
 
 The [frame-removal tests](../../tests/image_tools/test_colored_frame_removal.py) include synthetic fixtures and optional local red-frame samples selected by `LABELIMG_RED_FRAME_SAMPLES` (with a historical local-directory fallback). Those samples are not repository fixtures: report real-sample checks and skips separately, and do not generalize synthetic yellow, mixed-color, or negative-object evidence into real-data acceptance.

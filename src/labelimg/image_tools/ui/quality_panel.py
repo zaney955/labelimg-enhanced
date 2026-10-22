@@ -18,7 +18,6 @@ import threading
 
 from PyQt5.QtCore import QEvent, QObject, QSize, Qt, QTimer, pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import (
-    QComboBox,
     QCheckBox,
     QDialog,
     QDialogButtonBox,
@@ -37,6 +36,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from labelimg.ui.control_style import ComboBox as QComboBox
 
 from labelimg.localization.runtime import language_changed, localize_dialog_buttons, tr
 from labelimg.image_tools.domain.quality import ImageQualityPolicy

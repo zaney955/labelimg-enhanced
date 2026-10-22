@@ -194,7 +194,7 @@ class ReviewOverlayTest(unittest.TestCase):
         self.assertEqual(len(self.window.canvas.shapes), 1)
         self.assertEqual(self.window.canvas.shapes[0].label, 'cat')
 
-    def test_band_is_translucent_and_unreviewed_pixels_have_no_tint(self):
+    def test_every_review_state_has_the_same_transparent_to_tinted_transition(self):
         self.load_image()
         self.window.resize(2400, 900)
         self.app.processEvents()
@@ -203,10 +203,15 @@ class ReviewOverlayTest(unittest.TestCase):
         baseline = self.viewport.grab().toImage().pixelColor(point)
         self.controls.ribbon.show()
         self.assertEqual(self.viewport.grab().toImage().pixelColor(point), baseline)
-        self.window.set_current_review_state('verified')
-        painted = self.viewport.grab().toImage().pixelColor(point)
-        self.assertNotEqual(painted, baseline)
-        self.assertNotEqual(painted, QColor(COLORS['icon_success']))
+        for state in ('questioned', 'verified'):
+            self.window.set_current_review_state(state)
+            painted = self.viewport.grab().toImage().pixelColor(point)
+            self.assertEqual(painted, baseline, 'Every state fades to transparent away from commands')
+            near_controls = QPoint(self.viewport.width() - 5, 2)
+            self.controls.ribbon.hide()
+            before = self.viewport.grab().toImage().pixelColor(near_controls)
+            self.controls.ribbon.show()
+            self.assertNotEqual(self.viewport.grab().toImage().pixelColor(near_controls), before)
         self.window.set_current_review_state('unreviewed')
         self.assertEqual(self.viewport.grab().toImage().pixelColor(point), baseline)
 
@@ -222,7 +227,7 @@ class ReviewOverlayTest(unittest.TestCase):
                     color = self.controls.ribbon_color
                     active, muted = self.controls._foregrounds()
                     for base in ('#000000', '#FFFFFF'):
-                        background = blend(color.name(), blend(COLORS['surface'], base, 246 / 255), color.alphaF())
+                        background = blend(blend(color.name(), COLORS['surface'], color.alphaF()), base, 246 / 255)
                         self.assertGreaterEqual(contrast_ratio(active, background), 4.5)
                         self.assertGreaterEqual(contrast_ratio(muted, background), 4.5)
                     self.assertEqual(color.alpha() == 0, state == 'unreviewed')

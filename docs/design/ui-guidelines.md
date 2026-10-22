@@ -115,6 +115,7 @@ Ctrl/Shift、键盘导航、右键目标、双击编辑和快捷键遵循原有�
 | 查询输入与清除入口 | [`query_field.py`](../../src/labelimg/ui/query_field.py)：`decorate_list_query_field` |
 | 主题、模式与强调色扩展 | [`theme.py`](../../src/labelimg/ui/theme.py)、[`theme_palettes.py`](../../src/labelimg/ui/theme_palettes.py)；产品设置入口使用 `AppearanceController` |
 | 动作、提示与快捷键呈现 | [`actions.py`](../../src/labelimg/ui/actions.py)，复用已有 `QAction` |
+| 菜单与下拉选项 | [`menu.py`](../../src/labelimg/ui/menu.py) 的 `Menu` 分列呈现勾选与图标；[`control_style.py`](../../src/labelimg/ui/control_style.py) 的 `ComboBox` 保持选项间距；标注文档选择复用 [`input_dialog.py`](../../src/labelimg/ui/input_dialog.py) |
 | 图标与自绘图标 | [`icons.py`](../../src/labelimg/ui/icons.py) 和已注册的 SVG 资源 |
 | 语言与界面文字 | [`catalogs.py`](../../src/labelimg/localization/catalogs.py)、[`runtime.py`](../../src/labelimg/localization/runtime.py) |
 | 文件与标签列表状态参考 | [`list_widget.py`](../../src/labelimg/files/ui/list_widget.py)、[`label_group_list.py`](../../src/labelimg/annotations/ui/label_group_list.py) |

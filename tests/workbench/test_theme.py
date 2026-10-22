@@ -155,7 +155,7 @@ class ThemeTest(unittest.TestCase):
             widget.ensurePolished()
             self.assertEqual(
                 widget.palette().color(QPalette.Highlight).name(),
-                COLORS["accent"].lower(),
+                COLORS["selection_background"].lower(),
             )
             self.assertEqual(
                 widget.palette().color(QPalette.Text).name(), COLORS["text"].lower()

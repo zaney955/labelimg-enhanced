@@ -7,10 +7,11 @@ import math
 from PyQt5.QtCore import QPointF, QRectF, Qt, QTimer
 from PyQt5.QtGui import QColor, QPainter, QPen
 from PyQt5.QtWidgets import (
-    QApplication, QComboBox, QDialog, QDialogButtonBox, QHBoxLayout,
+    QApplication, QDialog, QDialogButtonBox, QHBoxLayout,
     QHeaderView, QLabel, QLineEdit, QProgressDialog, QPushButton,
     QScrollArea, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
 )
+from labelimg.ui.control_style import ComboBox as QComboBox
 
 from labelimg.annotations.application.statistics import StatisticsCanceled, StatisticsError
 from labelimg.annotations.ui.errors import annotation_error_text

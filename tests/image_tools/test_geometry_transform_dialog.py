@@ -12,6 +12,7 @@ from PyQt5.QtWidgets import QApplication, QDialog
 
 from labelimg.image_tools.ui.geometry_dialog import GeometryTransformDialog
 from labelimg.image_tools.application.geometry_transform import GeometryOperation
+from labelimg.image_tools.infrastructure.image_codec import ImageFileCodec
 
 
 class GeometryTransformDialogTest(unittest.TestCase):
@@ -106,6 +107,14 @@ class GeometryTransformDialogTest(unittest.TestCase):
         self.assertLessEqual(dialog._preview.pixels.shape[0]
                              * dialog._preview.pixels.shape[1], 1_000)
         self.assertEqual(dialog.preview_size_label.text(), "40 × 80")
+
+    def test_current_image_preview_reuses_decoded_pixels_and_full_dimensions(self):
+        with patch.object(ImageFileCodec, 'load_preview') as decode:
+            dialog = GeometryTransformDialog(self.first, preview_image=QImage(self.first))
+            decode.assert_not_called()
+        self.assertEqual(dialog._source_size, (80, 40))
+        self.assertFalse(dialog.preview_label.pixmap().isNull())
+        dialog.deleteLater()
 
     def test_preview_allocation_failure_is_contained_in_the_dialog(self):
         dialog = GeometryTransformDialog(

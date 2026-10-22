@@ -16,7 +16,9 @@ from types import SimpleNamespace
 
 from PyQt5.QtCore import QByteArray, QDateTime, QEvent, QFileInfo, QItemSelectionModel, QModelIndex, QPersistentModelIndex, QPoint, QPointF, QProcess, QRect, QRectF, QSignalBlocker, QSize, QThread, QTimer, Qt, pyqtSignal
 from PyQt5.QtGui import QBrush, QColor, QCursor, QImage, QImageReader, QPainter, QPainterPath, QPalette, QPen, QPixmap
-from PyQt5.QtWidgets import QAbstractItemView, QAction, QActionGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDockWidget, QFileDialog, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QProgressDialog, QPushButton, QScrollArea, QSizePolicy, QStackedWidget, QStyle, QStyleOptionViewItem, QStyledItemDelegate, QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget, QWidgetAction
+from PyQt5.QtWidgets import QAbstractItemView, QAction, QActionGroup, QCheckBox, QDialog, QDialogButtonBox, QDockWidget, QFileDialog, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QProgressDialog, QPushButton, QScrollArea, QSizePolicy, QStackedWidget, QStyle, QStyleOptionViewItem, QStyledItemDelegate, QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget, QWidgetAction
+from labelimg.ui.control_style import ComboBox as QComboBox
+from labelimg.ui.input_dialog import InputDialog as QInputDialog
 
 import labelimg.ui.generated_resources  # noqa: F401 - registers Qt resources
 from labelimg.ui.presentation import present_dialog, present_table
@@ -424,6 +426,7 @@ class MainWindow(
         self.statusBar().showMessage(message, delay)
 
     def reset_state(self, preserve_session=False):
+        self.cancel_image_navigation()
         self.label_list.clear()
         self.label_filter.clear()
         if not preserve_session:
@@ -491,11 +494,17 @@ class MainWindow(
             source_token(image_path),
         )
 
-    def _load_indexed_image(self, filename):
+    def _load_indexed_image(self, filename, prepared_image=None):
         """Keep the file counter aligned and roll it back after load failure."""
+        self.cancel_image_navigation()
         previous_index = self.cur_img_idx
         self.cur_img_idx = self.m_img_list.index(filename)
-        if self.load_file(filename):
+        loaded = (
+            self.load_file(filename)
+            if prepared_image is None
+            else self.load_file(filename, prepared_image_data=prepared_image)
+        )
+        if loaded:
             return True
         self.cur_img_idx = previous_index
         self.update_file_navigation_actions()
@@ -510,29 +519,6 @@ class MainWindow(
         elif len(self.recent_files) >= self.max_recent:
             self.recent_files.pop()
         self.recent_files.insert(0, file_path)
-
-    def show_tutorial_dialog(self, browser='default', link=None):
-        if link is None:
-            link = self.screencast
-
-        if browser.lower() == 'default':
-            wb.open(link, new=2)
-        elif browser.lower() == 'chrome' and self.os_name == 'Windows':
-            if shutil.which(browser.lower()):  # 'chrome' not in wb._browsers in windows
-                wb.register('chrome', None, wb.BackgroundBrowser('chrome'))
-            else:
-                chrome_path="D:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe"
-                if os.path.isfile(chrome_path):
-                    wb.register('chrome', None, wb.BackgroundBrowser(chrome_path))
-            try:
-                wb.get('chrome').open(link, new=2)
-            except:
-                wb.open(link, new=2)
-        elif browser.lower() in wb._browsers:
-            wb.get(browser.lower()).open(link, new=2)
-
-    def show_default_tutorial_dialog(self):
-        self.show_tutorial_dialog(browser='default')
 
     def show_info_dialog(self):
         from labelimg.__init__ import __version__
@@ -671,6 +657,7 @@ class MainWindow(
         prepared_image_data=_UNPREPARED_IMAGE_DATA,
     ):
         """Load the specified file, or the last opened file if None."""
+        self.cancel_image_navigation()
         self._directory_initial_selection = None
         previous_file_path = self.file_path
         if prepared_image_data is _UNPREPARED_IMAGE_DATA:
@@ -1920,7 +1907,7 @@ class MainWindow(
 
         filename = self._adjacent_visible_file(-1)
         if filename and self._guard_image_navigation(filename):
-            self._load_indexed_image(filename)
+            self._request_indexed_image(filename)
 
     def open_next_image(self, _value=False):
         if self.img_count <= 0:
@@ -1929,7 +1916,7 @@ class MainWindow(
         filename = self._adjacent_visible_file(1)
 
         if filename and self._guard_image_navigation(filename):
-            self._load_indexed_image(filename)
+            self._request_indexed_image(filename)
 
     def _guard_image_navigation(self, target):
         """Resolve only the current image before a user-requested switch."""

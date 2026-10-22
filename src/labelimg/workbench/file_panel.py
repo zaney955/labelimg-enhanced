@@ -11,7 +11,6 @@ from PyQt5.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QMenu,
     QPushButton,
     QSizePolicy,
     QStackedWidget,
@@ -21,6 +20,7 @@ from PyQt5.QtWidgets import (
     QStyle,
     QStyleOption,
 )
+from labelimg.ui.menu import Menu as QMenu
 
 from labelimg.annotations import AnnotationFormat
 from labelimg.files.ui.list_widget import (

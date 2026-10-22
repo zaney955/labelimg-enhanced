@@ -24,17 +24,17 @@ class _ReviewRibbon(QFrame):
     def paintEvent(self, event):
         painter = QPainter(self)
         # Complete the readability scrim before the first command. Its soft
-        # transition and the full-width tint form one material, without a card.
+        # transition uses the same material in every review state, without a card.
         end = max(1, self.width() - self.controls.width() - 11)
         start = max(0, end - 275)
         gradient = QLinearGradient(start, 0, max(start + 1, end), 0)
-        surface = QColor(COLORS["surface"])
+        tint = self.controls.ribbon_color
+        surface = QColor(blend(tint.name(), COLORS['surface'], tint.alphaF()))
         for stop, alpha in ((0, 0), (.30, 12), (.70, 196), (1, 246)):
             color = QColor(surface)
             color.setAlpha(alpha)
             gradient.setColorAt(stop, color)
         painter.fillRect(self.rect(), gradient)
-        painter.fillRect(self.rect(), self.controls.ribbon_color)
 
 
 class ReviewControl(QFrame):
@@ -145,7 +145,7 @@ class ReviewControl(QFrame):
         surface = COLORS["surface"]
         tint = self.ribbon_color
         backgrounds = tuple(
-            blend(tint.name(), blend(surface, base, 246 / 255), tint.alphaF())
+            blend(blend(tint.name(), surface, tint.alphaF()), base, 246 / 255)
             for base in ("#000000", "#FFFFFF")
         )
         role = {

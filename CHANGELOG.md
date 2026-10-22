@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Separate menu checkmarks from command icons, size preference buttons to their content, unify selection colors and review-ribbon gradients, distinguish keyboard focus from selected appearance modes, restore the original lightly tinted category capsules, remove the Help tutorial, and give combo popup rows consistent spacing.
+
 - Remove quadratic file filtering and selection refreshes; batch annotation visibility paints, reuse surviving rows after deletion, cache state-sort keys, merge recovery identities by path, and scope Windows recycle-location probes to one operation while retaining recovery and rollback checks.
 
 - Resolve the full UI audit: searchable Preferences, visible menu checks and autosave state, synchronized category strategies, independent layout/appearance reset, cancellation-safe full reset, compact color entry, shared typography and quieter surfaces, aligned dialog actions, clearer quality-check policies and empty/error states, and consistent category terminology in both languages.

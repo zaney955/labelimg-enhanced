@@ -23,7 +23,8 @@ from PyQt5.QtCore import (
     pyqtSlot,
 )
 from PyQt5.QtGui import QImage, QImageReader
-from PyQt5.QtWidgets import QAbstractItemView, QAction, QApplication, QDialog, QInputDialog, QLineEdit, QMenu, QMessageBox, QProgressDialog
+from PyQt5.QtWidgets import QAbstractItemView, QAction, QApplication, QDialog, QInputDialog, QLineEdit, QMessageBox, QProgressDialog
+from labelimg.ui.menu import Menu as QMenu
 
 import labelimg.ui.generated_resources  # noqa: F401 - registers Qt resources
 from labelimg.ui.actions import new_icon
@@ -99,9 +100,63 @@ class FileActionsMixin:
         self._ensure_image_decode_cache().prefetch(candidates)
 
     def shutdown_image_decode_cache(self):
+        self.cancel_image_navigation()
+        loader = getattr(self, '_navigation_loader', None)
+        if loader is not None:
+            loader.shutdown()
         cache = getattr(self, "_image_decode_cache", None)
         if cache is not None:
             cache.shutdown()
+
+    def cancel_image_navigation(self):
+        self._navigation_generation = getattr(self, '_navigation_generation', 0) + 1
+        self._navigation_load_path = None
+        loader = getattr(self, '_navigation_loader', None)
+        if loader is not None:
+            loader.cancel()
+
+    def _requires_async_image_load(self, path):
+        size = QImageReader(path).size()
+        return size.width() * size.height() > 4_000_000
+
+    def _request_indexed_image(self, path):
+        """Use warm/small images immediately, decode cold large images off-thread."""
+        cache = self._ensure_image_decode_cache()
+        cached = cache.get(path)
+        if not getattr(self, '_navigation_load_path', None) and (
+            cached is not None or not self._requires_async_image_load(path)
+        ):
+            return self._load_indexed_image(path)
+        from labelimg.files.ui.navigation_loader import NavigationLoader
+
+        loader = getattr(self, '_navigation_loader', None)
+        if loader is None:
+            loader = NavigationLoader(cache, self)
+            loader.completed.connect(self._navigation_image_ready)
+            self._navigation_loader = loader
+        self._navigation_generation = getattr(self, '_navigation_generation', 0) + 1
+        self._navigation_load_path = path
+        loader.submit(self._navigation_generation, path)
+        self.status(tr('status.loading', name=os.path.basename(path)))
+        self.update_file_navigation_actions()
+        return True
+
+    def _navigation_image_ready(self, generation, path, image, token):
+        if generation != self._navigation_generation or path != self._navigation_load_path:
+            return
+        self._navigation_load_path = None
+        if path not in self.m_img_list:
+            self.update_file_navigation_actions()
+            return
+        from labelimg.files.ui.image_decode_cache import _source_token
+
+        if token != _source_token(path):
+            self._request_indexed_image(path)
+            return
+        # Annotation edits or a source change during decode must not be lost.
+        if self._guard_image_navigation(path):
+            self._load_indexed_image(path, prepared_image=image)
+        self.update_file_navigation_actions()
 
     def update_file_menu(self):
         curr_file_path = self.file_path
@@ -335,7 +390,10 @@ class FileActionsMixin:
             return None
         projection = getattr(self, '_file_list_projection', None)
         return (
-            projection.adjacent_visible(self.file_path, direction)
+            projection.adjacent_visible(
+                getattr(self, '_navigation_load_path', None) or self.file_path,
+                direction,
+            )
             if projection is not None
             else None
         )
@@ -413,7 +471,7 @@ class FileActionsMixin:
             return
         if not self._guard_image_navigation(filename):
             return
-        self._load_indexed_image(filename)
+        self._request_indexed_image(filename)
 
 
     def pop_file_list_menu(self, point):

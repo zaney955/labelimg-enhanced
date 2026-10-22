@@ -29,6 +29,8 @@ class CanvasActionsMixin:
 
     def toggle_drawing_sensitive(self, drawing=True):
         """In the middle of drawing, toggling between modes should be disabled."""
+        if drawing:
+            self.cancel_image_navigation()
         self.actions.selectTool.setEnabled(not drawing)
         self.actions.panTool.setEnabled(not drawing)
         self.actions.cropImage.setEnabled(not drawing)
