@@ -126,5 +126,9 @@
 <file alias="previous">resources/icons/previous.svg</file>
 <file alias="reset-all">resources/icons/reset-all.svg</file>
 <file alias="visibility">resources/icons/visibility.svg</file>
+<file alias="appearance">resources/icons/appearance.svg</file>
+<file alias="mode-system">resources/icons/mode-system.svg</file>
+<file alias="mode-light">resources/icons/mode-light.svg</file>
+<file alias="mode-dark">resources/icons/mode-dark.svg</file>
 </qresource>
 </RCC>

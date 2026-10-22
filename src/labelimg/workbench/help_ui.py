@@ -1,5 +1,8 @@
 """Local, bilingual Help dialogs for the annotation workbench."""
 
+from labelimg.ui.theme import apply_theme_style, theme_style
+
+
 from labelimg.ui.presentation import present_dialog, role
 from labelimg.ui.icons import IconLabel
 from labelimg.ui.actions import new_icon
@@ -385,16 +388,16 @@ class AboutDialog(QDialog):
         self.repository_button.setToolTip(REPOSITORY_URL)
         self.repository_button.clicked.connect(self._open_repository)
         layout.addWidget(self.repository_button)
-        self.setStyleSheet("""
-            QFrame#aboutIdentity { background: #F5F3FA; border: 1px solid #ECE7F4; border-radius: 10px; }
-            QLabel#aboutProductName { color: #30384D; font-size: 20px; font-weight: 600; }
-            QLabel#aboutVersion { color: #756B9E; background: #E9E4F3; padding: 3px 8px;
+        apply_theme_style(self, theme_style("""
+            QFrame#aboutIdentity { background: ${selected}; border: 1px solid ${accent_border}; border-radius: 10px; }
+            QLabel#aboutProductName { color: ${text}; font-size: 20px; font-weight: 600; }
+            QLabel#aboutVersion { color: ${accent}; background: ${selected}; padding: 3px 8px;
                 border-radius: 6px; font-size: 11px; }
-            QFrame#aboutRuntime { background: #F7F8FB; border: none; border-radius: 7px; }
-            QPushButton#aboutRepository { min-height: 38px; text-align: left; background: #FFFFFF;
-                border: 1px solid #E4E8F0; border-radius: 7px; padding: 0 14px; color: #4D5C75; }
-            QPushButton#aboutRepository:hover { background: #F7F8FB; border-color: #C9C1DA; }
-        """)
+            QFrame#aboutRuntime { background: ${background}; border: none; border-radius: 7px; }
+            QPushButton#aboutRepository { min-height: 38px; text-align: left; background: ${surface};
+                border: 1px solid ${border}; border-radius: 7px; padding: 0 14px; color: ${text}; }
+            QPushButton#aboutRepository:hover { background: ${background}; border-color: ${accent_border}; }
+        """))
 
         buttons = QDialogButtonBox(QDialogButtonBox.Close, self)
         buttons.setObjectName("aboutButtons")

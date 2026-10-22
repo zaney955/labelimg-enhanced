@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Redesign Appearance as compact mode segments and named circular accent swatches without a preview panel; redesign every update-center state with application identity, version metadata, one primary action, bounded diagnostics and readable progress.
+
+- Add bilingual Settings → Appearance with System/Light/Dark modes, eight independent adaptive accent presets, contrast-checked semantic palettes, live preview, persisted preferences and cancel rollback.
+
+- Centralize semantic theme roles and live theme registration/switching; theme native controls, standalone surfaces, command artwork, loupe/crop/selection chrome and review backgrounds without changing image or annotation data.
+
 - Redesign the workbench's annotation/file/result panels with consistent surfaces, counters, location context and list states; add a branded About window, an actionable empty workbench, and aligned SVG menu affordances. Preserve annotation-color rendering and existing command bindings.
 
 - Align application-owned windows, menus, toolbars, tables and controls with the light workbench UI; add shared dialog sections, pinned action footers, screen-aware scrolling, readable conflict paths, bilingual Qt color controls and reproducible bilingual/DPI renders. Preserve command ownership, shortcuts, annotation colors and transactions.

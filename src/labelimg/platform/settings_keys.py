@@ -30,3 +30,6 @@ SETTING_UPDATE_FAILURE_COUNT = "updates/failureCount"
 SETTING_UPDATE_CACHED_RELEASE = "updates/cachedRelease"
 SETTING_UPDATE_IGNORED_VERSION = "updates/ignoredVersion"
 SETTING_UPDATE_SNOOZED_UNTIL = "updates/snoozedUntil"
+
+SETTING_COLOR_MODE = "interface/colorMode"
+SETTING_ACCENT_COLOR = "interface/accentColor"

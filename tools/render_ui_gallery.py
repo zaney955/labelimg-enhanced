@@ -14,6 +14,15 @@ parser = argparse.ArgumentParser(
 parser.add_argument("--output", type=Path, required=True)
 parser.add_argument("--language", choices=("en", "zh_CN"), default="zh_CN")
 parser.add_argument("--scale", type=float, default=1.0)
+from labelimg.ui.theme_palettes import available_accents
+
+parser.add_argument("--mode", choices=("light", "dark"), default="light")
+parser.add_argument(
+    "--accent", choices=tuple(a.identifier for a in available_accents()), default="plum"
+)
+parser.add_argument(
+    "--focus", action="store_true", help="Render the appearance regression subset"
+)
 args = parser.parse_args()
 if args.scale <= 0:
     parser.error("--scale must be positive")
@@ -23,8 +32,17 @@ os.environ["QT_SCALE_FACTOR"] = str(args.scale)
 (ROOT / "config").mkdir(exist_ok=True)
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 os.environ["LABELIMG_CONFIG_DIR"] = str(ROOT / "config")
-from PyQt5.QtCore import QEvent, QPoint, QRect, Qt
-from PyQt5.QtGui import QColor, QFont, QFontDatabase, QImage, QPainter, QPen, QScreen
+from PyQt5.QtCore import QEvent, QPoint, QPointF, QRect, Qt
+from PyQt5.QtGui import (
+    QColor,
+    QFont,
+    QFontDatabase,
+    QImage,
+    QMouseEvent,
+    QPainter,
+    QPen,
+    QScreen,
+)
 from PyQt5.QtWidgets import (
     QApplication,
     QDialog,
@@ -32,6 +50,11 @@ from PyQt5.QtWidgets import (
     QScrollArea,
     QMessageBox,
     QLabel,
+    QCheckBox,
+    QInputDialog,
+    QProgressDialog,
+    QRadioButton,
+    QVBoxLayout,
 )
 from PyQt5.QtTest import QTest
 from labelimg.workbench.bootstrap import WorkbenchLaunchOptions, create_workbench
@@ -59,6 +82,9 @@ from labelimg.workbench.annotation_display import show_annotation_display_settin
 from labelimg.updates.ui.notification import UpdateCenterWindow
 from labelimg import __version__
 from labelimg.localization.runtime import localize_message_box_buttons, tr
+from labelimg.ui.presentation import present_dialog
+from labelimg.ui.appearance import AppearanceDialog
+from labelimg.ui.theme import LIGHT_THEME, current_theme, register_theme, set_theme
 
 app = QApplication.instance() or QApplication([])
 font_path = Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts" / "msyh.ttc"
@@ -114,6 +140,7 @@ window = create_workbench(
 )
 window.auto_saving.setChecked(False)
 window.change_language(args.language)
+window.appearance.apply_preferences(args.mode, args.accent)
 window.resize(min(1440, virtual_screen.width()), min(900, virtual_screen.height()))
 window.show()
 app.processEvents()
@@ -124,6 +151,22 @@ widgets = []
 def capture(name, widget, hide=True):
     if widget not in widgets:
         widgets.append(widget)
+    if args.focus and name not in {
+        "01-workbench",
+        "07-color-palette",
+        "09-geometry",
+        "38-magnifier",
+        "39-crop",
+        "43-choice-states",
+        "47-appearance",
+        "48-follow-system",
+        "19-update-center",
+        "53-update-managed",
+        "59-update-ready",
+    }:
+        if hide:
+            widget.hide()
+        return
     # Qt's Windows offscreen plugin crashes while exposing QMessageBox even
     # without application styles. Render its real hidden controls instead.
     hidden_render = isinstance(widget, QMessageBox)
@@ -159,8 +202,16 @@ def capture(name, widget, hide=True):
             ):
                 continue
             point = box.mapTo(widget, QPoint())
-            if point.y() < 0 or point.y() + box.height() > widget.height():
+            if (
+                point.y() < 0
+                or point.y() + box.height() > widget.height()
+                or point.x() < 0
+                or point.x() + box.width() > widget.width()
+            ):
                 problems.append("footer outside dialog")
+            for button in box.buttons():
+                if button.isVisible() and not box.rect().contains(button.geometry()):
+                    problems.append("footer button outside action area")
             if any(area.isAncestorOf(box) for area in widget.findChildren(QScrollArea)):
                 problems.append("footer scrolls with body")
     if problems:
@@ -176,6 +227,10 @@ def capture(name, widget, hide=True):
             "file": str(file),
             "language": args.language,
             "scale": args.scale,
+            "theme_id": current_theme().identifier,
+            "appearance_mode": window.appearance.mode,
+            "effective_mode": window.appearance.effective_mode,
+            "accent": window.appearance.accent,
             "geometry_checks": "passed",
             "render_method": "hidden-widget" if hidden_render else "shown-widget",
             "device_pixel_ratio": widget.devicePixelRatioF(),
@@ -298,6 +353,39 @@ try:
     update = UpdateCenterWindow()
     update.show_up_to_date(__version__)
     capture("19-update-center", update)
+    from labelimg.updates import StableRelease, StableVersion, DistributionStrategy
+
+    release = StableRelease(
+        version=StableVersion.parse("2.7.0"),
+        tag_name="v2.7.0",
+        name="LabelImg Enhanced 2.7.0",
+        summary="",
+        published_at="",
+        html_url="https://example.invalid/releases/v2.7.0",
+        wheel_url="https://example.invalid/package.whl",
+        installer_url="https://example.invalid/setup.exe",
+        sha256_url="https://example.invalid/SHA256SUMS",
+    )
+    update.show_checking()
+    capture("51-update-checking", update)
+    update.show_available(release, DistributionStrategy.PYTHON)
+    capture("52-update-python", update)
+    update.show_available(release, DistributionStrategy.MANAGED_WINDOWS)
+    capture("53-update-managed", update)
+    update.show_available(release, DistributionStrategy.PORTABLE_FROZEN)
+    capture("54-update-portable", update)
+    update.show_check_failure("Connection closed · example.invalid")
+    capture("55-update-check-failed", update)
+    update.show_downloading(release)
+    update.set_download_progress(42, 100)
+    capture("56-update-downloading", update)
+    update.show_download_failure(release, "SHA256 verification failed · setup.exe")
+    capture("57-update-download-failed", update)
+    update.show_download_canceled(release)
+    capture("58-update-canceled", update)
+    update.show_install_ready(release)
+    capture("59-update-ready", update)
+
     with patch.object(window.candidate_label_dialog, "choose", return_value="新裂纹"):
         window.edit_shape_label(window.canvas.shapes[0])
     intercepted("20-unsaved-annotations", window.may_continue)
@@ -352,6 +440,105 @@ try:
     capture("35-message-box", message)
     window.image_quality_dock.show()
     capture("36-quality-dock", window.image_quality_dock)
+    window.image_quality_dock.hide()
+    app.processEvents()
+    window.resize(min(1440, virtual_screen.width()), min(900, virtual_screen.height()))
+    app.processEvents()
+
+    appearance = AppearanceDialog(window.appearance, window)
+    capture("47-appearance", appearance)
+    appearance.reject()
+    window.appearance.system_probe = lambda: args.mode
+    window.appearance.apply_preferences("system", args.accent)
+    system_appearance = AppearanceDialog(window.appearance, window)
+    capture("48-follow-system", system_appearance)
+    system_appearance.reject()
+    window.appearance.apply_preferences(args.mode, args.accent)
+
+    def magnifier_state():
+        window.actions.create.trigger()
+        window.canvas.set_magnifier_enabled(True)
+        local = window.canvas.image_to_widget(QPointF(240, 180))
+        app.sendEvent(
+            window.canvas,
+            QMouseEvent(
+                QEvent.MouseMove,
+                local,
+                Qt.NoButton,
+                Qt.NoButton,
+                Qt.NoModifier,
+            ),
+        )
+        assert window.canvas._drawing_crosshair_position() is not None
+
+    magnifier_state()
+    capture("38-magnifier", window, False)
+    window.actions.selectTool.trigger()
+    window.canvas.set_magnifier_enabled(False)
+    from labelimg.image_tools.domain.crop_geometry import CropRegion
+
+    assert window.enter_crop_mode()
+    window.crop_overlay.set_region(CropRegion(80, 60, 520, 340))
+    capture("39-crop", window, False)
+    assert (
+        window.crop_controls.width() <= window.scroll_area.viewport().width()
+    ), "crop controls exceed Canvas"
+    window.cancel_crop()
+
+    rename = QInputDialog(window)
+    rename.setWindowTitle(tr("rename.title"))
+    rename.setLabelText(tr("rename.prompt", extension=".png"))
+    rename.setTextValue("sample_01")
+    rename.resize(520, 160)
+    capture("40-rename-input", rename)
+    document = QInputDialog(window)
+    document.setWindowTitle(tr("open.chooseDocument"))
+    document.setLabelText(tr("open.chooseDocumentPrompt"))
+    document.setComboBoxItems(
+        ["Pascal VOC  |  labels/sample_01.xml", "YOLO  |  labels/sample_01.txt"]
+    )
+    document.setComboBoxEditable(False)
+    document.resize(560, 160)
+    capture("41-document-input", document)
+    progress = QProgressDialog(
+        tr("annotationStats.scanning"), tr("common.cancel"), 0, 100, window
+    )
+    progress.setValue(42)
+    progress.resize(480, 130)
+    capture("42-progress", progress)
+    choices = QDialog(window)
+    choices.setWindowTitle(tr("fileFilter.stateConditions"))
+    choice_layout = QVBoxLayout(choices)
+    for state, enabled in (
+        (Qt.Unchecked, True),
+        (Qt.Checked, True),
+        (Qt.PartiallyChecked, True),
+        (Qt.Checked, False),
+    ):
+        check = QCheckBox(tr("boxLabelText"))
+        check.setTristate(True)
+        check.setCheckState(state)
+        check.setEnabled(enabled)
+        choice_layout.addWidget(check)
+    for checked, enabled in ((False, True), (True, True), (True, False)):
+        radio = QRadioButton(tr("review.verified"))
+        radio.setAutoExclusive(False)
+        radio.setChecked(checked)
+        radio.setEnabled(enabled)
+        choice_layout.addWidget(radio)
+    choice_buttons = QDialogButtonBox(QDialogButtonBox.Close)
+    choice_layout.addWidget(choice_buttons)
+    present_dialog(choices)
+    capture("43-choice-states", choices)
+
+    window.appearance.apply_preferences(args.mode, "blue")
+    capture("44-theme-switch-workbench", window, False)
+    # Reuse an existing dialog to prove its style binding survives a switch.
+    capture("45-theme-switch-dialog", geometry)
+    magnifier_state()
+    capture("46-theme-switch-magnifier", window, False)
+    window.actions.selectTool.trigger()
+    window.appearance.apply_preferences(args.mode, args.accent)
     (ROOT / "manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
     )
@@ -367,11 +554,12 @@ try:
         "main{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:20px}"
         "article{background:white;border:1px solid #d7dee8;border-radius:8px;padding:12px}"
         "img{width:100%;height:320px;object-fit:contain}p{margin:10px 0 0}</style>"
-        f"<h1>{args.language} · {args.scale:g}×</h1><p>Real Qt widgets · Offscreen render · Click to inspect</p>"
+        f"<h1>{args.language} · {args.mode} · {args.accent} · {args.scale:g}×</h1><p>Real Qt widgets · Offscreen render · Click to inspect</p>"
         f"<main>{cards}</main>",
         encoding="utf-8",
     )
 finally:
+    window.appearance.apply_preferences(args.mode, args.accent)
     for widget in widgets:
         if widget is not window:
             try:

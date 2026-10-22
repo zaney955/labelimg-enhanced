@@ -2,6 +2,8 @@
 
 The update center is one ordinary independent window for checking, availability, downloading, cancellation, failure, and installation readiness. It may be minimized or placed behind the annotation workbench; asynchronous attention raises it without taking Canvas focus. Manual checks activate it and show checking, current-version, or failure feedback, with cancellation while checking and retry after failure. Automatic failures remain silent.
 
+The window uses a compact application header, a state-specific icon, a short status title, and separate version metadata. Current-version success omits duplicate version text. Download progress is a thin track with a separate readable percentage. Failure diagnostics remain verbatim, selectable, and scroll within a bounded region. Each state has one primary action; release-page and ignore-version actions remain secondary links. State, progress, and actions survive live language and theme changes.
+
 ## Stable release discovery
 
 The stable update check is read-only and asynchronous. It is enabled by default, may be disabled in Settings, runs automatically at most once every 24 hours with bounded failure backoff, and is available explicitly from Help. Users may defer an available version for 24 hours or ignore exactly that version.

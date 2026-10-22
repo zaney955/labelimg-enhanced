@@ -1,5 +1,7 @@
 """Compose the file dock without changing navigation or file transactions."""
 
+from labelimg.ui.theme import theme_style
+
 from functools import partial
 
 from PyQt5.QtCore import QEvent, QSize, Qt
@@ -178,28 +180,28 @@ def build_file_panel(w, settings):
     layout.addWidget(w.file_selection_bar)
     w.file_selection_bar.hide()
     w.file_dock.setWidget(container)
-    present_panel(w.file_dock, '''
-        QDockWidget, QWidget#filePanelSurface { background: #FFFFFF; }
-        QFrame#filePanelHeader { background: #FFFFFF; }
-        QWidget#filePanelSurface { border-top: 1px solid #EAEDF3; }
-        QLabel#filePanelTitle { color: #303B50; font-size: 13px; font-weight: 600; }
-        QLabel#filePanelSummary { color: #68758A; font-size: 10px; background: #F1F3F8;
+    present_panel(w.file_dock, theme_style('''
+        QDockWidget, QWidget#filePanelSurface { background: ${surface}; }
+        QFrame#filePanelHeader { background: ${surface}; }
+        QWidget#filePanelSurface { border-top: 1px solid ${divider}; }
+        QLabel#filePanelTitle { color: ${text}; font-size: 13px; font-weight: 600; }
+        QLabel#filePanelSummary { color: ${muted}; font-size: 10px; background: ${background};
             border-radius: 6px; padding: 2px 5px; }
-        QLabel#fileSelectionCount { color: #645887; font-size: 11px; }
+        QLabel#fileSelectionCount { color: ${accent_hover}; font-size: 11px; }
         QToolButton { border: none; border-radius: 4px; padding: 4px 6px; }
-        QToolButton:hover { background: palette(alternate-base); }
+        QToolButton:hover { background: ${background}; }
         QToolButton::menu-indicator { image: none; }
-        QFrame#annotationLocationCard { background: #F6F7FB; border: 1px solid #EAEDF5; border-radius: 7px; }
-        QToolButton#annotationDirectoryBar { background: transparent; padding: 0; color: #46536C; }
-        QToolButton#annotationDirectoryBar:hover { background: #EBEEF4; }
-        QLabel#annotationSaveTarget { color: #68758A; font-size: 11px; padding-left: 9px; }
-        QLineEdit { min-height: 30px; padding: 0 6px 0 0; border: 1px solid #F0F2F7;
-            border-radius: 6px; background: #F6F7FB; color: #39455C; }
-        QLineEdit:focus { border-color: #A69ABD; background: #FFFFFF; }
-        QToolButton#fileFilterChip { background: #ECEAF5; color: #645887; padding: 3px 7px; font-size: 11px; }
-        QListView { border: none; background: #FFFFFF; outline: none; padding: 2px 0; }
-        QFrame#fileSelectionBar { border: 1px solid #E6E1F1; background: #F5F2FA; border-radius: 6px; }
-    ''')
+        QFrame#annotationLocationCard { background: ${background}; border: 1px solid ${border}; border-radius: 7px; }
+        QToolButton#annotationDirectoryBar { background: transparent; padding: 0; color: ${text}; }
+        QToolButton#annotationDirectoryBar:hover { background: ${selected}; }
+        QLabel#annotationSaveTarget { color: ${muted}; font-size: 11px; padding-left: 9px; }
+        QLineEdit { min-height: 30px; padding: 0 6px 0 0; border: 1px solid ${background};
+            border-radius: 6px; background: ${background}; color: ${text}; }
+        QLineEdit:focus { border-color: ${accent}; background: ${surface}; }
+        QToolButton#fileFilterChip { background: ${selected}; color: ${accent_hover}; padding: 3px 7px; font-size: 11px; }
+        QListView { border: none; background: ${surface}; outline: none; padding: 2px 0; }
+        QFrame#fileSelectionBar { border: 1px solid ${accent_border}; background: ${selected}; border-radius: 6px; }
+    '''))
     retranslate_file_panel(w)
     w.update_file_selection_count()
 

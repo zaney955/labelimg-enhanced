@@ -5,6 +5,8 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from labelimg.ui.theme import COLORS
+
 from PyQt5.QtCore import QEvent, QPoint, QPointF
 from PyQt5.QtGui import QColor, QImage
 from PyQt5.QtWidgets import QApplication
@@ -70,10 +72,10 @@ class AnnotationPanelTest(unittest.TestCase):
     def test_dock_content_and_custom_count_receive_the_designed_surface(self):
         w = self.window
         self.assertEqual(w.default_category_caption.font().pixelSize(), 11)
-        self.assertEqual(w.default_category_caption.palette().windowText().color(), QColor("#68758A"))
+        self.assertEqual(w.default_category_caption.palette().windowText().color(), QColor(COLORS["muted"]))
         badge = w.label_summary_label
         rendered = badge.grab().toImage()
-        self.assertEqual(rendered.pixelColor(2, badge.height() // 2), QColor("#F1F3F8"))
+        self.assertEqual(rendered.pixelColor(2, badge.height() // 2), QColor(COLORS["background"]))
 
     def test_context_bar_tracks_selection_without_moving_list_entry(self):
         w = self.window

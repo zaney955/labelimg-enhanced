@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from labelimg.ui.theme import COLORS, apply_theme_style, theme_changed, theme_style
+from labelimg.ui.presentation import present_surface
+
+
 from dataclasses import dataclass
 import math
 import os
@@ -71,24 +75,24 @@ class ResetIconButton(QToolButton):
         self.setToolButtonStyle(Qt.ToolButtonIconOnly)
         self.setFixedSize(28, 28)
         self.setFocusPolicy(Qt.TabFocus)
-        self.setStyleSheet("""
+        apply_theme_style(self, theme_style("""
             QToolButton#displayAdjustmentResetButton {
                 background: transparent;
-                border: 1px solid palette(midlight);
+                border: 1px solid ${border};
                 border-radius: 6px;
                 padding: 0;
             }
             QToolButton#displayAdjustmentResetButton:hover {
-                background: palette(alternate-base);
-                border-color: palette(highlight);
+                background: ${background};
+                border-color: ${accent};
             }
             QToolButton#displayAdjustmentResetButton:focus {
-                border: 2px solid palette(highlight);
+                border: 2px solid ${accent};
             }
             QToolButton#displayAdjustmentResetButton:disabled {
-                border-color: palette(midlight);
+                border-color: ${border};
             }
-        """)
+        """))
 
 
 class DisplayAdjustmentButton(QToolButton):
@@ -103,27 +107,27 @@ class DisplayAdjustmentButton(QToolButton):
         self.setIconSize(QSize(22, 22))
         self.setIcon(display_adjustment_icon())
         self.setFocusPolicy(Qt.TabFocus)
-        self.setStyleSheet("""
+        apply_theme_style(self, theme_style("""
             QToolButton#displayAdjustmentButton {
-                background: #FFFFFF;
-                border: 1px solid #D7DEE8;
+                background: ${surface};
+                border: 1px solid ${border};
                 border-radius: 10px;
                 padding: 6px;
             }
             QToolButton#displayAdjustmentButton:hover,
             QToolButton#displayAdjustmentButton:checked {
-                background: palette(alternate-base);
-                border-color: palette(highlight);
+                background: ${background};
+                border-color: ${accent};
             }
             QToolButton#displayAdjustmentButton:focus {
-                border: 2px solid palette(highlight);
+                border: 2px solid ${accent};
                 padding: 5px;
             }
             QToolButton#displayAdjustmentButton:disabled {
-                background: palette(window);
-                border-color: palette(midlight);
+                background: ${background};
+                border-color: ${border};
             }
-        """)
+        """))
         self._status = "none"
 
     def set_status(self, status):
@@ -143,7 +147,7 @@ class DisplayAdjustmentButton(QToolButton):
         painter.setBrush(self.palette().window().color())
         painter.drawEllipse(self.width() - 11, 3, 8, 8)
         painter.setBrush(QColor(
-            "#C45D5D" if self._status == "error" else "#D49A3A"
+            COLORS["danger"] if self._status == "error" else COLORS["warning"]
         ))
         painter.drawEllipse(self.width() - 10, 4, 6, 6)
         painter.end()
@@ -160,26 +164,26 @@ class CurrentImageDisclosure(QToolButton):
         self.setToolButtonStyle(Qt.ToolButtonTextOnly)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.setFixedHeight(28)
-        self.setStyleSheet("""
+        apply_theme_style(self, theme_style("""
             QToolButton#currentImageAdjustmentDisclosure {
                 border: 0;
                 border-radius: 6px;
                 padding: 0;
             }
             QToolButton#currentImageAdjustmentDisclosure:hover {
-                background: palette(alternate-base);
+                background: ${background};
             }
             QToolButton#currentImageAdjustmentDisclosure:checked {
-                background: palette(alternate-base);
+                background: ${background};
             }
             QToolButton#currentImageAdjustmentDisclosure[adjusted="true"] {
-                background: palette(alternate-base);
-                color: palette(highlight);
+                background: ${background};
+                color: ${accent};
             }
             QToolButton#currentImageAdjustmentDisclosure:focus {
-                border: 1px solid palette(highlight);
+                border: 1px solid ${accent};
             }
-        """)
+        """))
         self._adjusted = False
 
     @property
@@ -240,13 +244,13 @@ class AdjustmentSliderRow(QWidget):
         self.value_label.setObjectName("displayAdjustmentValue")
         self.value_label.setMinimumWidth(34)
         self.value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.value_label.setStyleSheet("""
+        apply_theme_style(self.value_label, theme_style("""
             QLabel#displayAdjustmentValue {
-                background: palette(alternate-base);
+                background: ${background};
                 border-radius: 5px;
                 padding: 1px 5px;
             }
-        """)
+        """))
         heading.addWidget(self.title_label)
         heading.addStretch(1)
         heading.addWidget(self.value_label)
@@ -303,6 +307,7 @@ class DisplayAdjustmentPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("displayAdjustmentPanel")
+        present_surface(self)
         self._projecting = False
         self._has_image = False
         self._has_override = False
@@ -348,7 +353,7 @@ class DisplayAdjustmentPanel(QWidget):
 
         divider = QFrame(self)
         divider.setFrameShape(QFrame.HLine)
-        divider.setStyleSheet("color: palette(midlight);")
+        apply_theme_style(divider, "color: palette(midlight);")
         root.addWidget(divider)
 
         current_header = QHBoxLayout()
@@ -378,13 +383,13 @@ class DisplayAdjustmentPanel(QWidget):
 
         self.notice_frame = QFrame(self)
         self.notice_frame.setObjectName("displayAdjustmentNotice")
-        self.notice_frame.setStyleSheet("""
+        apply_theme_style(self.notice_frame, theme_style("""
             QFrame#displayAdjustmentNotice {
-                background: palette(alternate-base);
-                border: 1px solid palette(midlight);
+                background: ${background};
+                border: 1px solid ${border};
                 border-radius: 6px;
             }
-        """)
+        """))
         notice_layout = QHBoxLayout(self.notice_frame)
         notice_layout.setContentsMargins(8, 6, 6, 6)
         notice_layout.setSpacing(6)
@@ -400,13 +405,13 @@ class DisplayAdjustmentPanel(QWidget):
 
         self.error_frame = QFrame(self)
         self.error_frame.setObjectName("displayAdjustmentError")
-        self.error_frame.setStyleSheet("""
+        apply_theme_style(self.error_frame, theme_style("""
             QFrame#displayAdjustmentError {
-                background: palette(alternate-base);
-                border: 1px solid #C45D5D;
+                background: ${background};
+                border: 1px solid ${danger};
                 border-radius: 6px;
             }
-        """)
+        """))
         error_layout = QVBoxLayout(self.error_frame)
         error_layout.setContentsMargins(8, 7, 8, 7)
         error_layout.setSpacing(5)
@@ -613,19 +618,20 @@ class DisplayAdjustmentOverlay(QObject):
 
         self.panel_shell = QFrame(viewport)
         self.panel_shell.setObjectName("displayAdjustmentFloatingPanel")
-        self.panel_shell.setStyleSheet("""
+        present_surface(self.panel_shell, theme_style("""
             QFrame#displayAdjustmentFloatingPanel {
-                background: #FFFFFF;
-                border: 1px solid #D7DEE8;
+                background: ${surface};
+                border: 1px solid ${border};
                 border-radius: 8px;
             }
-            QWidget#displayAdjustmentPanel { background: #FFFFFF; border-radius: 8px; }
-        """)
-        shadow = QGraphicsDropShadowEffect(self.panel_shell)
-        shadow.setBlurRadius(18)
-        shadow.setOffset(0, 4)
-        shadow.setColor(QColor(0, 0, 0, 42))
-        self.panel_shell.setGraphicsEffect(shadow)
+            QWidget#displayAdjustmentPanel { background: ${surface}; border-radius: 8px; }
+        """))
+        self.shadow = QGraphicsDropShadowEffect(self.panel_shell)
+        self.shadow.setBlurRadius(18)
+        self.shadow.setOffset(0, 4)
+        self._update_shadow()
+        theme_changed.connect(self._update_shadow)
+        self.panel_shell.setGraphicsEffect(self.shadow)
         shell_layout = QVBoxLayout(self.panel_shell)
         shell_layout.setContentsMargins(1, 1, 1, 1)
         shell_layout.setSpacing(0)
@@ -635,9 +641,7 @@ class DisplayAdjustmentOverlay(QObject):
         self.scroller.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.scroller.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.scroller.setWidgetResizable(True)
-        self.scroller.setStyleSheet(
-            "QScrollArea#displayAdjustmentScroller { background: transparent; border: 0; }"
-        )
+        apply_theme_style(self.scroller, "QScrollArea#displayAdjustmentScroller { background: transparent; border: 0; }")
         self.scroller.setWidget(panel)
         shell_layout.addWidget(self.scroller)
         self.panel_shell.hide()
@@ -655,6 +659,11 @@ class DisplayAdjustmentOverlay(QObject):
         self.set_has_image(False)
         self.retranslate_ui()
         QTimer.singleShot(0, self.reposition)
+
+    def _update_shadow(self, _identifier=None):
+        color = QColor(COLORS["shadow"])
+        color.setAlpha(42)
+        self.shadow.setColor(color)
 
     @property
     def is_panel_visible(self):

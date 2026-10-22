@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from labelimg.ui.theme import COLORS, apply_theme_style, theme_style
+
+
 from labelimg.ui.presentation import present_dialog, present_table, role
 
 from dataclasses import dataclass
@@ -228,7 +231,7 @@ class _PreviewLabel(QLabel):
                 badge_color = palette.highlight().color()
                 hue = badge_color.hsvHue()
                 if hue < 75 or hue >= 330:
-                    badge_color = QColor("#2f8fd3")
+                    badge_color = QColor(COLORS["accent"])
             else:
                 badge_color = palette.mid().color()
             painter.setPen(QPen(badge_color, 2))
@@ -382,9 +385,7 @@ class ImageToolsDialog(QDialog):
         center_layout.addLayout(preview_header)
         self.preview_label = _PreviewLabel(center)
         self.preview_label.setMinimumSize(420, 360)
-        self.preview_label.setStyleSheet(
-            "QLabel { background: #202124; border: 1px solid #555; }"
-        )
+        apply_theme_style(self.preview_label, theme_style("QLabel { background: ${preview_background}; border: 1px solid ${preview_border}; }"))
         center_layout.addWidget(self.preview_label, 1)
         self.preview_summary = QLabel(center)
         self.preview_summary.setWordWrap(True)

@@ -178,7 +178,7 @@ class UpdateUiCoordinatorTest(unittest.TestCase):
 
         self.assertIs(self.coordinator.center, center)
         self.assertEqual(center.state, "up_to_date")
-        self.assertIn("2.1.0", center.heading.text())
+        self.assertIn("2.1.0", center.version_label.text())
 
         self.coordinator.check_manual()
         self.client.finish_failure("Connection closed")

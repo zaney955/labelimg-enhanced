@@ -16,6 +16,7 @@ from PyQt5.QtGui import (
 from PyQt5.QtWidgets import QApplication, QWidget
 
 from labelimg.localization.runtime import tr
+from labelimg.ui.theme import COLORS
 from labelimg.ui.risk_glyphs import draw_not_equal_glyph
 
 
@@ -1502,14 +1503,17 @@ class Canvas(QWidget):
                 p.restore()
         if self.selection_rect is not None:
             p.save()
-            selection_color = QColor(0, 120, 215, 200)
+            selection_color = QColor(COLORS["accent"])
+            selection_color.setAlpha(200)
             selection_pen = QPen(
                 selection_color,
                 1.0 / max(self.scale, 0.01),
                 Qt.DashLine,
             )
             p.setPen(selection_pen)
-            p.setBrush(QColor(0, 120, 215, 35))
+            selection_fill = QColor(COLORS["accent"])
+            selection_fill.setAlpha(35)
+            p.setBrush(selection_fill)
             p.drawRect(self.selection_rect)
             p.restore()
 
@@ -1573,7 +1577,7 @@ class Canvas(QWidget):
                 cluster,
                 hovered=cluster is self._near_duplicate_hover_cluster,
             )
-            foreground = QColor("white")
+            foreground = QColor(COLORS["on_accent"])
             painter.save()
             painter.setRenderHint(QPainter.Antialiasing, True)
             if self._near_duplicate_marker_needs_leader(rect, anchor):
@@ -1680,9 +1684,9 @@ class Canvas(QWidget):
     @staticmethod
     def _near_duplicate_marker_color(cluster, hovered=False):
         color = QColor(
-            "#C026D3"
+            COLORS["danger"]
             if cluster.risk == CATEGORY_CONFLICT
-            else "#D97706"
+            else COLORS["warning"]
         )
         return color.lighter(112) if hovered else color
 
@@ -1782,10 +1786,10 @@ class Canvas(QWidget):
 
     def status_background_color(self):
         if self.verified:
-            return QColor(184, 239, 38, 128)
+            return QColor(COLORS["canvas_verified"])
         if self.questioned:
-            return QColor(255, 193, 7, 128)
-        return QColor(232, 232, 232, 255)
+            return QColor(COLORS["canvas_questioned"])
+        return QColor(COLORS["background"])
 
     def transform_pos(self, point):
         """Convert from widget-logical coordinates to painter-logical coordinates."""

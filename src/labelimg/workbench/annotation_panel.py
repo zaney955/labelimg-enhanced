@@ -1,5 +1,7 @@
 """Compose the annotation dock's global, creation, list and selection controls."""
 
+from labelimg.ui.theme import theme_style
+
 from PyQt5.QtCore import Qt, QSize
 from PyQt5.QtGui import QPainter
 from PyQt5.QtWidgets import (
@@ -131,29 +133,29 @@ def build_annotation_panel(window):
     w.annotation_selection_bar.hide()
     layout.addWidget(w.annotation_selection_bar)
     w.dock.setWidget(container)
-    present_panel(w.dock, """
-        QDockWidget, QWidget#annotationPanelSurface { background: #FFFFFF; }
-        QFrame#annotationPanelHeader { background: #FFFFFF; }
-        QWidget#annotationPanelSurface { border-top: 1px solid #EAEDF3; }
-        QLabel#annotationPanelTitle { color: #303B50; font-size: 13px; font-weight: 600; }
-        QLabel#annotationPanelSummary { color: #68758A; font-size: 10px; background: #F1F3F8;
+    present_panel(w.dock, theme_style("""
+        QDockWidget, QWidget#annotationPanelSurface { background: ${surface}; }
+        QFrame#annotationPanelHeader { background: ${surface}; }
+        QWidget#annotationPanelSurface { border-top: 1px solid ${divider}; }
+        QLabel#annotationPanelTitle { color: ${text}; font-size: 13px; font-weight: 600; }
+        QLabel#annotationPanelSummary { color: ${muted}; font-size: 10px; background: ${background};
             border-radius: 6px; padding: 2px 5px; }
-        QLabel#annotationSelectionCount { color: #645887; font-size: 11px; }
-        QWidget#annotationCreationSettings { background: #F6F7FB; border-radius: 6px; }
-        QLabel#annotationCreationCaption { color: #68758A; font-size: 11px; }
+        QLabel#annotationSelectionCount { color: ${accent_hover}; font-size: 11px; }
+        QWidget#annotationCreationSettings { background: ${background}; border-radius: 6px; }
+        QLabel#annotationCreationCaption { color: ${muted}; font-size: 11px; }
         QToolButton { border: none; border-radius: 4px; padding: 0; }
-        QToolButton:hover { background: palette(alternate-base); }
+        QToolButton:hover { background: ${background}; }
         QToolButton::menu-indicator { image: none; }
         QComboBox { min-height: 26px; padding: 0 8px; border: none;
-            border-radius: 4px; background: #F6F7FB; color: #39455C; }
+            border-radius: 4px; background: ${background}; color: ${text}; }
         QComboBox::drop-down { border: none; width: 24px; }
         QComboBox::down-arrow { image: url(:/chevron-down); width: 16px; height: 16px; }
-        QLineEdit { min-height: 30px; padding: 0 6px 0 0; border: 1px solid #F0F2F7;
-            border-radius: 6px; background: #F6F7FB; color: #39455C; }
-        QLineEdit:focus { border-color: #A69ABD; background: #FFFFFF; }
-        QFrame#annotationSelectionBar { border: 1px solid #E6E1F1; border-radius: 6px; background: #F5F2FA; }
+        QLineEdit { min-height: 30px; padding: 0 6px 0 0; border: 1px solid ${background};
+            border-radius: 6px; background: ${background}; color: ${text}; }
+        QLineEdit:focus { border-color: ${accent}; background: ${surface}; }
+        QFrame#annotationSelectionBar { border: 1px solid ${accent_border}; border-radius: 6px; background: ${selected}; }
         QCheckBox { spacing: 4px; }
-    """)
+    """))
     w.label_filter.textChanged.connect(w.label_list.set_filter_text)
     w.label_list.summaryChanged.connect(lambda text: update_annotation_summary(w, text))
     w.label_list.selectionRequested.connect(w.label_selection_requested)

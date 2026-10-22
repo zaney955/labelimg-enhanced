@@ -1,5 +1,9 @@
 """Compact category picker with stable geometry and live candidate filtering."""
 
+from labelimg.ui.presentation import present_surface
+
+from labelimg.ui.theme import theme_changed, theme_style
+
 from PyQt5.QtCore import QEvent, QRectF, QSize, Qt, QSignalBlocker
 from PyQt5.QtGui import QColor, QCursor, QFontMetrics, QPainter, QPainterPath, QPalette, QPen
 from PyQt5.QtWidgets import (
@@ -188,25 +192,25 @@ class CandidateLabelDialog(QDialog):
         self._candidate_labels = ()
         self._colors = {}
         self._query = ""
-        stylesheet = """
-            QDialog#candidateLabelDialog { background: palette(base); }
-            QLabel { color: palette(text); background: transparent; }
+        stylesheet = theme_style("""
+            QDialog#candidateLabelDialog { background: ${surface}; }
+            QLabel { color: ${text}; background: transparent; }
             QLabel#candidateTitle { font-size: 16px; font-weight: 600; }
-            QLabel#candidateCount, QLabel#candidateEmpty { color: palette(mid); }
+            QLabel#candidateCount, QLabel#candidateEmpty { color: ${muted}; }
             QLabel#candidateCount { font-size: 11px; }
-            QLineEdit { min-height: 32px; padding: 0 8px 0 0; border: 1px solid #CED6E0;
-                border-radius: 5px; color: palette(text); background: palette(base); }
-            QLineEdit:focus { border-color: #756B9E; }
+            QLineEdit { min-height: 32px; padding: 0 8px 0 0; border: 1px solid ${border};
+                border-radius: 5px; color: ${text}; background: ${surface}; }
+            QLineEdit:focus { border-color: ${accent}; }
             QListWidget { border: none; background: transparent; outline: 0; }
             QPushButton { min-height: 29px; min-width: 64px; padding: 0 5px;
-                border: 1px solid #D5DCE5; border-radius: 4px;
-                color: palette(text); background: palette(base); }
-            QPushButton:hover { background: palette(alternate-base); }
-            QPushButton#candidateConfirm { color: white; background: #756B9E; border-color: #756B9E; }
-            QPushButton#candidateConfirm:hover { background: #665B8E; }
-            QPushButton#candidateConfirm:disabled { color: #929AA6; background: #E9EDF2; border-color: #E9EDF2; }
-            QFrame#candidateDivider { background: #E8ECF1; min-height: 1px; max-height: 1px; border: none; }
-        """
+                border: 1px solid ${border}; border-radius: 4px;
+                color: ${text}; background: ${surface}; }
+            QPushButton:hover { background: ${background}; }
+            QPushButton#candidateConfirm { color: ${on_accent}; background: ${accent}; border-color: ${accent}; }
+            QPushButton#candidateConfirm:hover { background: ${accent_hover}; }
+            QPushButton#candidateConfirm:disabled { color: ${disabled_text}; background: ${disabled_background}; border-color: ${disabled_background}; }
+            QFrame#candidateDivider { background: ${divider}; min-height: 1px; max-height: 1px; border: none; }
+        """)
         self.dialog_layout = layout = QVBoxLayout(self)
         layout.setContentsMargins(18, 16, 18, 14)
         layout.setSpacing(12)
@@ -260,7 +264,8 @@ class CandidateLabelDialog(QDialog):
         self.setTabOrder(self.button_box.button(BB.Cancel), self.button_box.button(BB.Ok))
         self.edit.textChanged.connect(self._filter_candidates)
         language_changed.connect(self.retranslate_ui)
-        self.setStyleSheet(stylesheet)
+        theme_changed.connect(self._theme_changed)
+        present_surface(self, stylesheet)
         self.retranslate_ui()
         self.set_candidate_labels(list_item or ())
 
@@ -288,6 +293,10 @@ class CandidateLabelDialog(QDialog):
 
     def refresh_colors(self):
         self.set_candidate_labels(self._candidate_labels)
+
+    def _theme_changed(self, _identifier):
+        for row in range(self.list_widget.count()):
+            self.list_widget.item(row).setData(Qt.ForegroundRole, self.palette().color(QPalette.Text))
 
     def _populate_candidates(self):
         query = self._query

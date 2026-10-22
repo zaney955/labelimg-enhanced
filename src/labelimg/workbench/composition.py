@@ -91,6 +91,7 @@ from labelimg.annotations.ui.label_list import (
     LabelListWidget,
 )
 from labelimg.ui.color_dialog import ColorDialog
+from labelimg.ui.appearance import AppearanceController, show_appearance
 from labelimg.ui.presentation import present_workbench, present_result_panel
 from labelimg.annotations.domain.model import (
     AnnotationDocument,
@@ -213,6 +214,7 @@ class WorkbenchComposer:
         self.settings = Settings()
         self.settings.load()
         settings = self.settings
+        self.appearance = AppearanceController(settings, self)
 
         set_language(settings.get(SETTING_LANGUAGE, system_language()))
 
@@ -1082,7 +1084,11 @@ class WorkbenchComposer:
             None,
             undo_image_processing,
         ))
+        appearance_action = action(tr("appearance.title"), lambda: show_appearance(self.appearance, self),
+                                   icon="appearance", tip=tr("appearance.tip"))
+        self.actions.appearance = appearance_action
         add_actions(self.menus.settings, (
+            appearance_action,
             self.menus.language,
             self.menus.labelColorAlgorithm,
             None,
@@ -1174,6 +1180,7 @@ class WorkbenchComposer:
         )
 
         self._i18n_action_specs = {
+            appearance_action: ("appearance.title", "appearance.tip"),
             quit: ('quit', 'quitApp'),
             open: ('openFile', 'openFileDetail'),
             open_dir: ('openDir', 'openDirDetail'),

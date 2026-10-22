@@ -14,6 +14,7 @@ from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication, QMessageBox
 
 from labelimg.workbench.bootstrap import WorkbenchLaunchOptions, create_workbench
+from labelimg.ui.theme import COLORS
 from labelimg.localization.runtime import SIMPLIFIED_CHINESE, set_language
 from labelimg.annotations.domain.model import AnnotationFormat
 from labelimg.annotations.infrastructure.document import AnnotationDocument
@@ -775,7 +776,7 @@ class FileListAnnotationStatusTest(unittest.TestCase):
         self.assertFalse(self.window.canvas.verified)
         self.assertEqual(
             self.window.canvas.status_background_color(),
-            QColor(255, 193, 7, 128),
+            QColor(COLORS["canvas_questioned"]),
         )
 
         self.window.verify_image()
@@ -787,7 +788,7 @@ class FileListAnnotationStatusTest(unittest.TestCase):
         self.assertTrue(self.window.canvas.verified)
         self.assertEqual(
             self.window.canvas.status_background_color(),
-            QColor(184, 239, 38, 128),
+            QColor(COLORS["canvas_verified"]),
         )
 
         self.window.question_image()
@@ -811,7 +812,7 @@ class FileListAnnotationStatusTest(unittest.TestCase):
         self.assertFalse(self.window.canvas.verified)
         self.assertEqual(
             self.window.canvas.status_background_color(),
-            QColor(232, 232, 232, 255),
+            QColor(COLORS["background"]),
         )
 
         self.window.verify_image()

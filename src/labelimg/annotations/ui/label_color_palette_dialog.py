@@ -1,5 +1,6 @@
 
 from labelimg.ui.presentation import present_dialog, role
+from labelimg.ui.theme import theme_changed
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor, QIcon, QPixmap
 from PyQt5.QtWidgets import (
@@ -111,6 +112,7 @@ class LabelColorPaletteDialog(QDialog):
 
         self.table.itemSelectionChanged.connect(self._sync_buttons)
         language_changed.connect(self.retranslate_ui)
+        theme_changed.connect(self._theme_changed)
         self.retranslate_ui()
         self._rebuild_rows()
         if self.table.rowCount():
@@ -201,6 +203,9 @@ class LabelColorPaletteDialog(QDialog):
             return
         self._overrides.clear()
         self._rebuild_rows(select_label=self.selected_label())
+
+    def _theme_changed(self, _identifier):
+        self._rebuild_rows()
 
     def _rebuild_rows(self, select_label=None):
         if not hasattr(self, "table"):

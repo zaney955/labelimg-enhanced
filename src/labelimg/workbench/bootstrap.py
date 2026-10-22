@@ -9,6 +9,7 @@ from PyQt5.QtWidgets import QApplication
 
 from labelimg.ui.actions import new_icon
 from labelimg.ui.icons import install_icon_style
+from labelimg.ui.presentation import install_application_theme
 from labelimg.localization.qt_controls import install_qt_control_translations
 from labelimg.workbench.composition import WorkbenchComposer
 from labelimg.workbench.main_window import MainWindow
@@ -55,6 +56,7 @@ def create_workbench(
     if not isinstance(options, WorkbenchLaunchOptions):
         raise TypeError("create_workbench requires WorkbenchLaunchOptions")
     install_icon_style()
+    install_application_theme()
     install_qt_control_translations()
     window = window_factory()
     composer(

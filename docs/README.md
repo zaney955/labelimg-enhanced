@@ -8,7 +8,8 @@
 
 | 阅读目的 | 文档 |
 | --- | --- |
-| 全局浅色外观、对话框分区、底部操作区与缩放渲染验证 | [全局界面外观](design/ui-presentation.md) |
+| 全局外观、对话框分区、底部操作区与缩放渲染验证 | [全局界面外观](design/ui-presentation.md) |
+| 浅色/深色/系统跟随、强调色预设及扩展接口 | [外观与主题接口](design/themes.md) |
 | 功能模块、状态归属、调用关系与架构检查范围 | [模块化架构](design/modular-architecture-refactor.md) |
 | 标注事务、Undo/Redo、自动保存、格式选择、外部冲突、候选类别与文件恢复 | [标注历史与文件恢复](design/undo-redo-and-file-recovery.md) |
 | 绘制预览、指针命中、框选、标签编辑、标注列表及近重复框提示 | [标注交互](design/annotation-interaction.md) |
@@ -82,3 +83,5 @@ ADR 按编号保留历史语境，后续记录可补充早期表述。以下导�
 - [0027：明确请求安装无签名 Windows 托管更新](adr/0027-install-unsigned-managed-windows-updates-explicitly.md)
 
 0026 约束 Python 安装；0027 补充托管 Windows 安装的显式更新流程。
+
+- [主题接口与扩展](design/themes.md)：统一颜色角色、注册、运行时切换及界面绑定。

@@ -1,13 +1,21 @@
-"""Shared light surfaces for the workbench and application-owned Qt windows.
+"""Shared themed surfaces for the workbench and application-owned Qt windows.
 
 This module owns presentation only: it never changes action bindings, widget
 values, selection models, annotation colors, or transaction behavior.
 """
 
+from labelimg.ui.theme import (
+    COLORS,
+    apply_theme_palette,
+    apply_theme_style,
+    theme_style,
+    widget_theme_style,
+)
+
 import os
 
 from PyQt5.QtCore import QEvent, QObject, QRect, Qt
-from PyQt5.QtGui import QColor, QPalette, QPainter
+from PyQt5.QtGui import QPainter
 from PyQt5.QtWidgets import (
     QDialogButtonBox,
     QFrame,
@@ -25,41 +33,27 @@ from PyQt5.QtWidgets import (
 from labelimg.localization.runtime import language_changed, tr
 from labelimg.ui.icons import IconLabel, paint_icon, icon as operation_icon
 
-COLORS = {
-    "surface": "#FFFFFF",
-    "background": "#F5F6F9",
-    "border": "#D7DEE8",
-    "divider": "#E2E7EF",
-    "text": "#253047",
-    "muted": "#68758A",
-    "accent": "#756B9E",
-    "accent_hover": "#665B8E",
-    "selected": "#ECEAF5",
-    "danger": "#A65F5F",
-    "warning": "#9A7640",
-}
-
 # Keep selectors on Qt controls; Canvas paint and category swatches remain data.
-SURFACE_STYLE = """
-QDialog { background: #FFFFFF; }
-QLabel[uiRole="heading"] { color: #253047; font-size: 16px; font-weight: 600; }
-QLabel[uiRole="sectionTitle"] { color: #526078; font-size: 12px; font-weight: 600; }
-QFrame[uiRole="iconTile"] { background: #F0EDF7; border: none; border-radius: 8px; }
-QLabel[uiRole="metricValue"] { color: #253047; font-size: 24px; font-weight: 600; }
-QLabel[uiRole="supporting"] { color: #68758A; }
-QLabel[uiRole="summary"] { background: #F5F6F9; color: #455468; padding: 10px;
-    border: 1px solid #E2E7EF; border-radius: 6px; }
-QFrame[uiRole="section"], QGroupBox { background: #FFFFFF;
-    border: 1px solid #E2E7EF; border-radius: 6px; }
+SURFACE_STYLE = theme_style("""
+QDialog { background: ${surface}; }
+QLabel[uiRole="heading"] { color: ${text}; font-size: 16px; font-weight: 600; }
+QLabel[uiRole="sectionTitle"] { color: ${text}; font-size: 12px; font-weight: 600; }
+QFrame[uiRole="iconTile"] { background: ${selected}; border: none; border-radius: 8px; }
+QLabel[uiRole="metricValue"] { color: ${text}; font-size: 24px; font-weight: 600; }
+QLabel[uiRole="supporting"] { color: ${muted}; }
+QLabel[uiRole="summary"] { background: ${background}; color: ${text}; padding: 10px;
+    border: 1px solid ${divider}; border-radius: 6px; }
+QFrame[uiRole="section"], QGroupBox { background: ${surface};
+    border: 1px solid ${divider}; border-radius: 6px; }
 QGroupBox { margin-top: 12px; padding: 12px 10px 8px 10px; }
-QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; color: #455468; }
-QFrame[uiRole="divider"] { border: none; background: #E2E7EF; min-height: 1px; max-height: 1px; }
+QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; color: ${text}; }
+QFrame[uiRole="divider"] { border: none; background: ${divider}; min-height: 1px; max-height: 1px; }
 QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox { min-height: 28px;
-    border: 1px solid #D7DEE8; border-radius: 4px; background: #FFFFFF;
-    color: #253047; padding: 0 7px; selection-background-color: #ECEAF5; selection-color: #45385F; }
-QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus { border-color: #756B9E; }
+    border: 1px solid ${border}; border-radius: 4px; background: ${surface};
+    color: ${text}; padding: 0 7px; selection-background-color: ${selected}; selection-color: ${accent_hover}; }
+QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus { border-color: ${accent}; }
 QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled {
-    color: #939CAA; background: #F5F6F9; border-color: #E2E7EF; }
+    color: ${disabled_text}; background: ${background}; border-color: ${divider}; }
 QComboBox { padding-right: 25px; }
 QComboBox::drop-down { width: 24px; border: none; }
 QComboBox::down-arrow { image: url(:/chevron-down); width: 16px; height: 16px; }
@@ -69,19 +63,19 @@ QSpinBox::down-button, QDoubleSpinBox::down-button { width: 20px; border: none; 
 QSpinBox::up-arrow, QDoubleSpinBox::up-arrow { image: url(:/chevron-up); width: 12px; height: 12px; }
 QSpinBox::down-arrow, QDoubleSpinBox::down-arrow { image: url(:/chevron-down); width: 12px; height: 12px; }
 QPushButton { min-height: 30px; min-width: 68px; padding: 0 12px;
-    border: 1px solid #D7DEE8; border-radius: 4px; background: #FFFFFF; color: #253047; }
-QPushButton:hover { background: #F5F6F9; border-color: #B9C3D2; }
-QPushButton:focus { border-color: #756B9E; }
-QPushButton:pressed { background: #ECEAF5; }
-QPushButton[uiRole="primary"] { background: #756B9E; color: #FFFFFF; border-color: #756B9E; }
-QPushButton[uiRole="primary"]:hover { background: #665B8E; border-color: #665B8E; }
-QPushButton[uiRole="destructive"] { color: #A65F5F; border-color: #DDBDBD; }
+    border: 1px solid ${border}; border-radius: 4px; background: ${surface}; color: ${text}; }
+QPushButton:hover { background: ${background}; border-color: ${border}; }
+QPushButton:focus { border-color: ${accent}; }
+QPushButton:pressed { background: ${selected}; }
+QPushButton[uiRole="primary"] { background: ${accent}; color: ${on_accent}; border-color: ${accent}; }
+QPushButton[uiRole="primary"]:hover { background: ${accent_hover}; border-color: ${accent_hover}; }
+QPushButton[uiRole="destructive"] { color: ${danger}; border-color: ${danger_border}; }
 QPushButton:disabled, QPushButton[uiRole="primary"]:disabled {
-    color: #929AA6; background: #F0F2F6; border-color: #E2E7EF; }
+    color: ${disabled_text}; background: ${disabled_background}; border-color: ${divider}; }
 QToolButton { border: 1px solid transparent; border-radius: 4px; padding: 3px; }
-QToolButton:hover { background: #F0EEF7; }
-QToolButton:checked { background: #ECEAF5; border-color: #D6CFE6; color: #645887; }
-QToolButton:focus { border-color: #756B9E; }
+QToolButton:hover { background: ${selected}; }
+QToolButton:checked { background: ${selected}; border-color: ${accent_border}; color: ${accent_hover}; }
+QToolButton:focus { border-color: ${accent}; }
 QToolButton::menu-button { background: transparent; border: none; width: 16px; }
 QToolButton::menu-arrow { image: url(:/chevron-down); width: 12px; height: 12px; }
 QToolButton[uiRole="menuButton"] { padding-right: 18px; }
@@ -89,30 +83,48 @@ QToolButton[uiRole="menuButton"]::menu-indicator,
 QToolButton[uiRole="menuButton"]::menu-arrow { image: none; }
 QToolButton[uiRole="menuButton"]::menu-button { width: 0; }
 QCheckBox, QRadioButton { spacing: 7px; min-height: 24px; }
-QTableView, QTreeView, QListView { border: 1px solid #E2E7EF; border-radius: 4px;
-    background: #FFFFFF; alternate-background-color: #F8F9FC; outline: none;
-    selection-background-color: #ECEAF5; selection-color: #45385F; }
+QTableView, QTreeView, QListView { border: 1px solid ${divider}; border-radius: 4px;
+    background: ${surface}; alternate-background-color: ${background}; outline: none;
+    selection-background-color: ${selected}; selection-color: ${accent_hover}; }
 QTableView::item, QTreeView::item { padding: 5px 7px; }
-QTableView::item:selected, QTreeView::item:selected { background: #ECEAF5; color: #45385F; }
-QHeaderView::section { background: #F5F6F9; color: #68758A; border: none;
-    border-bottom: 1px solid #E2E7EF; padding: 7px; }
-QTableCornerButton::section { background: #F5F6F9; border: none; }
-QTabWidget::pane { border: 1px solid #E2E7EF; border-radius: 4px; background: #FFFFFF; }
-QTabBar::tab { padding: 8px 13px; background: #F5F6F9; color: #68758A; border: none; }
-QTabBar::tab:selected { background: #ECEAF5; color: #645887; }
-QTabBar::tab:focus { border-bottom: 2px solid #756B9E; }
-QScrollArea[uiRole="dialogBody"] { border: none; background: #FFFFFF; }
-QScrollArea { border: 1px solid #E2E7EF; background: #FFFFFF; }
-QWidget[uiRole="dialogBodyContent"] { background: #F7F8FB; border-radius: 8px; }
-QProgressBar { min-height: 12px; border: 1px solid #E2E7EF; border-radius: 4px;
-    background: #F5F6F9; text-align: center; }
-QProgressBar::chunk { background: #756B9E; border-radius: 3px; }
-QSlider::groove:horizontal { height: 4px; background: #E2E7EF; border-radius: 2px; }
-QSlider::sub-page:horizontal { background: #A59ABB; border-radius: 2px; }
-QSlider::handle:horizontal { width: 13px; margin: -5px 0; border: 1px solid #B5ABC8;
-    background: #FFFFFF; border-radius: 4px; }
-QSlider::handle:horizontal:focus { border-color: #756B9E; }
-"""
+QTableView::item:selected, QTreeView::item:selected { background: ${selected}; color: ${accent_hover}; }
+QHeaderView::section { background: ${background}; color: ${muted}; border: none;
+    border-bottom: 1px solid ${divider}; padding: 7px; }
+QTableCornerButton::section { background: ${background}; border: none; }
+QTabWidget::pane { border: 1px solid ${divider}; border-radius: 4px; background: ${surface}; }
+QTabBar::tab { padding: 8px 13px; background: ${background}; color: ${muted}; border: none; }
+QTabBar::tab:selected { background: ${selected}; color: ${accent_hover}; }
+QTabBar::tab:focus { border-bottom: 2px solid ${accent}; }
+QScrollArea[uiRole="dialogBody"] { border: none; background: ${surface}; }
+QScrollArea { border: 1px solid ${divider}; background: ${surface}; }
+QWidget[uiRole="dialogBodyContent"] { background: ${background}; border-radius: 8px; }
+QProgressBar { min-height: 12px; border: 1px solid ${divider}; border-radius: 4px;
+    background: ${background}; text-align: center; }
+QProgressBar::chunk { background: ${accent}; border-radius: 3px; }
+QSlider::groove:horizontal { height: 4px; background: ${divider}; border-radius: 2px; }
+QSlider::sub-page:horizontal { background: ${accent}; border-radius: 2px; }
+QSlider::handle:horizontal { width: 13px; margin: -5px 0; border: 1px solid ${accent_border};
+    background: ${surface}; border-radius: 4px; }
+QSlider::handle:horizontal:focus { border-color: ${accent}; }
+QMenu, QToolTip { background: ${surface}; color: ${text}; border: 1px solid ${border}; padding: 5px; }
+QMenu::item { padding: 6px 28px 6px 24px; border-radius: 3px; }
+QMenu::item:selected { background: ${selected}; color: ${accent_hover}; }
+QMenu::item:disabled { color: ${disabled_text}; }
+QMenu::separator { background: ${divider}; height: 1px; margin: 5px 8px; }
+QComboBox QAbstractItemView { background: ${surface}; color: ${text}; border: 1px solid ${border};
+    selection-background-color: ${selected}; selection-color: ${accent_hover}; outline: none; }
+QScrollBar:vertical { background: ${background}; width: 12px; margin: 2px; border: none; }
+QScrollBar:horizontal { background: ${background}; height: 12px; margin: 2px; border: none; }
+QScrollBar::handle { background: ${border}; border-radius: 4px; }
+QScrollBar::handle:vertical { min-height: 24px; }
+QScrollBar::handle:horizontal { min-width: 24px; }
+QScrollBar::handle:hover { background: ${accent}; }
+QScrollBar::handle:pressed { background: ${accent_hover}; }
+QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; border: none; }
+QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
+QSplitter::handle { background: ${divider}; }
+QSplitter::handle:hover { background: ${accent_border}; }
+""")
 
 
 def role(widget, name):
@@ -152,30 +164,42 @@ class MenuButton(QToolButton):
 
 
 def _surface_palette(widget):
-    palette = widget.palette()
-    for channel, color in (
-        (QPalette.Window, "#F5F6FA"),
-        (QPalette.Base, "#FFFFFF"),
-        (QPalette.AlternateBase, "#F6F7FB"),
-        (QPalette.Text, "#2B3446"),
-        (QPalette.WindowText, "#2B3446"),
-        (QPalette.ButtonText, "#2B3446"),
-        (QPalette.Mid, "#A0AABC"),
-        (QPalette.Highlight, "#756B9E"),
-    ):
-        palette.setColor(channel, QColor(color))
-    for channel in (QPalette.Text, QPalette.WindowText, QPalette.ButtonText):
-        palette.setColor(QPalette.Disabled, channel, QColor("#929CAD"))
-    widget.setPalette(palette)
+    apply_theme_palette(widget)
+
+
+def present_surface(widget, stylesheet=""):
+    """Bind a standalone popup/floating surface to the shared theme."""
+    apply_theme_palette(widget)
+    apply_theme_style(widget, SURFACE_STYLE + stylesheet)
+
+
+def install_application_theme():
+    from PyQt5.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    if app is not None and not app.property("labelimgApplicationTheme"):
+        from labelimg.ui.theme_palettes import luminance
+
+        app.setProperty(
+            "labelimgSystemColorMode",
+            (
+                "dark"
+                if luminance(app.palette().window().color().name()) < 0.45
+                else "light"
+            ),
+        )
+        apply_theme_palette(app)
+        apply_theme_style(app, SURFACE_STYLE)
+        app.setProperty("labelimgApplicationTheme", True)
 
 
 def present_panel(dock, stylesheet):
     """Style the actual header/content roots across the QDockWidget boundary."""
-    dock.setStyleSheet(stylesheet)
+    apply_theme_style(dock, stylesheet)
     for surface in (dock.titleBarWidget(), dock.widget()):
         if surface is not None:
             _surface_palette(surface)
-            surface.setStyleSheet(SURFACE_STYLE + stylesheet)
+            apply_theme_style(surface, SURFACE_STYLE + stylesheet)
 
 
 class _PanelCloseButton(QToolButton):
@@ -208,7 +232,9 @@ def present_result_panel(dock, icon):
     dock.setTitleBarWidget(header)
     present_panel(
         dock,
-        "QFrame#resultPanelHeader { background: #FFFFFF; border-bottom: 1px solid #EAEDF3; }",
+        theme_style(
+            "QFrame#resultPanelHeader { background: ${surface}; border-bottom: 1px solid ${divider}; }"
+        ),
     )
 
 
@@ -337,7 +363,7 @@ def present_dialog(
     previous_size = dialog.size()
     _surface_palette(dialog)
     dialog.setWindowFlag(Qt.WindowContextHelpButtonHint, False)
-    dialog.setStyleSheet(SURFACE_STYLE + "\n" + dialog.styleSheet())
+    apply_theme_style(dialog, SURFACE_STYLE + "\n" + widget_theme_style(dialog))
     layout = dialog.layout()
     if not isinstance(layout, QVBoxLayout):
         return
@@ -423,18 +449,21 @@ def present_dialog(
 
 def present_workbench(window):
     _surface_palette(window)
-    window.setStyleSheet(SURFACE_STYLE + """
-        QMainWindow { background: #F5F6F9; }
-        QToolBar { background: #FFFFFF; border: none; border-bottom: 1px solid #E2E7EF; spacing: 4px; }
-        QToolBar::separator { background: #E2E7EF; width: 1px; height: 1px; margin: 6px; }
-        QMenuBar { background: #FFFFFF; color: #455468; padding: 2px 4px; }
+    apply_theme_style(
+        window,
+        SURFACE_STYLE + theme_style("""
+        QMainWindow { background: ${background}; }
+        QToolBar { background: ${surface}; border: none; border-bottom: 1px solid ${divider}; spacing: 4px; }
+        QToolBar::separator { background: ${divider}; width: 1px; height: 1px; margin: 6px; }
+        QMenuBar { background: ${surface}; color: ${text}; padding: 2px 4px; }
         QMenuBar::item { padding: 4px 8px; border-radius: 3px; }
-        QMenuBar::item:selected { background: #ECEAF5; }
-        QMenu { background: #FFFFFF; border: 1px solid #D7DEE8; padding: 5px; }
+        QMenuBar::item:selected { background: ${selected}; }
+        QMenu { background: ${surface}; border: 1px solid ${border}; padding: 5px; }
         QMenu::item { padding: 6px 28px 6px 24px; border-radius: 3px; }
-        QMenu::item:selected { background: #ECEAF5; color: #45385F; }
-        QMenu::item:disabled { color: #939CAA; }
-        QMenu::separator { background: #E2E7EF; height: 1px; margin: 5px 8px; }
-        QStatusBar { background: #FFFFFF; color: #68758A; border-top: 1px solid #E2E7EF; }
+        QMenu::item:selected { background: ${selected}; color: ${accent_hover}; }
+        QMenu::item:disabled { color: ${disabled_text}; }
+        QMenu::separator { background: ${divider}; height: 1px; margin: 5px 8px; }
+        QStatusBar { background: ${surface}; color: ${muted}; border-top: 1px solid ${divider}; }
         QStatusBar::item { border: none; }
-    """)
+    """),
+    )

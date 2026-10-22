@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from labelimg.ui.presentation import SURFACE_STYLE, present_dialog, present_table, role, section, empty_table_hint
+
+from labelimg.ui.presentation import present_surface, present_dialog, present_table, role, section, empty_table_hint
 
 from dataclasses import dataclass
 import os
@@ -162,7 +163,7 @@ class ImageQualityPanel(QWidget):
         self.empty_hint = empty_table_hint(self.table, "ui.quality.empty")
         language_changed.connect(self.retranslate_ui)
         self.retranslate_ui()
-        self.setStyleSheet(SURFACE_STYLE)
+        present_surface(self)
         present_table(self.table, path_columns=(0,), stretch_path=True)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Interactive)
         self.table.setColumnWidth(1, 300)

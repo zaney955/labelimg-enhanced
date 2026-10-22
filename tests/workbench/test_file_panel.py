@@ -5,6 +5,8 @@ from unittest.mock import patch
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
+from labelimg.ui.theme import COLORS
+
 from PyQt5.QtCore import QEvent, QPoint, QRect, Qt
 from PyQt5.QtGui import QColor, QImage, QPainter
 from PyQt5.QtWidgets import QApplication, QStyle, QStyleOptionViewItem
@@ -136,9 +138,9 @@ class FilePanelTest(unittest.TestCase):
     def test_path_and_count_are_rendered_with_the_panel_metadata_style(self):
         label = self.window.annotation_target_label
         self.assertEqual(label.font().pixelSize(), 11)
-        self.assertEqual(label.palette().windowText().color(), QColor('#68758A'))
+        self.assertEqual(label.palette().windowText().color(), QColor(COLORS["muted"]))
         badge = self.window.file_summary_label
-        self.assertEqual(badge.grab().toImage().pixelColor(2, badge.height() // 2), QColor('#F1F3F8'))
+        self.assertEqual(badge.grab().toImage().pixelColor(2, badge.height() // 2), QColor(COLORS["background"]))
 
     def test_footer_is_disabled_with_list_during_blocked_operations(self):
         self.select(1, 2)
@@ -171,7 +173,7 @@ class FilePanelTest(unittest.TestCase):
         delegate.paint(painter, option, self.window.file_list_widget.indexFromItem(item))
         painter.end()
         center = delegate.row_layout(option.rect)['alert'].center()
-        self.assertEqual(image.pixelColor(center), QColor('#E6E2F0'))
+        self.assertEqual(image.pixelColor(center), QColor(COLORS["icon_annotation_tint"]))
         self.assertEqual(option.widget.textElideMode(), Qt.ElideMiddle)
 
 

@@ -1,5 +1,8 @@
 """Non-modal member chooser for one near-duplicate annotation cluster."""
 
+from labelimg.ui.theme import theme_style
+
+
 from PyQt5.QtCore import QEvent, QSize, Qt, pyqtSignal
 from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
@@ -19,7 +22,7 @@ from PyQt5.QtWidgets import (
 from labelimg.canvas import CATEGORY_CONFLICT
 from labelimg.localization.runtime import language_changed, tr
 from labelimg.ui.actions import new_icon
-from labelimg.ui.presentation import SURFACE_STYLE, role
+from labelimg.ui.presentation import present_surface, role
 
 
 class _MemberRow(QWidget):
@@ -115,7 +118,7 @@ class NearDuplicateChooser(QFrame):
         layout.addWidget(self.member_list)
         layout.addLayout(button_row)
         self.resize(340, 250)
-        self.setStyleSheet(SURFACE_STYLE + "QFrame#nearDuplicateChooser { background: #FFFFFF; border: 1px solid #D7DEE8; border-radius: 8px; }")
+        present_surface(self, theme_style("QFrame#nearDuplicateChooser { background: ${surface}; border: 1px solid ${border}; border-radius: 8px; }"))
         role(self.title_label, 'sectionTitle')
         role(self.edit_button, 'primary')
         role(self.delete_button, 'destructive')

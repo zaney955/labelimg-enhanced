@@ -1,5 +1,7 @@
 """Runtime localization for the two supported LabelImg interface languages."""
 
+from labelimg.ui.theme import apply_theme_style
+
 import locale
 import os
 import re
@@ -124,8 +126,10 @@ def localize_message_box_buttons(message_box):
     except ImportError:  # pragma: no cover
         from PyQt4.QtGui import QMessageBox
     from labelimg.ui.presentation import SURFACE_STYLE
+    from labelimg.ui.theme import apply_theme_palette, widget_theme_style
     if not message_box.property("labelimgPresentation"):
-        message_box.setStyleSheet(SURFACE_STYLE + "\n" + message_box.styleSheet())
+        apply_theme_palette(message_box)
+        apply_theme_style(message_box, SURFACE_STYLE + "\n" + widget_theme_style(message_box))
         message_box.setProperty("labelimgPresentation", True)
     messages = {
         QMessageBox.Ok: "standard.ok",

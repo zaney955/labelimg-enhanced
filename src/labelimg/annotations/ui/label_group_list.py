@@ -5,6 +5,7 @@ from PyQt5.QtWidgets import QAbstractScrollArea, QToolTip
 from labelimg.localization.runtime import language_changed, tr
 from labelimg.canvas import CATEGORY_CONFLICT
 from labelimg.ui.icons import paint_icon
+from labelimg.ui.theme import COLORS
 from labelimg.ui.risk_glyphs import draw_not_equal_glyph
 from labelimg.annotations.ui.style import LABEL_INDICATOR_FILL_ALPHA, natural_label_key
 
@@ -627,7 +628,7 @@ class LabelGroupListWidget(QAbstractScrollArea):
     @staticmethod
     def _paint_near_duplicate_corner(painter, rect, cluster):
         color = QColor(
-            "#A65F5F" if cluster.risk == CATEGORY_CONFLICT else "#9A7640"
+            COLORS["danger"] if cluster.risk == CATEGORY_CONFLICT else COLORS["warning"]
         )
         corner = QRectF(rect.right() - 10, rect.top(), 10, 10)
         painter.save()
@@ -638,12 +639,12 @@ class LabelGroupListWidget(QAbstractScrollArea):
             draw_not_equal_glyph(
                 painter,
                 corner.adjusted(1.5, 1.5, -1.5, -1.5),
-                QColor("white"),
+                QColor(COLORS["on_accent"]),
                 width=0.9,
             )
         else:
             painter.setPen(Qt.NoPen)
-            painter.setBrush(QColor("white"))
+            painter.setBrush(QColor(COLORS["on_accent"]))
             painter.drawEllipse(corner.center(), 1.4, 1.4)
         painter.restore()
 

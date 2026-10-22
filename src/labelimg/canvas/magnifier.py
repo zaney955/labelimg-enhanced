@@ -6,6 +6,7 @@ from PyQt5.QtCore import QRectF, Qt
 from PyQt5.QtGui import QColor, QFont, QFontMetricsF, QPainter, QPen
 
 from labelimg.localization.runtime import tr
+from labelimg.ui.theme import COLORS
 
 from labelimg.canvas.drawing_preview import paint_drawing_crosshair
 
@@ -95,9 +96,11 @@ def paint_magnifier(
         return
     painter.save()
     painter.setClipRect(QRectF(viewport), Qt.IntersectClip)
-    painter.setPen(QPen(QColor('#64788F'), 1.0))
-    painter.setBrush(QColor('#20262E'))
-    painter.drawRoundedRect(rect, 5, 5)
+    painter.setRenderHint(QPainter.Antialiasing)
+    painter.setPen(QPen(QColor(COLORS['border']), 1.0))
+    painter.setBrush(QColor(COLORS['surface']))
+    painter.drawRoundedRect(rect, 8, 8)
+    painter.fillRect(content, QColor(COLORS['preview_background']))
     factor = max(4.0, scale * 2.0)
     source = QRectF(
         center.x() - content.width() / factor / 2.0,
@@ -121,13 +124,14 @@ def paint_magnifier(
         ))
     paint_drawing_crosshair(painter, content, content.center(), line_width=outline_width)
     painter.restore()
-    painter.setPen(QColor('#F1F4F8'))
+    painter.setPen(QColor(COLORS['accent']))
     painter.setFont(font)
     footer_top = content.bottom() + 3
     painter.drawText(
         QRectF(rect.left() + 6, footer_top, text_width, line_height),
         Qt.AlignCenter, ('%.2f' % factor).rstrip('0').rstrip('.') + '×',
     )
+    painter.setPen(QColor(COLORS['muted']))
     painter.drawText(
         QRectF(rect.left() + 6, footer_top + line_height, text_width, hint_height),
         Qt.AlignCenter | Qt.TextWrapAnywhere, hint,

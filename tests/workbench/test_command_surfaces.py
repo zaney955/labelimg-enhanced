@@ -700,18 +700,19 @@ class CommandSurfacesTest(unittest.TestCase):
         self.assertEqual(
             actions,
             [
+                self.window.actions.appearance,
                 self.window.menus.language.menuAction(),
                 self.window.menus.labelColorAlgorithm.menuAction(),
-                actions[2],
+                actions[3],
                 self.window.auto_saving,
                 self.window.single_class_mode,
                 self.window.auto_update_check,
-                actions[6],
+                actions[7],
                 self.window.actions.resetAll,
             ],
         )
-        self.assertTrue(actions[2].isSeparator())
-        self.assertTrue(actions[6].isSeparator())
+        self.assertTrue(actions[3].isSeparator())
+        self.assertTrue(actions[7].isSeparator())
         self.assertTrue(self.window.single_class_mode.shortcut().isEmpty())
 
     def test_color_algorithm_selection_persists_only_mode_and_reset_defaults_to_fixed(self):

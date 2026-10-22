@@ -1,5 +1,8 @@
 """A quiet starting surface for an empty annotation workbench."""
 
+from labelimg.ui.theme import apply_theme_style, theme_style
+
+
 from PyQt5.QtCore import QEvent, Qt
 from PyQt5.QtWidgets import QFrame, QLabel, QPushButton, QVBoxLayout
 
@@ -32,11 +35,11 @@ class WorkbenchEmptyState(QFrame):
         self.open_button.clicked.connect(open_action.trigger)
         layout.addSpacing(4)
         layout.addWidget(self.open_button, 0, Qt.AlignHCenter)
-        self.setStyleSheet("""
-            QFrame#workbenchEmptyState { background: #F7F8FB; border: 1px solid #E4E8EF; border-radius: 12px; }
-            QLabel#workbenchEmptyTitle { color: #45516A; font-size: 15px; font-weight: 600; }
-            QLabel#workbenchEmptyFormats { color: #788399; font-size: 11px; }
-        """)
+        apply_theme_style(self, theme_style("""
+            QFrame#workbenchEmptyState { background: ${background}; border: 1px solid ${border}; border-radius: 12px; }
+            QLabel#workbenchEmptyTitle { color: ${text}; font-size: 15px; font-weight: 600; }
+            QLabel#workbenchEmptyFormats { color: ${muted}; font-size: 11px; }
+        """))
         viewport.installEventFilter(self)
         canvas.imageSizeChanged.connect(self.project)
         language_changed.connect(self.retranslate_ui)

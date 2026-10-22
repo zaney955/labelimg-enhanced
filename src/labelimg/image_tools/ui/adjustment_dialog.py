@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from labelimg.ui.theme import apply_theme_style, theme_style
+
+
 from labelimg.ui.presentation import present_dialog, section
 
 from dataclasses import dataclass
@@ -84,14 +87,14 @@ class _AdjustmentSliderRow(QWidget):
         self.value_label.setObjectName("adjustmentSliderValue")
         self.value_label.setAlignment(Qt.AlignCenter)
         self.value_label.setMinimumWidth(58)
-        self.value_label.setStyleSheet("""
+        apply_theme_style(self.value_label, theme_style("""
             QLabel#adjustmentSliderValue {
-                background: palette(alternate-base);
-                border: 1px solid palette(midlight);
+                background: ${background};
+                border: 1px solid ${border};
                 border-radius: 6px;
                 padding: 3px 7px;
             }
-        """)
+        """))
 
         layout.addWidget(self.title_label, 0, 0)
         layout.addWidget(self.value_label, 0, 1)
@@ -165,9 +168,7 @@ class ImageAdjustmentDialog(QDialog):
         self.preview_label.setMinimumSize(400, 300)
         self.preview_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
         self.preview_label.setAlignment(Qt.AlignCenter)
-        self.preview_label.setStyleSheet(
-            "QLabel { background: #202428; border: 1px solid #5f686f; }"
-        )
+        apply_theme_style(self.preview_label, theme_style("QLabel { background: ${preview_background}; border: 1px solid ${preview_border}; }"))
         body.addWidget(section("ui.section.preview", self.preview_label, stretch=1), 1)
 
         controls = QVBoxLayout()

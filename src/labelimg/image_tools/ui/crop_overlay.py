@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from labelimg.ui.presentation import present_surface, role
+
+from labelimg.ui.theme import COLORS, theme_style
+
 from PyQt5.QtCore import (
     QEvent,
     QPoint,
@@ -205,7 +209,9 @@ class CropOverlay(QWidget):
         image_rect = self._widget_image_rect()
         region_rect = self._widget_region(self._region)
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(0, 0, 0, 115))
+        scrim = QColor(COLORS["scrim"])
+        scrim.setAlpha(115)
+        painter.setBrush(scrim)
         painter.drawRect(QRectF(
             image_rect.left(),
             image_rect.top(),
@@ -230,11 +236,11 @@ class CropOverlay(QWidget):
             max(0.0, image_rect.right() - region_rect.right()),
             region_rect.height(),
         ))
-        accent = QColor("#2f8fd3")
+        accent = QColor(COLORS["accent"])
         painter.setBrush(Qt.NoBrush)
         painter.setPen(QPen(accent, 2))
         painter.drawRect(region_rect)
-        painter.setBrush(QColor(255, 255, 255))
+        painter.setBrush(QColor(COLORS["surface"]))
         painter.setPen(QPen(accent, 2))
         for handle in self.handle_rects.values():
             painter.drawRect(handle)
@@ -541,10 +547,9 @@ class CropControlBar(QFrame):
         self.setObjectName("cropControlBar")
         self.setFrameShape(QFrame.StyledPanel)
         self.setAutoFillBackground(True)
-        self.setStyleSheet(
-            "#cropControlBar { background: palette(window); "
-            "border: 1px solid palette(mid); border-radius: 4px; }"
-        )
+        present_surface(self, theme_style("#cropControlBar { background: ${surface}; "
+            "border: 1px solid ${border}; border-radius: 6px; }"
+            "#cropControlBar QPushButton { min-width: 0; padding: 0 8px; }"))
         layout = QHBoxLayout(self)
         layout.setContentsMargins(7, 5, 7, 5)
         layout.setSpacing(5)
@@ -598,6 +603,7 @@ class CropControlBar(QFrame):
         self.apply_button = QPushButton(tr("crop.apply"), self)
         self.cancel_button = QPushButton(tr("common.cancel"), self)
         self.apply_button.setEnabled(False)
+        role(self.apply_button, "primary")
         self.apply_button.clicked.connect(overlay.applyRequested.emit)
         self.cancel_button.clicked.connect(overlay.cancelRequested.emit)
         layout.addWidget(self.apply_button)

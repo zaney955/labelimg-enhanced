@@ -1,6 +1,9 @@
 """Independent update center for every visible update state."""
 
-from labelimg.ui.presentation import present_dialog, role
+from labelimg.ui.presentation import present_dialog, role, icon_tile
+from labelimg.ui.icons import IconLabel
+from labelimg.ui.theme import apply_theme_style, theme_style
+from labelimg import __version__
 
 import os
 import shlex
@@ -12,12 +15,15 @@ from PyQt5.QtWidgets import (
     QApplication,
     QDialog,
     QDialogButtonBox,
+    QFrame,
+    QHBoxLayout,
+    QScrollArea,
     QLabel,
     QProgressBar,
     QVBoxLayout,
 )
 
-from labelimg.localization.runtime import tr
+from labelimg.localization.runtime import tr, language_changed
 from labelimg.updates.infrastructure import DistributionStrategy
 
 
@@ -69,26 +75,65 @@ class UpdateCenterWindow(QDialog):
         self.setModal(False)
         self.setAttribute(Qt.WA_DeleteOnClose)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
-        self.setMinimumWidth(520)
+        self.setMinimumWidth(560)
+        self._latest_version = None
 
         layout = QVBoxLayout(self)
-        self.heading = QLabel(self)
+        brand = QHBoxLayout()
+        brand.setSpacing(9)
+        brand.addWidget(IconLabel("app", size=28))
+        brand.addWidget(role(QLabel("LabelImg Enhanced"), "sectionTitle"))
+        brand.addStretch(1)
+        self.current_version = role(QLabel(), "supporting")
+        brand.addWidget(self.current_version)
+        layout.addLayout(brand)
+        layout.addSpacing(10)
+        hero = QHBoxLayout()
+        hero.setSpacing(16)
+        self.status_icon = icon_tile("check-updates", size=56, icon_size=32)
+        self.status_icon.setObjectName("updateStatusIcon")
+        hero.addWidget(self.status_icon, 0, Qt.AlignVCenter)
+        status = QVBoxLayout()
+        status.setSpacing(5)
+        self.heading = role(QLabel(self), "heading")
         self.heading.setObjectName("updateCenterHeading")
         self.heading.setTextFormat(Qt.PlainText)
         self.heading.setWordWrap(True)
-        layout.addWidget(self.heading)
-
+        status.addWidget(self.heading)
+        self.version_label = role(QLabel(), "supporting")
+        self.version_label.setTextFormat(Qt.PlainText)
+        self.version_label.setWordWrap(True)
+        status.addWidget(self.version_label)
+        hero.addLayout(status, 1)
+        layout.addLayout(hero)
+        layout.addSpacing(4)
         self.detail = QLabel(self)
         self.detail.setObjectName("updateCenterDetail")
         self.detail.setTextFormat(Qt.PlainText)
         self.detail.setWordWrap(True)
         self.detail.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        layout.addWidget(self.detail)
-
+        self.detail_area = QScrollArea()
+        self.detail_area.setWidgetResizable(True)
+        self.detail_area.setWidget(self.detail)
+        self.detail_area.setFixedHeight(100)
+        layout.addWidget(self.detail_area)
+        self.progress_row = QFrame()
+        progress_layout = QHBoxLayout(self.progress_row)
+        progress_layout.setContentsMargins(0, 0, 0, 0)
+        progress_layout.setSpacing(12)
         self.progress = QProgressBar(self)
         self.progress.setObjectName("updateCenterProgress")
-        self.progress.setTextVisible(True)
-        layout.addWidget(self.progress)
+        self.progress.setTextVisible(False)
+        progress_layout.addWidget(self.progress, 1)
+        self.progress_caption = role(QLabel(), "supporting")
+        progress_layout.addWidget(self.progress_caption)
+        layout.addWidget(self.progress_row)
+        layout.addStretch(1)
+        self.secondary_actions = QFrame()
+        self.secondary_layout = QHBoxLayout(self.secondary_actions)
+        self.secondary_layout.setContentsMargins(0, 0, 0, 0)
+        self.secondary_layout.setSpacing(12)
+        layout.addWidget(self.secondary_actions)
 
         self.buttons = QDialogButtonBox(self)
         self.cancel_check_button = self.buttons.addButton(
@@ -146,20 +191,32 @@ class UpdateCenterWindow(QDialog):
         self.view_button.clicked.connect(self._view)
         self.copy_button.clicked.connect(self._copy_command)
         self.download_button.clicked.connect(self._download)
-        self.cancel_download_button.clicked.connect(
-            self.cancelDownloadRequested
-        )
+        self.cancel_download_button.clicked.connect(self.cancelDownloadRequested)
         self.retry_download_button.clicked.connect(self._retry_download)
         self.install_button.clicked.connect(self.installRequested)
         self.later_button.clicked.connect(self._later)
         self.ignore_button.clicked.connect(self._ignore)
         self.close_button.clicked.connect(self.close)
+        self.buttons.removeButton(self.ignore_button)
+        self.secondary_layout.addWidget(self.ignore_button)
+        self.secondary_layout.addStretch(1)
+        apply_theme_style(
+            self,
+            theme_style("""
+            QFrame#updateStatusIcon { border-radius: 14px; background: ${selected}; }
+            QFrame#updateStatusIcon[statusTone="success"] { background: ${icon_success_tint}; }
+            QFrame#updateStatusIcon[statusTone="warning"] { background: ${icon_warning_tint}; }
+            QPushButton[uiRole="updateLink"] { border: none; background: transparent; color: ${accent}; min-width: 0; padding: 0 2px; }
+            QPushButton[uiRole="updateLink"]:hover { color: ${accent_hover}; text-decoration: underline; }
+            QPushButton[uiRole="updateLink"]:focus { border: 1px solid ${accent}; }
+            QProgressBar#updateCenterProgress { min-height: 6px; max-height: 6px; border: none; border-radius: 3px; }
+            QLabel#updateCenterDetail { padding: 10px; color: ${muted}; background: ${background}; }
+        """),
+        )
+        self.resize(580, 240)
+        present_dialog(self, minimum_width=560, title=False)
+        language_changed.connect(self._refresh_copy)
         self._set_state("idle", tr("updates.checking"), progress=False)
-        present_dialog(self, minimum_width=520, title=False)
-        role(self.heading, "heading")
-        for button in (self.download_button, self.install_button, self.view_button):
-            role(button, "primary")
-        role(self.detail, "supporting")
 
     @property
     def state(self):
@@ -180,6 +237,7 @@ class UpdateCenterWindow(QDialog):
 
     def show_up_to_date(self, version):
         self._release = None
+        self._latest_version = str(version)
         self._set_state(
             "up_to_date",
             tr("updates.upToDate", version=version),
@@ -204,10 +262,7 @@ class UpdateCenterWindow(QDialog):
             and release.sha256_url
         ):
             actions.append(self.download_button)
-        elif (
-            distribution_strategy is DistributionStrategy.PYTHON
-            and release.wheel_url
-        ):
+        elif distribution_strategy is DistributionStrategy.PYTHON and release.wheel_url:
             actions.append(self.copy_button)
         actions.extend((self.later_button, self.ignore_button))
         self.later_button.setText(tr("updates.remindLater"))
@@ -232,8 +287,10 @@ class UpdateCenterWindow(QDialog):
         if total > 0:
             self.progress.setRange(0, 100)
             self.progress.setValue(min(100, int(received * 100 / total)))
+            self.progress_caption.setText(f"{self.progress.value()}%")
         else:
             self.progress.setRange(0, 0)
+            self.progress_caption.clear()
 
     def show_download_failure(self, release, detail):
         self._release = release
@@ -306,23 +363,132 @@ class UpdateCenterWindow(QDialog):
     ):
         self._state = state
         self._close_handled = False
-        self.setWindowTitle(tr("updates.centerTitle"))
-        self.heading.setText(str(heading))
-        if detail:
-            self.detail.setText(str(detail))
-            self.detail.show()
-        else:
-            self.detail.clear()
-            self.detail.hide()
+        self._fallback_heading = str(heading)
+        if state != "up_to_date":
+            self._latest_version = None
+        self.detail.setText(str(detail or ""))
+        self.detail_area.setVisible(bool(detail))
+        self.progress_row.setVisible(progress)
+        self.progress_caption.clear()
         if progress:
             self.progress.setRange(0, 0)
-            self.progress.show()
-        else:
-            self.progress.hide()
         visible = set(buttons)
+        priority = (
+            self.install_button,
+            self.download_button,
+            self.copy_button,
+            self.retry_download_button,
+            self.retry_check_button,
+            self.view_button,
+        )
+        primary = next((button for button in priority if button in visible), None)
+        self.buttons.removeButton(self.view_button)
+        self.secondary_layout.removeWidget(self.view_button)
+        if primary is self.view_button:
+            self.buttons.addButton(self.view_button, QDialogButtonBox.ActionRole)
+        else:
+            self.secondary_layout.insertWidget(0, self.view_button)
         for button in self._all_buttons:
+            role(
+                button,
+                (
+                    "primary"
+                    if button is primary
+                    else (
+                        "updateLink"
+                        if button in (self.view_button, self.ignore_button)
+                        else "secondary"
+                    )
+                ),
+            )
             button.setVisible(button in visible)
-        self.adjustSize()
+            button.updateGeometry()
+        self.buttons.layout().invalidate()
+        self.buttons.updateGeometry()
+        self.secondary_layout.invalidate()
+        self.secondary_actions.setVisible(
+            self.ignore_button in visible
+            or (self.view_button in visible and primary is not self.view_button)
+        )
+        tone = (
+            "success"
+            if state in ("up_to_date", "install_ready")
+            else "warning" if state in ("check_failed", "download_failed") else "accent"
+        )
+        self.status_icon.setProperty("statusTone", tone)
+        self.status_icon.style().unpolish(self.status_icon)
+        self.status_icon.style().polish(self.status_icon)
+        glyph = (
+            "done"
+            if tone == "success"
+            else "status-warning" if tone == "warning" else "check-updates"
+        )
+        label = self.status_icon.findChild(IconLabel)
+        label._icon_name = glyph
+        label.update()
+        self._refresh_copy()
+        self.layout().activate()
+        self.resize(580, max(240, self.minimumSizeHint().height()))
+
+    def _refresh_copy(self, _language=None):
+        self.setWindowTitle(tr("updates.centerTitle"))
+        states = {
+            "idle": "updates.checking",
+            "checking": "updates.checking",
+            "up_to_date": "updates.status.upToDate",
+            "available": "updates.status.available",
+            "downloading": "updates.status.downloading",
+            "install_ready": "updates.status.ready",
+            "check_failed": "updates.checkFailedTitle",
+            "download_failed": "updates.install.failedTitle",
+            "download_canceled": "updates.install.canceled",
+        }
+        self.heading.setText(
+            tr(states[self._state]) if self._state in states else self._fallback_heading
+        )
+        self.current_version.setText(tr("updates.currentVersion", version=__version__))
+        self.current_version.setVisible(self._state != "up_to_date")
+        version = (
+            str(self._release.version)
+            if self._release is not None
+            else self._latest_version
+        )
+        self.version_label.setText(
+            tr(
+                (
+                    "updates.version"
+                    if self._state == "up_to_date"
+                    else "updates.latestVersion"
+                ),
+                version=version,
+            )
+            if version
+            else ""
+        )
+        self.version_label.setVisible(bool(version))
+        labels = (
+            (self.cancel_check_button, "standard.cancel"),
+            (self.retry_check_button, "updates.retry"),
+            (self.view_button, "updates.viewRelease"),
+            (self.copy_button, "updates.copyCommand"),
+            (self.download_button, "updates.install.button"),
+            (self.cancel_download_button, "updates.install.cancelDownload"),
+            (self.retry_download_button, "updates.install.retryDownload"),
+            (self.install_button, "updates.install.installNow"),
+            (
+                self.later_button,
+                (
+                    "updates.install.later"
+                    if self._state == "install_ready"
+                    else "updates.remindLater"
+                ),
+            ),
+            (self.ignore_button, "updates.ignoreVersion"),
+            (self.close_button, "standard.close"),
+        )
+        for button, key in labels:
+            button.setText(tr(key))
+            button.setAutoDefault(False)
 
     def _cancel_check(self):
         self._close_handled = True
@@ -336,9 +502,7 @@ class UpdateCenterWindow(QDialog):
     def _copy_command(self):
         if self._release is None or not self._release.wheel_url:
             return
-        QApplication.clipboard().setText(
-            upgrade_command(self._release.wheel_url)
-        )
+        QApplication.clipboard().setText(upgrade_command(self._release.wheel_url))
         self.commandCopied.emit()
 
     def _download(self):

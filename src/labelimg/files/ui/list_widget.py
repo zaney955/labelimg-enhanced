@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from labelimg.ui.presentation import present_dialog, role, section, MenuButton
+from labelimg.ui.theme import COLORS, theme_style
+
+
+from labelimg.ui.presentation import present_dialog, present_surface, role, section, MenuButton
 
 import os
 import re
@@ -495,40 +498,40 @@ class FileListFilterPanel(QFrame):
         self.alert_combo.currentIndexChanged.connect(self._emit_filter)
         self.quality_combo.currentIndexChanged.connect(self._emit_filter)
         self.clear_button.clicked.connect(self.clearRequested)
-        self.setStyleSheet("""
-            QFrame#fileListFilterPanel { background: palette(base); border: 1px solid #D7DEE8; border-radius: 8px; }
+        present_surface(self, theme_style("""
+            QFrame#fileListFilterPanel { background: ${surface}; border: 1px solid ${border}; border-radius: 8px; }
             QLabel#fileFilterTitle { font-size: 15px; font-weight: 600; }
-            QFrame#fileFilterSection { background: palette(base); border: 1px solid #E2E7EF; border-radius: 6px; }
+            QFrame#fileFilterSection { background: ${surface}; border: 1px solid ${divider}; border-radius: 6px; }
             QLabel#fileFilterSectionTitle { font-weight: 600; }
-            QLabel#fileFilterMuted { color: #727D8D; font-size: 11px; }
-            QLineEdit { min-height: 28px; padding: 0 6px 0 0; background: palette(base);
-                border: 1px solid #D7DEE8; border-radius: 4px; }
-            QLineEdit:focus { border-color: #756B9E; }
-            QListWidget#fileFilterCategoryList { background: palette(base); border: 1px solid #E2E7EF;
+            QLabel#fileFilterMuted { color: ${muted}; font-size: 11px; }
+            QLineEdit { min-height: 28px; padding: 0 6px 0 0; background: ${surface};
+                border: 1px solid ${border}; border-radius: 4px; }
+            QLineEdit:focus { border-color: ${accent}; }
+            QListWidget#fileFilterCategoryList { background: ${surface}; border: 1px solid ${divider};
                 border-radius: 4px; padding: 3px 0; outline: none; }
             QListWidget#fileFilterCategoryList::item { padding: 0 6px; border: none; }
-            QListWidget#fileFilterCategoryList::item:hover { background: palette(alternate-base); }
-            QListWidget#fileFilterCategoryList::item:focus { background: #F2F0F8; }
-            QFrame#fileFilterMatchControl { background: #F3F4F7; border: 1px solid #E2E7EF; border-radius: 5px; }
+            QListWidget#fileFilterCategoryList::item:hover { background: ${background}; }
+            QListWidget#fileFilterCategoryList::item:focus { background: ${selected}; }
+            QFrame#fileFilterMatchControl { background: ${background}; border: 1px solid ${divider}; border-radius: 5px; }
             QFrame#fileFilterMatchControl QToolButton { min-height: 26px; padding: 0 8px; border: 1px solid transparent;
-                border-radius: 3px; color: #687285; }
-            QFrame#fileFilterMatchControl QToolButton:checked { background: #ECEAF5; color: #645887; border-color: #D6CFE6; }
-            QFrame#fileFilterMatchControl QToolButton:hover { color: #645887; }
-            QFrame#fileFilterMatchControl QToolButton:focus { border-color: #756B9E; }
-            QComboBox { min-height: 28px; padding: 0 8px; background: palette(base);
-                border: 1px solid #D7DEE8; border-radius: 4px; color: palette(text); }
-            QComboBox:focus { border-color: #756B9E; }
+                border-radius: 3px; color: ${muted}; }
+            QFrame#fileFilterMatchControl QToolButton:checked { background: ${selected}; color: ${accent_hover}; border-color: ${accent_border}; }
+            QFrame#fileFilterMatchControl QToolButton:hover { color: ${accent_hover}; }
+            QFrame#fileFilterMatchControl QToolButton:focus { border-color: ${accent}; }
+            QComboBox { min-height: 28px; padding: 0 8px; background: ${surface};
+                border: 1px solid ${border}; border-radius: 4px; color: ${text}; }
+            QComboBox:focus { border-color: ${accent}; }
             QComboBox::drop-down { border: none; width: 24px; }
             QComboBox::down-arrow { image: url(:/chevron-down); width: 16px; height: 16px; }
-            QToolButton { border: none; border-radius: 4px; padding: 3px 5px; color: #645887; }
-            QToolButton:hover, QToolButton:focus { background: #ECEAF5; }
-            QToolButton:disabled { color: #A0A8B4; }
-            QPushButton { min-height: 28px; padding: 0 10px; border: 1px solid #D7DEE8;
-                border-radius: 4px; background: palette(base); color: palette(text); }
-            QPushButton:hover { background: palette(alternate-base); }
-            QPushButton:focus { border-color: #756B9E; }
-            QFrame#fileFilterDivider { background: #E2E7EF; border: none; }
-        """)
+            QToolButton { border: none; border-radius: 4px; padding: 3px 5px; color: ${accent_hover}; }
+            QToolButton:hover, QToolButton:focus { background: ${selected}; }
+            QToolButton:disabled { color: ${disabled_text}; }
+            QPushButton { min-height: 28px; padding: 0 10px; border: 1px solid ${border};
+                border-radius: 4px; background: ${surface}; color: ${text}; }
+            QPushButton:hover { background: ${background}; }
+            QPushButton:focus { border-color: ${accent}; }
+            QFrame#fileFilterDivider { background: ${divider}; border: none; }
+        """))
         language_changed.connect(self.retranslate_ui)
         self.retranslate_ui()
 
@@ -1760,7 +1763,7 @@ class FileListItemDelegate(QStyledItemDelegate):
             paint_option.state &= ~QStyle.State_HasFocus
             paint_option.state &= ~QStyle.State_MouseOver
         elif hovered or current_image:
-            background = QColor(palette.color(QPalette.Mid))
+            background = QColor(COLORS["hover_overlay"])
             background.setAlpha(24 if current_image else self.hover_background_alpha)
             painter.setPen(Qt.NoPen)
             painter.setBrush(background)

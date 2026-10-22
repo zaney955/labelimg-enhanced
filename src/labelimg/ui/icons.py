@@ -2,19 +2,156 @@
 
 from functools import lru_cache
 
-from PyQt5.QtCore import QRectF, Qt
-from PyQt5.QtGui import QIcon, QPainter
+from PyQt5 import sip
+from PyQt5.QtCore import QFile, QIODevice, QLineF, QRectF, QTemporaryDir, Qt
+from PyQt5.QtGui import (
+    QColor,
+    QIcon,
+    QPainter,
+    QPainterPath,
+    QPen,
+)
 from PyQt5.QtWidgets import (
-    QAbstractSpinBox, QApplication, QLabel, QProxyStyle, QStyle,
-    QStyleOption, QStyleOptionComboBox, QStyleOptionSpinBox,
+    QAbstractSpinBox,
+    QAbstractButton,
+    QWidget,
+    QApplication,
+    QLabel,
+    QProxyStyle,
+    QStyle,
+    QStyleOption,
+    QStyleOptionComboBox,
+    QStyleOptionSpinBox,
 )
 
 import labelimg.ui.generated_resources  # noqa: F401 - register icons for standalone widgets
+from labelimg.ui.theme import COLORS, LIGHT_THEME, current_theme, theme_changed
+
+_ICON_ROLES = (
+    "accent",
+    "icon_annotation_tint",
+    "icon_file",
+    "icon_file_tint",
+    "icon_image",
+    "icon_image_tint",
+    "icon_success",
+    "icon_success_tint",
+    "icon_view",
+    "icon_view_tint",
+    "icon_preference",
+    "icon_preference_tint",
+    "warning",
+    "icon_warning_tint",
+    "danger",
+    "icon_danger_tint",
+    "icon_structure",
+)
 
 
 @lru_cache(maxsize=256)
+def _source_svg(name):
+    source = QFile(":/" + name)
+    if not source.open(QIODevice.ReadOnly):
+        return None
+    artwork = bytes(source.readAll())
+    source.close()
+    return artwork
+
+
+@lru_cache(maxsize=512)
+def _themed_svg(name, theme_id):
+    artwork = _source_svg(name)
+    if artwork is None or name == "app":
+        return artwork
+    replacements = {
+        LIGHT_THEME.colors[role].lower().encode(): COLORS[role].encode()
+        for role in _ICON_ROLES
+    }
+    import re
+
+    return re.sub(
+        rb"#[0-9a-fA-F]{6}", lambda m: replacements.get(m[0].lower(), m[0]), artwork
+    )
+
+
+@lru_cache(maxsize=512)
+def _themed_icon_path(name, theme_id, cache_directory):
+    artwork = _themed_svg(name, theme_id)
+    if artwork is None or artwork == _source_svg(name):
+        return ":/" + name
+    from hashlib import sha256
+    from pathlib import Path
+
+    path = Path(cache_directory) / (
+        sha256((theme_id + "/" + name).encode()).hexdigest() + ".svg"
+    )
+    path.write_bytes(artwork)
+    return path.as_posix()
+
+
+@lru_cache(maxsize=512)
+def _native_icon(name, theme_id, cache_directory):
+    if _source_svg(name) is None:
+        return QIcon()
+    result = QIcon(_themed_icon_path(name, theme_id, cache_directory))
+    _icon_names[result.cacheKey()] = name
+    return result
+
+
+_icon_names = {}
+
+
+def _icon_cache_directory():
+    app = QApplication.instance()
+    if not hasattr(app, "_labelimg_icon_directory"):
+        app._labelimg_icon_directory = QTemporaryDir()
+        if not app._labelimg_icon_directory.isValid():
+            raise OSError("Cannot create temporary SVG icon cache")
+    return app._labelimg_icon_directory.path()
+
+
+def themed_icon_path(name):
+    """Share semantic SVG artwork with QSS image-based control affordances."""
+    if QApplication.instance() is None:
+        return ":/" + name
+    return _themed_icon_path(name, current_theme().identifier, _icon_cache_directory())
+
+
 def icon(name):
-    return QIcon(":/" + name)
+    # Native Qt SVG engines remain safe during QApplication/interpreter teardown.
+    if QApplication.instance() is None:
+        result = QIcon(":/" + name)
+        _icon_names[result.cacheKey()] = name
+        return result
+    return _native_icon(name, current_theme().identifier, _icon_cache_directory())
+
+
+def _refresh_command_icons(_identifier):
+    app = QApplication.instance()
+    if app is None:
+        return
+    seen_actions = set()
+
+    def refresh(value, setter):
+        name = _icon_names.get(value.cacheKey())
+        if name is not None:
+            setter(icon(name))
+
+    for widget in app.allWidgets():
+        if sip.isdeleted(widget):
+            continue
+        for action in QWidget.actions(widget):
+            if id(action) not in seen_actions:
+                seen_actions.add(id(action))
+                refresh(action.icon(), action.setIcon)
+        if isinstance(widget, QAbstractButton):
+            refresh(widget.icon(), widget.setIcon)
+        if widget.isWindow():
+            refresh(widget.windowIcon(), widget.setWindowIcon)
+    refresh(app.windowIcon(), app.setWindowIcon)
+
+
+theme_changed.connect(_refresh_command_icons)
 
 
 def paint_icon(painter, rect, name, *, enabled=True, size=18):
@@ -23,8 +160,12 @@ def paint_icon(painter, rect, name, *, enabled=True, size=18):
     side = min(float(size), rect.width(), rect.height())
     target = QRectF(0, 0, side, side)
     target.moveCenter(rect.center())
-    icon(name).paint(painter, target.toAlignedRect(), Qt.AlignCenter,
-                     QIcon.Normal if enabled else QIcon.Disabled)
+    icon(name).paint(
+        painter,
+        target.toAlignedRect(),
+        Qt.AlignCenter,
+        QIcon.Normal if enabled else QIcon.Disabled,
+    )
 
 
 class IconLabel(QLabel):
@@ -38,8 +179,13 @@ class IconLabel(QLabel):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        paint_icon(painter, self.rect(), self._icon_name,
-                   enabled=self.isEnabled(), size=self._icon_size)
+        paint_icon(
+            painter,
+            self.rect(),
+            self._icon_name,
+            enabled=self.isEnabled(),
+            size=self._icon_size,
+        )
 
 
 class IconStyle(QProxyStyle):
@@ -77,28 +223,102 @@ class IconStyle(QProxyStyle):
 
     def standardIcon(self, standard_icon, option=None, widget=None):
         name = self.STANDARD_ICONS.get(standard_icon)
-        return icon(name) if name else super().standardIcon(standard_icon, option, widget)
+        return (
+            icon(name) if name else super().standardIcon(standard_icon, option, widget)
+        )
 
     def standardPixmap(self, standard_pixmap, option=None, widget=None):
         name = self.STANDARD_ICONS.get(standard_pixmap)
         if name:
-            mode = QIcon.Normal if option is None or option.state & QStyle.State_Enabled else QIcon.Disabled
+            mode = (
+                QIcon.Normal
+                if option is None or option.state & QStyle.State_Enabled
+                else QIcon.Disabled
+            )
             return icon(name).pixmap(24, 24, mode)
         return super().standardPixmap(standard_pixmap, option, widget)
 
     def drawPrimitive(self, element, option, painter, widget=None):
+        if element in (
+            QStyle.PE_IndicatorCheckBox,
+            QStyle.PE_IndicatorItemViewItemCheck,
+            QStyle.PE_IndicatorRadioButton,
+        ):
+            self._draw_choice(element, option, painter)
+            return
         name = self.ARROWS.get(element)
-        if element == QStyle.PE_IndicatorBranch and option.state & QStyle.State_Children:
-            name = "chevron-down" if option.state & QStyle.State_Open else "chevron-right"
+        if (
+            element == QStyle.PE_IndicatorBranch
+            and option.state & QStyle.State_Children
+        ):
+            name = (
+                "chevron-down" if option.state & QStyle.State_Open else "chevron-right"
+            )
         if element == QStyle.PE_IndicatorHeaderArrow:
-            name = "sort-ascending" if option.sortIndicator == option.SortDown else "sort-descending"
+            name = (
+                "sort-ascending"
+                if option.sortIndicator == option.SortDown
+                else "sort-descending"
+            )
         if name:
             target = QRectF(0, 0, 16, 16)
             target.moveCenter(QRectF(option.rect).center())
-            paint_icon(painter, target, name,
-                       enabled=bool(option.state & QStyle.State_Enabled), size=16)
+            paint_icon(
+                painter,
+                target,
+                name,
+                enabled=bool(option.state & QStyle.State_Enabled),
+                size=16,
+            )
             return
         super().drawPrimitive(element, option, painter, widget)
+
+    @staticmethod
+    def _draw_choice(element, option, painter):
+        """Theme native check/radio states without changing their hit targets."""
+        enabled = bool(option.state & QStyle.State_Enabled)
+        selected = bool(option.state & (QStyle.State_On | QStyle.State_NoChange))
+        focused = bool(option.state & (QStyle.State_HasFocus | QStyle.State_MouseOver))
+        rect = QRectF(
+            0, 0, min(14, option.rect.width() - 2), min(14, option.rect.height() - 2)
+        )
+        rect.moveCenter(QRectF(option.rect).center())
+        edge = "accent" if enabled and (selected or focused) else "border"
+        fill = (
+            ("accent" if selected else "surface") if enabled else "disabled_background"
+        )
+        ink = "on_accent" if enabled else "disabled_text"
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(QPen(QColor(COLORS[edge]), 1.2))
+        painter.setBrush(QColor(COLORS[fill]))
+        if element == QStyle.PE_IndicatorRadioButton:
+            painter.drawEllipse(rect)
+            if selected:
+                painter.setPen(Qt.NoPen)
+                painter.setBrush(QColor(COLORS[ink]))
+                painter.drawEllipse(rect.adjusted(4, 4, -4, -4))
+        else:
+            painter.drawRoundedRect(rect, 3, 3)
+            painter.setPen(
+                QPen(QColor(COLORS[ink]), 1.8, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+            )
+            if option.state & QStyle.State_NoChange:
+                painter.drawLine(
+                    QLineF(
+                        rect.left() + 4,
+                        rect.center().y(),
+                        rect.right() - 4,
+                        rect.center().y(),
+                    )
+                )
+            elif selected:
+                path = QPainterPath()
+                path.moveTo(rect.left() + 3, rect.center().y())
+                path.lineTo(rect.left() + 6, rect.bottom() - 4)
+                path.lineTo(rect.right() - 3, rect.top() + 4)
+                painter.drawPath(path)
+        painter.restore()
 
     def drawComplexControl(self, control, option, painter, widget=None):
         # Windows' themed combo/spin controls draw their arrows directly, bypassing
@@ -109,27 +329,46 @@ class IconStyle(QProxyStyle):
             super().drawComplexControl(control, frame, painter, widget)
             if option.subControls & QStyle.SC_ComboBoxArrow:
                 arrow = QStyleOption()
-                arrow.rect = self.subControlRect(control, option, QStyle.SC_ComboBoxArrow, widget)
+                arrow.rect = self.subControlRect(
+                    control, option, QStyle.SC_ComboBoxArrow, widget
+                )
                 arrow.state = option.state
                 self.drawPrimitive(QStyle.PE_IndicatorArrowDown, arrow, painter, widget)
             return
-        if control == QStyle.CC_SpinBox and option.buttonSymbols != QAbstractSpinBox.NoButtons:
+        if (
+            control == QStyle.CC_SpinBox
+            and option.buttonSymbols != QAbstractSpinBox.NoButtons
+        ):
             frame = QStyleOptionSpinBox(option)
             frame.subControls &= ~(QStyle.SC_SpinBoxUp | QStyle.SC_SpinBoxDown)
             super().drawComplexControl(control, frame, painter, widget)
             for subcontrol, step, arrow_kind, plus_minus in (
-                (QStyle.SC_SpinBoxUp, QAbstractSpinBox.StepUpEnabled,
-                 QStyle.PE_IndicatorSpinUp, QStyle.PE_IndicatorSpinPlus),
-                (QStyle.SC_SpinBoxDown, QAbstractSpinBox.StepDownEnabled,
-                 QStyle.PE_IndicatorSpinDown, QStyle.PE_IndicatorSpinMinus),
+                (
+                    QStyle.SC_SpinBoxUp,
+                    QAbstractSpinBox.StepUpEnabled,
+                    QStyle.PE_IndicatorSpinUp,
+                    QStyle.PE_IndicatorSpinPlus,
+                ),
+                (
+                    QStyle.SC_SpinBoxDown,
+                    QAbstractSpinBox.StepDownEnabled,
+                    QStyle.PE_IndicatorSpinDown,
+                    QStyle.PE_IndicatorSpinMinus,
+                ),
             ):
                 if option.subControls & subcontrol:
                     arrow = QStyleOption()
-                    arrow.rect = self.subControlRect(control, option, subcontrol, widget)
+                    arrow.rect = self.subControlRect(
+                        control, option, subcontrol, widget
+                    )
                     arrow.state = option.state
                     if not option.stepEnabled & step:
                         arrow.state &= ~QStyle.State_Enabled
-                    primitive = plus_minus if option.buttonSymbols == QAbstractSpinBox.PlusMinus else arrow_kind
+                    primitive = (
+                        plus_minus
+                        if option.buttonSymbols == QAbstractSpinBox.PlusMinus
+                        else arrow_kind
+                    )
                     self.drawPrimitive(primitive, arrow, painter, widget)
             return
         super().drawComplexControl(control, option, painter, widget)
@@ -139,6 +378,7 @@ def install_icon_style():
     app = QApplication.instance()
     if app is None or app.property("labelimgIconStyle"):
         return
+    app.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
     # Construct by name so Qt never transfers ownership of the existing style.
     app.setStyle(IconStyle(app.style().objectName()))
     app.setProperty("labelimgIconStyle", True)

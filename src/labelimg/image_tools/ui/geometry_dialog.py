@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from labelimg.ui.theme import apply_theme_style, theme_style
+
+
 from labelimg.ui.presentation import present_dialog, section
 
 from dataclasses import dataclass
@@ -120,9 +123,7 @@ class GeometryTransformDialog(QDialog):
         self.preview_label.setAlignment(Qt.AlignCenter)
         self.preview_label.setMinimumSize(400, 300)
         self.preview_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
-        self.preview_label.setStyleSheet(
-            "QLabel { background: #202428; border: 1px solid #5f686f; }"
-        )
+        apply_theme_style(self.preview_label, theme_style("QLabel { background: ${preview_background}; border: 1px solid ${preview_border}; }"))
         preview_column.addWidget(self.preview_label, 1)
         self.preview_size_label = QLabel(self)
         self.preview_size_label.setAlignment(Qt.AlignCenter)
