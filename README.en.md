@@ -53,6 +53,8 @@ Maintainers trigger the release workflow with an annotated tag that exactly matc
 
 ## Development and validation
 
+Before adding or changing an interface, read the [UI design guidelines](docs/design/ui-guidelines.md) and follow the shared patterns, components, and acceptance criteria.
+
 ```powershell
 $env:QT_QPA_PLATFORM = "offscreen"
 $env:PYTHONPATH = "src"

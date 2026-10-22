@@ -53,6 +53,8 @@ YOLO 保存同时维护工作区标注根目录的共享 `classes.txt`（标准�
 
 ## 开发与验证
 
+新增或修改界面前，先阅读 [UI 设计规范](docs/design/ui-guidelines.md)，按统一范式、共享组件与验收要求设计。
+
 ```powershell
 $env:QT_QPA_PLATFORM = "offscreen"
 $env:PYTHONPATH = "src"
