@@ -24,6 +24,7 @@ from PyQt5.QtGui import QColor, QPainter, QPalette, QPen
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QButtonGroup,
     QDialog,
     QDialogButtonBox,
     QComboBox,
@@ -35,12 +36,17 @@ from PyQt5.QtWidgets import (
     QLabel,
     QLineEdit,
     QListView,
+    QListWidget,
+    QListWidgetItem,
     QMenu,
     QPushButton,
+    QSizePolicy,
     QSpinBox,
     QStyle,
     QStyledItemDelegate,
     QStyleOptionViewItem,
+    QStyleOptionToolButton,
+    QStylePainter,
     QTableWidget,
     QTableWidgetItem,
     QToolButton,
@@ -70,6 +76,7 @@ PRESERVED_SELECTION_APPEARANCE_ROLE = Qt.UserRole + 3
 FILE_PERSISTENCE_FLAGS_ROLE = Qt.UserRole + 4
 FILE_REVIEW_STATE_ROLE = Qt.UserRole + 5
 FILE_QUALITY_FINDINGS_ROLE = Qt.UserRole + 6
+FILE_CATEGORY_LABELS_ROLE = Qt.UserRole + 7
 
 INVALID_FILENAME_CHARACTERS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 WINDOWS_RESERVED_NAMES = {
@@ -109,6 +116,7 @@ class FileListViewState(object):
             or self.review_filter != "all"
             or self.alert_filter != "all"
             or self.quality_filter != "all"
+            or self.category_filter
         )
 
     @property
@@ -121,6 +129,8 @@ class FileListViewState(object):
             review=self.review_filter,
             alert=self.alert_filter,
             quality=self.quality_filter,
+            categories=self.category_filter,
+            category_match=self.category_match,
         )
 
     def projection_query(self, include_advanced_filters=True):
@@ -141,6 +151,8 @@ class FileListViewState(object):
             quality=(
                 self.quality_filter if include_advanced_filters else "all"
             ),
+            categories=self.category_filter if include_advanced_filters else (),
+            category_match=self.category_match,
         )
 
     def set_search(self, text=""):
@@ -161,11 +173,16 @@ class FileListViewState(object):
     def reset_search(self):
         self.text_filter = ""
 
+    def set_category_filter(self, categories=(), match="all"):
+        self.category_filter = frozenset(categories)
+        self.category_match = match if match in ("all", "any") else "all"
+
     def reset_advanced_filters(self):
         self.annotation_filter = "all"
         self.review_filter = "all"
         self.alert_filter = "all"
         self.quality_filter = "all"
+        self.set_category_filter()
 
     def reset_filter(self):
         self.reset_search()
@@ -182,6 +199,7 @@ class FileListViewState(object):
         modified_time_for=os.path.getmtime,
         presorted=False,
         include_advanced_filters=True,
+        labels_for=lambda _path: (),
     ):
         items = []
         for path in paths:
@@ -198,6 +216,7 @@ class FileListViewState(object):
                 review_state=review_state_for(path),
                 persistence_flags=persistence_flags_for(path),
                 quality_findings=quality_findings_for(path),
+                labels=labels_for(path),
             ))
         return FileListProjection.create(
             root,
@@ -293,25 +312,116 @@ class ImageSearchLineEdit(QLineEdit):
         super().keyPressEvent(event)
 
 
+class _CategoryFilterChipButton(QToolButton):
+    def paintEvent(self, _event):
+        option = QStyleOptionToolButton()
+        self.initStyleOption(option)
+        option.text = self.fontMetrics().elidedText(
+            self.text(), Qt.ElideRight, max(0, self.width() - 14)
+        )
+        painter = QStylePainter(self)
+        painter.drawComplexControl(QStyle.CC_ToolButton, option)
+
+
 class FileListFilterPanel(QFrame):
+    categoriesChanged = pyqtSignal(object, str)
     filterChanged = pyqtSignal(str, str, str, str)
     clearRequested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent, Qt.Popup)
         self.setObjectName("fileListFilterPanel")
-        self.setFrameShape(QFrame.StyledPanel)
-        self.setMinimumWidth(280)
+        self.setFixedWidth(360)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(8)
+        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setSpacing(10)
+        header = QHBoxLayout()
         self.title_label = QLabel()
-        title_font = self.title_label.font()
-        title_font.setBold(True)
-        self.title_label.setFont(title_font)
-        layout.addWidget(self.title_label)
-        form = QFormLayout()
+        self.title_label.setObjectName("fileFilterTitle")
+        header.addWidget(self.title_label)
+        header.addStretch()
+        self.close_button = QToolButton()
+        self.close_button.setIcon(new_icon("clear"))
+        self.close_button.setFixedSize(26, 26)
+        self.close_button.clicked.connect(self.hide)
+        header.addWidget(self.close_button)
+        layout.addLayout(header)
+
+        self.category_section = QFrame()
+        self.category_section.setObjectName("fileFilterSection")
+        category_layout = QVBoxLayout(self.category_section)
+        category_layout.setContentsMargins(12, 10, 12, 10)
+        category_layout.setSpacing(8)
+        category_header = QHBoxLayout()
+        self.category_title = QLabel()
+        self.category_title.setObjectName("fileFilterSectionTitle")
+        category_header.addWidget(self.category_title)
+        category_header.addStretch()
+        self.category_count = QLabel()
+        self.category_count.setObjectName("fileFilterMuted")
+        category_header.addWidget(self.category_count)
+        self.category_reset_button = QToolButton()
+        self.category_reset_button.clicked.connect(self._clear_categories)
+        category_header.addWidget(self.category_reset_button)
+        category_layout.addLayout(category_header)
+        self.category_search = QLineEdit()
+        decorate_list_query_field(self.category_search, "search")
+        category_layout.addWidget(self.category_search)
+        self.category_list = QListWidget()
+        self.category_list.setObjectName("fileFilterCategoryList")
+        self.category_list.setSelectionMode(QAbstractItemView.NoSelection)
+        self.category_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.category_list.setTextElideMode(Qt.ElideRight)
+        category_layout.addWidget(self.category_list)
+        self.category_empty = QLabel()
+        self.category_empty.setObjectName("fileFilterMuted")
+        self.category_empty.setMinimumHeight(36)
+        self.category_empty.setAlignment(Qt.AlignCenter)
+        self.category_empty.setWordWrap(True)
+        category_layout.addWidget(self.category_empty)
+        self.category_match_title = QLabel()
+        self.category_match_title.setObjectName("fileFilterMuted")
+        category_layout.addWidget(self.category_match_title)
+        self.category_match_control = QFrame()
+        self.category_match_control.setObjectName("fileFilterMatchControl")
+        match_layout = QHBoxLayout(self.category_match_control)
+        match_layout.setContentsMargins(3, 3, 3, 3)
+        match_layout.setSpacing(3)
+        self.category_all = QToolButton()
+        self.category_any = QToolButton()
+        self.category_match_group = QButtonGroup(self)
+        for control in (self.category_all, self.category_any):
+            control.setCheckable(True)
+            control.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            self.category_match_group.addButton(control)
+        self.category_all.setChecked(True)
+        match_layout.addWidget(self.category_all, 1)
+        match_layout.addWidget(self.category_any, 1)
+        category_layout.addWidget(self.category_match_control)
+        self.category_match_help = QLabel()
+        self.category_match_help.setObjectName("fileFilterMuted")
+        self.category_match_help.setWordWrap(True)
+        category_layout.addWidget(self.category_match_help)
+        layout.addWidget(self.category_section)
+        self._categories = frozenset()
+        self._available_categories = ()
+        self.category_search.textChanged.connect(self._filter_category_rows)
+        self.category_list.itemChanged.connect(self._category_checked)
+        self.category_all.toggled.connect(self._emit_categories)
+        self.state_section = QFrame()
+        self.state_section.setObjectName("fileFilterSection")
+        state_layout = QVBoxLayout(self.state_section)
+        state_layout.setContentsMargins(12, 10, 12, 10)
+        state_layout.setSpacing(10)
+        self.state_title = QLabel()
+        self.state_title.setObjectName("fileFilterSectionTitle")
+        state_layout.addWidget(self.state_title)
+        form = QGridLayout()
         form.setContentsMargins(0, 0, 0, 0)
+        form.setHorizontalSpacing(12)
+        form.setVerticalSpacing(6)
+        form.setColumnStretch(0, 1)
+        form.setColumnStretch(1, 1)
         self.annotation_combo = QComboBox()
         self._add_options(self.annotation_combo, (
             ("common.all", "all"),
@@ -349,19 +459,74 @@ class FileListFilterPanel(QFrame):
         self.review_label = QLabel()
         self.alert_label = QLabel()
         self.quality_label = QLabel()
-        form.addRow(self.annotation_label, self.annotation_combo)
-        form.addRow(self.review_label, self.review_combo)
-        form.addRow(self.alert_label, self.alert_combo)
-        form.addRow(self.quality_label, self.quality_combo)
+        for index, (label, combo) in enumerate((
+            (self.annotation_label, self.annotation_combo),
+            (self.review_label, self.review_combo),
+            (self.alert_label, self.alert_combo),
+            (self.quality_label, self.quality_combo),
+        )):
+            label.setObjectName("fileFilterMuted")
+            label.setBuddy(combo)
+            combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+            combo.setMinimumContentsLength(4)
+            combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            form.addWidget(label, index // 2 * 2, index % 2)
+            form.addWidget(combo, index // 2 * 2 + 1, index % 2)
         self.form = form
-        layout.addLayout(form)
+        state_layout.addLayout(form)
+        layout.addWidget(self.state_section)
+        divider = QFrame()
+        divider.setObjectName("fileFilterDivider")
+        divider.setFixedHeight(1)
+        layout.addWidget(divider)
+        footer = QHBoxLayout()
+        self.live_hint = QLabel()
+        self.live_hint.setObjectName("fileFilterMuted")
+        footer.addWidget(self.live_hint)
+        footer.addStretch()
         self.clear_button = QPushButton()
-        layout.addWidget(self.clear_button)
+        self.clear_button.setIcon(new_icon("reset"))
+        footer.addWidget(self.clear_button)
+        layout.addLayout(footer)
         self.annotation_combo.currentIndexChanged.connect(self._emit_filter)
         self.review_combo.currentIndexChanged.connect(self._emit_filter)
         self.alert_combo.currentIndexChanged.connect(self._emit_filter)
         self.quality_combo.currentIndexChanged.connect(self._emit_filter)
         self.clear_button.clicked.connect(self.clearRequested)
+        self.setStyleSheet("""
+            QFrame#fileListFilterPanel { background: palette(base); border: 1px solid #D7DEE8; border-radius: 8px; }
+            QLabel#fileFilterTitle { font-size: 15px; font-weight: 600; }
+            QFrame#fileFilterSection { background: palette(base); border: 1px solid #E2E7EF; border-radius: 6px; }
+            QLabel#fileFilterSectionTitle { font-weight: 600; }
+            QLabel#fileFilterMuted { color: #727D8D; font-size: 11px; }
+            QLineEdit { min-height: 28px; padding: 0 6px 0 0; background: palette(base);
+                border: 1px solid #D7DEE8; border-radius: 4px; }
+            QLineEdit:focus { border-color: #756B9E; }
+            QListWidget#fileFilterCategoryList { background: palette(base); border: 1px solid #E2E7EF;
+                border-radius: 4px; padding: 3px 0; outline: none; }
+            QListWidget#fileFilterCategoryList::item { padding: 0 6px; border: none; }
+            QListWidget#fileFilterCategoryList::item:hover { background: palette(alternate-base); }
+            QListWidget#fileFilterCategoryList::item:focus { background: #F2F0F8; }
+            QFrame#fileFilterMatchControl { background: #F3F4F7; border: 1px solid #E2E7EF; border-radius: 5px; }
+            QFrame#fileFilterMatchControl QToolButton { min-height: 26px; padding: 0 8px; border: 1px solid transparent;
+                border-radius: 3px; color: #687285; }
+            QFrame#fileFilterMatchControl QToolButton:checked { background: #ECEAF5; color: #645887; border-color: #D6CFE6; }
+            QFrame#fileFilterMatchControl QToolButton:hover { color: #645887; }
+            QFrame#fileFilterMatchControl QToolButton:focus { border-color: #756B9E; }
+            QComboBox { min-height: 28px; padding: 0 8px; background: palette(base);
+                border: 1px solid #D7DEE8; border-radius: 4px; color: palette(text); }
+            QComboBox:focus { border-color: #756B9E; }
+            QComboBox::drop-down { border: none; width: 24px; }
+            QComboBox::down-arrow { image: url(:/chevron-down); width: 16px; height: 16px; }
+            QToolButton { border: none; border-radius: 4px; padding: 3px 5px; color: #645887; }
+            QToolButton:hover, QToolButton:focus { background: #ECEAF5; }
+            QToolButton:disabled { color: #A0A8B4; }
+            QPushButton { min-height: 28px; padding: 0 10px; border: 1px solid #D7DEE8;
+                border-radius: 4px; background: palette(base); color: palette(text); }
+            QPushButton:hover { background: palette(alternate-base); }
+            QPushButton:focus { border-color: #756B9E; }
+            QFrame#fileFilterDivider { background: #E2E7EF; border: none; }
+        """)
         language_changed.connect(self.retranslate_ui)
         self.retranslate_ui()
 
@@ -373,6 +538,25 @@ class FileListFilterPanel(QFrame):
 
     def retranslate_ui(self, _language=None):
         self.title_label.setText(tr("fileFilter.title"))
+        self.category_title.setText(tr("fileFilter.categories"))
+        self.category_search.setPlaceholderText(tr("fileFilter.categorySearch"))
+        self.category_search.setAccessibleName(tr("fileFilter.categorySearch"))
+        self.category_list.setAccessibleName(tr("fileFilter.categories"))
+        self.category_all.setText(tr("fileFilter.categoryAllShort"))
+        self.category_any.setText(tr("fileFilter.categoryAnyShort"))
+        self.category_all.setAccessibleName(tr("fileFilter.categoryAll"))
+        self.category_any.setAccessibleName(tr("fileFilter.categoryAny"))
+        self.category_all.setToolTip(tr("fileFilter.categoryAllHelp"))
+        self.category_any.setToolTip(tr("fileFilter.categoryAnyHelp"))
+        self.category_match_title.setText(tr("fileFilter.categoryMatch"))
+        self.category_reset_button.setText(tr("filePanel.clear"))
+        self.category_reset_button.setToolTip(tr("fileFilter.categoryClear"))
+        self.category_reset_button.setAccessibleName(tr("fileFilter.categoryClear"))
+        self.state_title.setText(tr("fileFilter.stateConditions"))
+        self.live_hint.setText(tr("fileFilter.liveHint"))
+        self.close_button.setToolTip(tr("standard.close"))
+        self.close_button.setAccessibleName(tr("standard.close"))
+        self._filter_category_rows()
         self.annotation_label.setText(tr("fileFilter.annotation"))
         self.review_label.setText(tr("fileFilter.review"))
         self.alert_label.setText(tr("fileFilter.persistence"))
@@ -386,13 +570,90 @@ class FileListFilterPanel(QFrame):
         ):
             for index in range(combo.count()):
                 combo.setItemText(index, tr(combo.itemData(index, Qt.UserRole + 1)))
+            combo.setToolTip(combo.currentText())
 
     def _emit_filter(self, _value=None):
+        for combo in (self.annotation_combo, self.review_combo, self.alert_combo, self.quality_combo):
+            combo.setToolTip(combo.currentText())
         self.filterChanged.emit(
             self.annotation_combo.currentData(),
             self.review_combo.currentData(),
             self.alert_combo.currentData(),
             self.quality_combo.currentData(),
+        )
+
+    def set_available_categories(self, categories):
+        categories = tuple(sorted(set(categories), key=lambda value: (value.casefold(), value)))
+        if categories != self._available_categories:
+            self._available_categories = categories
+            self.set_categories(self._categories, "all" if self.category_all.isChecked() else "any")
+
+    def set_categories(self, categories=(), match="all"):
+        self._categories = frozenset(categories)
+        blockers = [QSignalBlocker(control) for control in (
+            self.category_list, self.category_all, self.category_any,
+        )]
+        self.category_all.setChecked(match == "all")
+        self.category_any.setChecked(match == "any")
+        self.category_list.clear()
+        # Keep selected labels when their last box disappears, so an empty
+        # result never silently broadens the user's query.
+        labels = sorted(set(self._available_categories) | self._categories,
+                        key=lambda value: (value.casefold(), value))
+        for label in labels:
+            item = QListWidgetItem(label)
+            item.setData(Qt.UserRole, label)
+            item.setToolTip(label)
+            item.setSizeHint(QSize(0, 28))
+            item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
+            item.setCheckState(Qt.Checked if label in self._categories else Qt.Unchecked)
+            self.category_list.addItem(item)
+        del blockers
+        self._filter_category_rows()
+
+    def _filter_category_rows(self, _text=None):
+        query = self.category_search.text().strip().casefold()
+        visible = 0
+        for row in range(self.category_list.count()):
+            item = self.category_list.item(row)
+            matches = query in item.text().casefold()
+            item.setHidden(not matches)
+            visible += matches
+        self.category_list.setVisible(bool(visible))
+        self.category_list.setFixedHeight(min(5, max(1, visible)) * 28 + 8)
+        self.category_empty.setText(tr(
+            "fileFilter.categoryNoMatch" if self.category_list.count()
+            else "fileFilter.categoryEmpty"
+        ))
+        self.category_empty.setVisible(not visible)
+        self._update_category_feedback()
+        if self.isVisible():
+            self._fit_content()
+
+    def _update_category_feedback(self):
+        self.category_count.setText(tr("fileFilter.categorySelected", count=len(self._categories)))
+        self.category_reset_button.setEnabled(bool(self._categories))
+        self.category_match_help.setText(tr(
+            "fileFilter.categoryAllHelp" if self.category_all.isChecked()
+            else "fileFilter.categoryAnyHelp"
+        ))
+
+    def _clear_categories(self):
+        self.set_categories((), "all" if self.category_all.isChecked() else "any")
+        self._emit_categories()
+
+    def _category_checked(self, _item):
+        self._categories = frozenset(
+            self.category_list.item(row).data(Qt.UserRole)
+            for row in range(self.category_list.count())
+            if self.category_list.item(row).checkState() == Qt.Checked
+        )
+        self._emit_categories()
+
+    def _emit_categories(self, _checked=None):
+        self._update_category_feedback()
+        self.categoriesChanged.emit(
+            self._categories, "all" if self.category_all.isChecked() else "any"
         )
 
     def set_filter(self, annotation, review, alert, quality="all"):
@@ -410,10 +671,14 @@ class FileListFilterPanel(QFrame):
         ):
             index = combo.findData(value)
             combo.setCurrentIndex(max(0, index))
+            combo.setToolTip(combo.currentText())
         del blockers
 
     def show_for(self, button):
-        self.adjustSize()
+        self.ensurePolished()
+        self._fit_content()
+        self.show()
+        self._fit_content()
         position = button.mapToGlobal(button.rect().bottomRight())
         x = position.x() - self.width()
         y = position.y() + 2
@@ -429,9 +694,32 @@ class FileListFilterPanel(QFrame):
                 min(y, available.bottom() - self.height() + 1),
             )
         self.move(x, y)
-        self.show()
         self.raise_()
-        self.annotation_combo.setFocus(Qt.PopupFocusReason)
+        self.category_search.setFocus(Qt.PopupFocusReason)
+
+    def _fit_content(self):
+        for section in (self.category_section, self.state_section):
+            section.layout().invalidate()
+            section.layout().activate()
+        self.layout().invalidate()
+        self.layout().activate()
+        self.adjustSize()
+        screen = self.screen()
+        if screen is not None and not self.category_list.isHidden():
+            overflow = self.height() - screen.availableGeometry().height() + 20
+            if overflow > 0:
+                self.category_list.setFixedHeight(max(36, self.category_list.height() - overflow))
+                self.category_section.layout().invalidate()
+                self.category_section.layout().activate()
+                self.layout().invalidate()
+                self.layout().activate()
+                self.adjustSize()
+        if screen is not None and self.isVisible():
+            available = screen.availableGeometry()
+            self.move(
+                max(available.left(), min(self.x(), available.right() - self.width() + 1)),
+                max(available.top(), min(self.y(), available.bottom() - self.height() + 1)),
+            )
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_Escape:
@@ -499,6 +787,23 @@ class FileListControlBar(QWidget):
             chip.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
             chip.clicked.connect(lambda checked=False, field=key: self.clear_filter_field(field))
             self.chip_buttons[key] = chip
+        self.category_chip = QWidget(self.filter_chips)
+        category_layout = QHBoxLayout(self.category_chip)
+        category_layout.setContentsMargins(0, 0, 0, 0)
+        category_layout.setSpacing(0)
+        self.category_chip_button = _CategoryFilterChipButton(self.category_chip)
+        self.category_chip_button.setObjectName('fileFilterChip')
+        self.category_chip_button.setFixedHeight(25)
+        self.category_chip_button.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        self.category_chip_button.clicked.connect(self.show_filter_panel)
+        category_layout.addWidget(self.category_chip_button, 1)
+        self.category_clear_button = QToolButton(self.category_chip)
+        self.category_clear_button.setObjectName('fileFilterChip')
+        self.category_clear_button.setFixedSize(25, 25)
+        self.category_clear_button.setIcon(new_icon('clear'))
+        self.category_clear_button.setIconSize(QSize(16, 16))
+        self.category_clear_button.clicked.connect(lambda: self.set_category_filter())
+        category_layout.addWidget(self.category_clear_button)
         self.clear_chips_button = QToolButton(self.filter_chips)
         self.clear_chips_button.setFixedHeight(25)
         self.clear_chips_button.clicked.connect(self.clear_advanced_filters)
@@ -538,6 +843,7 @@ class FileListControlBar(QWidget):
         self.sort_button.setPopupMode(QToolButton.InstantPopup)
         self.filter_panel = FileListFilterPanel(self)
         self.filter_panel.filterChanged.connect(self._set_filter)
+        self.filter_panel.categoriesChanged.connect(self.set_category_filter)
         self.filter_panel.clearRequested.connect(self.clear_advanced_filters)
         self.filter_button.clicked.connect(self.show_filter_panel)
         self.set_workspace_available(False)
@@ -667,9 +973,26 @@ class FileListControlBar(QWidget):
         if changed and emit:
             self.viewChanged.emit()
 
+    def set_category_filter(self, categories=(), match="all"):
+        before = self.state.query
+        self.state.set_category_filter(categories, match)
+        # Checkbox changes already updated the list. Avoid rebuilding that
+        # widget during its own itemChanged event.
+        if (self.filter_panel._categories != self.state.category_filter
+                or self.filter_panel.category_all.isChecked() != (self.state.category_match == "all")):
+            self.filter_panel.set_categories(self.state.category_filter, self.state.category_match)
+        self._update_filter_presentation()
+        if before != self.state.query:
+            self.viewChanged.emit()
+
+    def set_available_categories(self, categories):
+        self.filter_panel.set_available_categories(categories)
+
     def clear_advanced_filters(self, _checked=False, emit=True):
         changed = self.state.advanced_filter_active
         self.state.reset_advanced_filters()
+        self.filter_panel.set_categories()
+        self.filter_panel.category_search.clear()
         self.filter_panel.set_filter("all", "all", "all", "all")
         self._update_filter_presentation()
         if changed and emit:
@@ -681,6 +1004,8 @@ class FileListControlBar(QWidget):
         self.search_edit.clear()
         del blocker
         self.state.reset_filter()
+        self.filter_panel.set_categories()
+        self.filter_panel.category_search.clear()
         self.filter_panel.set_filter("all", "all", "all", "all")
         self._update_filter_presentation()
         if changed and emit:
@@ -729,6 +1054,8 @@ class FileListControlBar(QWidget):
             "overexposed": "quality.overexposed",
         }[self.state.quality_filter])
         labels[-1] = tr("fileFilter.qualityValue", value=tr(labels[-1]))
+        if self.state.category_filter:
+            labels.append(self._category_summary())
         self.filter_button.setToolTip(
             tr("fileFilter.tooltip", details=" · ".join(labels))
         )
@@ -757,9 +1084,27 @@ class FileListControlBar(QWidget):
                 chip.setAccessibleName(tr('filePanel.removeFilter', filter=detail))
                 self.chip_layout.addWidget(chip, active // 2, active % 2, Qt.AlignLeft)
                 active += 1
+        self.chip_layout.removeWidget(self.category_chip)
+        self.category_chip.setVisible(bool(self.state.category_filter))
+        if self.state.category_filter:
+            summary = self._category_summary()
+            self.category_chip_button.setText(summary)
+            self.category_chip_button.setToolTip(tr('fileFilter.categoryEdit', details=summary))
+            self.category_chip_button.setAccessibleName(tr('fileFilter.categoryEdit', details=summary))
+            self.category_clear_button.setToolTip(tr('fileFilter.categoryClear'))
+            self.category_clear_button.setAccessibleName(tr('fileFilter.categoryClear'))
+            self.chip_layout.addWidget(self.category_chip, (active + 1) // 2, 0, 1, 2)
+            active += 1
         self.chip_layout.addWidget(self.clear_chips_button, 0, 2, Qt.AlignRight)
         self.clear_chips_button.setText(tr('filePanel.clear'))
         self.filter_chips.setVisible(active > 0)
+
+    def _category_summary(self):
+        return tr(
+            'fileFilter.categoryAllSummary' if self.state.category_match == 'all'
+            else 'fileFilter.categoryAnySummary',
+            labels=', '.join(sorted(self.state.category_filter, key=lambda value: (value.casefold(), value))),
+        )
 
     def show_filter_panel(self, _checked=False):
         if not self.filter_button.isEnabled():

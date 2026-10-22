@@ -189,6 +189,8 @@ def critical(parent, title, text, buttons=None, default_button=None):
 
 
 _HISTORY_MESSAGE_IDS = {
+    "Annotation statistics": "annotationStats.title",
+    "Clean annotation files": "recovery.operation.cleanup",
     "Create box": "history.create",
     "Drawing": "history.drawing",
     "Resize box": "history.resize",

@@ -311,9 +311,7 @@ class Canvas(QWidget):
         return None if pending.isEmpty() else pending
 
     def _overlap_hiding_rectangles(self, protected_shapes=None):
-        if self.current is not None:
-            return ()
-        if self._pending_label_shape is not None:
+        if self.current is not None or self._pending_label_shape is not None:
             geometry = self._pending_overlap_rectangle()
             return () if geometry is None else (geometry,)
         if protected_shapes is None:

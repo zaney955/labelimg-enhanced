@@ -594,6 +594,14 @@ class WorkbenchComposer:
         recent_file_operations.triggered.connect(
             self.open_file_recovery_center
         )
+        cleanup_annotations = action(
+            tr('cleanup.title'), self.cleanup_annotation_files,
+            icon='cleanup-annotations', tip=tr('cleanup.tip'), enabled=False,
+        )
+        annotation_statistics = action(
+            tr('annotationStats.title'), self.show_annotation_statistics,
+            icon='annotation-statistics', tip=tr('annotationStats.tip'), enabled=False,
+        )
         remove_colored_frames = action(
             tr('imageTools.action.removeFrames'),
             self.open_remove_colored_frames,
@@ -831,6 +839,8 @@ class WorkbenchComposer:
                               undoAnnotation=undo_annotation,
                               redoAnnotation=redo_annotation,
                               recentFileOperations=recent_file_operations,
+                              cleanupAnnotations=cleanup_annotations,
+                              annotationStatistics=annotation_statistics,
                               removeColoredFrames=remove_colored_frames,
                               cropImage=crop_image,
                               rotateClockwise=rotate_clockwise,
@@ -882,6 +892,7 @@ class WorkbenchComposer:
             edit=self.menu(get_str('menu_edit')),
             image=self.menu(tr('menu_image')),
             view=self.menu(get_str('menu_view')),
+            tools=self.menu(tr('menu_tools')),
             settings=self.menu(tr('menu_settings')),
             help=self.menu(get_str('menu_help')),
             recentFiles=QMenu(get_str('menu_openRecent')),
@@ -1051,6 +1062,8 @@ class WorkbenchComposer:
                      self.menus.annotationDirectory, None,
                      open_annotation, save, save_as, save_format, close, None,
                      delete_image, recent_file_operations, None, quit))
+        add_actions(self.menus.tools, (cleanup_annotations, annotation_statistics))
+        self.menus.tools.aboutToShow.connect(self.sync_workspace_tool_actions)
         add_actions(self.menus.image, (
             crop_image,
             self.menus.geometry,
@@ -1176,6 +1189,8 @@ class WorkbenchComposer:
             close: ('closeCur', 'closeCurDetail'),
             delete_image: ('deleteImg', 'deleteImgDetail'),
             recent_file_operations: ('action.recentOperations', None),
+            cleanup_annotations: ('cleanup.title', 'cleanup.tip'),
+            annotation_statistics: ('annotationStats.title', 'annotationStats.tip'),
             remove_colored_frames: (
                 'imageTools.action.removeFrames',
                 'imageTools.action.removeFramesTip',

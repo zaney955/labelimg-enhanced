@@ -124,7 +124,7 @@ class TestAppIconAssets(unittest.TestCase):
             for path in sorted(ICON_DIRECTORY.glob("*.svg"))
             if path.name != "app.svg"
         ]
-        self.assertEqual(len(operation_paths), 109)
+        self.assertEqual(len(operation_paths), 111)
         for path in operation_paths:
             root = ElementTree.parse(path).getroot()
             with self.subTest(path=path.name):

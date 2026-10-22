@@ -177,14 +177,47 @@ class OverlapHidingTest(unittest.TestCase):
         self.canvas.line[1] = QPointF(120, 60)
         self.assertNotEqual(self.color(self.capture(), 40, 80), self.background)
 
-    def test_drawing_uses_endpoint_containment_instead_of_rectangle_intersection(self):
-        self.start_box((20, 20), (130, 130))
+    def test_drawing_clips_pending_area_even_when_center_is_outside_other_box(self):
+        self.shape.paint_label = False
+        self.start_box((20, 20), (80, 120))
         baseline = self.capture()
-        self.canvas.set_auto_hide_overlapping(True)
-        self.assertEqual(self.capture(), baseline)
+        self.canvas.set_hide_at_crosshair(True)
+        image = self.capture()
+        self.assertEqual(self.color(image, 60, 40), self.background)
+        self.assertEqual(self.color(image, 60, 100), self.background)
+        self.assertNotEqual(self.color(image, 100, 60), self.background)
         self.canvas.line[1] = QPointF(80, 80)
         self.assert_box_hidden(self.capture())
-        self.canvas.line[1] = QPointF(130, 130)
+        self.canvas.line[1] = QPointF(80, 120)
+        self.assertEqual(self.capture(), image)
+        self.canvas.set_hide_at_crosshair(False)
+        self.assertEqual(self.capture(), baseline)
+        self.assertTrue(self.canvas.isVisible(self.shape))
+
+    def test_drawing_clips_only_label_ink_inside_pending_area_and_restores_on_cancel(self):
+        baseline = self.capture()
+        label = self.shape.label_text_rect().toAlignedRect().intersected(self.canvas.pixmap.rect())
+        split = label.center().x()
+        end = (split, label.bottom() + 6)
+        self.assertFalse(label.contains(QPointF(*end).toPoint()))
+        self.start_box((0, 0), end)
+        self.canvas.set_hide_at_crosshair(True)
+        image = self.capture()
+        inside, outside = [], []
+        for x in range(label.left(), label.right() + 1):
+            for y in range(label.top(), label.bottom() + 1):
+                if baseline.pixelColor(x, y) == self.background:
+                    continue
+                if x < split - 2:
+                    inside.append((x, y))
+                elif x > split + 2:
+                    outside.append((x, y))
+        self.assertTrue(inside)
+        self.assertTrue(outside)
+        self.assertTrue(all(image.pixelColor(x, y) == self.background for x, y in inside))
+        self.assertTrue(all(image.pixelColor(x, y) == baseline.pixelColor(x, y)
+                            for x, y in outside))
+        self.canvas.cancel_current_drawing()
         self.assertEqual(self.capture(), baseline)
 
     def test_box_boundaries_and_fractional_endpoints_use_original_geometry(self):

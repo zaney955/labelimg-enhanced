@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Add Tools → Annotation Statistics with category box/image counts, scrollable bar charts, numeric details and shares, category filtering, read-only unsaved-snapshot support, active-document deduplication, and localized skipped-image diagnostics.
+
+- Preserve original Canvas geometry when adjusted image previews are refreshed after rotation, flipping, cropping, or image recovery, preventing drawing from failing with an annotation-history snapshot mismatch.
+
+- Clip other annotations inside the pending rectangle throughout drawing, including when the crosshair center is outside their bounds; retain uncovered portions and center-based whole-component hiding.
+
+- Add a top-level Tools menu and Clean Annotation Files with directory-pair scanning, per-file previews, opt-in empty/negative-sample cleanup, split/shared-CreateML protection, stale-preview and unsaved-edit guards, Recycle Bin recovery, and Simplified Chinese/English text.
+
+- Add searchable category multi-selection in file-list Advanced Filters, with all/any matching, editable and independently removable summaries, live XML/YOLO/CreateML and unsaved-edit updates, and Simplified Chinese/English text.
+
 - Unify compact controls, sorting, filtering, visibility states, file status indicators, reset/zoom controls, crop handles and Qt control glyphs with the shared SVG icon system.
 
 - Reorganize the file dock with header counts and readable sort state, a full-row annotation-directory entry, removable filter chips, compact middle-elided file rows, and selection-dependent actions; keep unsaved changes and persistence warnings in the rightmost status slot.

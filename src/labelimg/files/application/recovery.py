@@ -20,6 +20,7 @@ class RecoveryOperation(str, Enum):
     RENAME = "rename"
     REVIEW = "review"
     LABEL_REPLACE = "label-replace"
+    CLEANUP = "cleanup"
 
     def __str__(self):
         return self.value

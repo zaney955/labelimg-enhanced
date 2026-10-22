@@ -123,6 +123,7 @@ from labelimg.files.ui.list_widget import (
     FILE_ANNOTATION_STATE_ROLE,
     FILE_PERSISTENCE_FLAGS_ROLE,
     FILE_QUALITY_FINDINGS_ROLE,
+    FILE_CATEGORY_LABELS_ROLE,
     FILE_REVIEW_STATE_ROLE,
     FileListItem,
     FileListControlBar,
@@ -275,6 +276,7 @@ class MainWindow(
         self.menus.edit.setTitle(tr('menu_edit'))
         self.menus.image.setTitle(tr('menu_image'))
         self.menus.view.setTitle(tr('menu_view'))
+        self.menus.tools.setTitle(tr('menu_tools'))
         self.menus.settings.setTitle(tr('menu_settings'))
         self.menus.help.setTitle(tr('menu_help'))
         self.menus.recentFiles.setTitle(tr('menu_openRecent'))
@@ -1349,6 +1351,8 @@ class MainWindow(
 
 
     def _sync_annotation_directory_ui(self):
+        if hasattr(self, 'actions') and hasattr(self.actions, 'cleanupAnnotations'):
+            self.sync_workspace_tool_actions()
         if not hasattr(self, 'annotation_directory_label'):
             return
         custom_dir = ustr(self.default_save_dir or '')
@@ -1822,6 +1826,8 @@ class MainWindow(
         item.setData(FILE_ANNOTATION_STATE_ROLE, annotation_state)
         item.setData(FILE_REVIEW_STATE_ROLE, review_state)
         item.setData(FILE_PERSISTENCE_FLAGS_ROLE, persistence_flags)
+        item.setData(FILE_CATEGORY_LABELS_ROLE,
+                     tuple(self.file_annotation_labels(image_path)) if indexed else ())
         quality_result = self._quality_result_for_path(image_path)
         item.setData(
             FILE_QUALITY_FINDINGS_ROLE,

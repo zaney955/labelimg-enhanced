@@ -108,6 +108,51 @@ class FileOperationTransaction:
     def record_review(self, changes):
         return self._recovery.record_review(changes)
 
+    def cleanup_annotations(self, plan, items, should_continue=None):
+        """Recycle only reviewed files; protect all affected editing sessions."""
+        from labelimg.files.application.cleanup import (
+            CleanupError, CleanupResult, path_key,
+            verify_cleanup_item, verify_cleanup_selection,
+        )
+        from labelimg.platform.recovery import TrashIdentity, TrashedResource
+
+        items = tuple(items)
+        if path_key(self._workspace.image_dir or "") != path_key(plan.image_dir) or path_key(self._workspace.save_dir or self._workspace.image_dir or "") != path_key(plan.annotation_dir):
+            raise CleanupError("workspaceChanged")
+        keys = {path_key(item.path) for item in items}
+        images = {image for item in items for image in item.image_paths}
+        for view in self._editing.dirty_views():
+            if view.image_key in images or keys.intersection(self._persistence.resource_keys_for(view)):
+                raise CleanupError("dirty", view.image_key)
+        paths = tuple(item.path for item in items)
+        result = CleanupResult()
+        with self._workspace.storage_coordinator.lease(paths):
+            preflight = getattr(self._trash, "preflight", None)
+            if preflight:
+                preflight(paths)
+            verify_cleanup_selection(plan, items)
+            for item in items:
+                if should_continue is not None and not should_continue():
+                    result.canceled = True
+                    break
+                try:
+                    verify_cleanup_item(plan, item)
+                    identity = self._trash.move(item.path)
+                    if identity is None:
+                        identity = TrashIdentity("unavailable", None, item.path, actionable=False)
+                    result.trashed_resources.append(TrashedResource(item.path, identity))
+                    result.removed_paths.append(item.path)
+                    result.affected_images.extend(item.image_paths)
+                except Exception as error:
+                    result.failures.append((item.path, error))
+        entry = self._recovery.record_trash_operation(
+            RecoveryOperation.CLEANUP, result.trashed_resources,
+            target_count=len(result.removed_paths),
+        )
+        result.affected_images = list(dict.fromkeys(result.affected_images))
+        self._discard_histories(result.affected_images)
+        return FileOperationOutcome(RecoveryOperation.CLEANUP, file_result=result, recovery_entry=entry)
+
     def record_label_replacement(self, record):
         return self._recovery.record_label_replacement(record)
 
@@ -224,6 +269,7 @@ class FileOperationTransaction:
         if entry.operation in (
             RecoveryOperation.DELETE,
             RecoveryOperation.CLEAR,
+            RecoveryOperation.CLEANUP,
         ):
             return self._recover_trashed(entry)
         if entry.operation is RecoveryOperation.RENAME:
@@ -241,7 +287,7 @@ class FileOperationTransaction:
         )
 
     def _recover_trashed(self, entry):
-        if entry.operation is RecoveryOperation.CLEAR:
+        if entry.operation in (RecoveryOperation.CLEAR, RecoveryOperation.CLEANUP):
             self._verify_clear_recovery_histories(entry)
         resources = tuple(entry.payload)
         paths = tuple(resource.original_path for resource in resources)

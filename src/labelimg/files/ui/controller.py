@@ -31,7 +31,7 @@ from labelimg.localization.runtime import localize_message_box_buttons, question
 from labelimg.annotations import AnnotationFormat
 from labelimg.files import discover_images
 from labelimg.platform.text import native_text as ustr
-from labelimg.files.ui.list_widget import BatchRenameDialog, CURRENT_IMAGE_ROLE, FILE_ANNOTATION_STATE_ROLE, FILE_PERSISTENCE_FLAGS_ROLE, FILE_QUALITY_FINDINGS_ROLE, FILE_REVIEW_STATE_ROLE, compare_relative_image_paths, validate_base_name, validate_rename_mapping
+from labelimg.files.ui.list_widget import BatchRenameDialog, CURRENT_IMAGE_ROLE, FILE_CATEGORY_LABELS_ROLE, FILE_ANNOTATION_STATE_ROLE, FILE_PERSISTENCE_FLAGS_ROLE, FILE_QUALITY_FINDINGS_ROLE, FILE_REVIEW_STATE_ROLE, compare_relative_image_paths, validate_base_name, validate_rename_mapping
 from labelimg.files.application.operations import FileOperationError
 from labelimg.files.application.transaction import FileOperationBlocked
 
@@ -60,6 +60,22 @@ class _ImageDecodeWorker(QObject):
 
 
 class FileActionsMixin:
+    def cleanup_annotation_files(self, _checked=False):
+        from labelimg.files.ui.cleanup_dialog import show_annotation_cleanup
+
+        show_annotation_cleanup(self)
+
+    def sync_workspace_tool_actions(self):
+        image_dir = getattr(self, 'dir_name', None)
+        annotation_dir = self.default_save_dir or image_dir
+        self.actions.cleanupAnnotations.setEnabled(bool(
+            image_dir and annotation_dir and os.path.isdir(image_dir)
+            and os.path.isdir(annotation_dir)
+        ))
+        self.actions.annotationStatistics.setEnabled(bool(
+            image_dir or getattr(self, 'file_path', None)
+        ))
+
     def _ensure_image_decode_cache(self):
         cache = getattr(self, "_image_decode_cache", None)
         if cache is None:
@@ -178,6 +194,10 @@ class FileActionsMixin:
             path: tuple(item.data(FILE_QUALITY_FINDINGS_ROLE) or ())
             for path, item in items.items()
         }
+        category_labels = {
+            path: item.data(FILE_CATEGORY_LABELS_ROLE) or ()
+            for path, item in items.items()
+        }
         previous_projection = getattr(self, '_file_list_projection', None)
         include_advanced_filters = self.file_list_controls.index_complete
         projection_query = state.projection_query(
@@ -200,6 +220,7 @@ class FileActionsMixin:
             quality_findings_for=quality_findings.get,
             presorted=presorted,
             include_advanced_filters=include_advanced_filters,
+            labels_for=category_labels.get,
         )
         ordered = projection.ordered_paths
         self._file_list_projection = projection
@@ -1231,6 +1252,7 @@ class FileActionsMixin:
         item.setData(FILE_ANNOTATION_STATE_ROLE, annotation_state)
         item.setData(FILE_REVIEW_STATE_ROLE, review_state)
         item.setData(FILE_PERSISTENCE_FLAGS_ROLE, flags)
+        item.setData(FILE_CATEGORY_LABELS_ROLE, tuple(self.file_annotation_labels(image_path)))
         quality_result = self._quality_result_for_path(image_path)
         from labelimg.image_tools import quality_finding_text
         quality_findings = tuple(

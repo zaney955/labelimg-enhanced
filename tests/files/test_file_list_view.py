@@ -284,7 +284,7 @@ class FileListControlsTest(unittest.TestCase):
         self.assertTrue(changes)
         self.assertEqual(
             self.widget.filter_panel.findChildren(QLineEdit),
-            [],
+            [self.widget.filter_panel.category_search],
         )
 
         self.widget.clear_advanced_filters()

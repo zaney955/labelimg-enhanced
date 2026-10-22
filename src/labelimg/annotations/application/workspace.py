@@ -289,6 +289,25 @@ class AnnotationWorkspace:
         """Retain approved sources when refreshing the same workspace session."""
         self._approved_yolo_mappings.update(workspace._approved_yolo_mappings)
 
+    def labels_for_image(self, image_path):
+        """Labels in the retained/active document, never a union of formats."""
+        image_key = _cache_key(image_path)
+        retained = self._in_memory_labels_by_image.get(image_key)
+        if retained is not None:
+            return retained[2]
+        path = self.active_document_path(image_path)
+        if path is None:
+            choices = self.document_choices(image_path)
+            if len(choices) != 1:
+                return frozenset()
+            path = choices[0].annotation_path
+        path_key = _cache_key(path)
+        if path_key in self._create_ml_resource_keys:
+            status = self._create_ml_status_for_image(path, image_path)
+        else:
+            status = self._status_by_path.get(path_key)
+        return status.labels if status is not None else frozenset()
+
     def confirm_class_mapping(self, mapping):
         """UI-owned approval; workers only collect potential mapping sources."""
         token = (mapping.source, mapping.content_digest)
@@ -781,7 +800,7 @@ class AnnotationWorkspace:
             )
         return tuple(saves)
 
-    def scan(self, directory, force=True):
+    def scan(self, directory, force=True, progress=None, onerror=None):
         directory = os.path.abspath(os.fspath(directory))
         if (
             not force
@@ -818,8 +837,10 @@ class AnnotationWorkspace:
         annotation_paths = []
         resource_paths = set()
         class_candidates_by_directory = {}
-        for root, _directories, filenames in os.walk(directory):
+        for root, _directories, filenames in os.walk(directory, onerror=onerror):
             for filename in filenames:
+                if progress is not None:
+                    progress()
                 path = os.path.abspath(os.path.join(root, filename))
                 if filename.casefold() == "classes.txt":
                     resource_paths.add(path)
@@ -841,6 +862,8 @@ class AnnotationWorkspace:
 
         contents = {}
         for resource in resource_paths:
+            if progress is not None:
+                progress()
             key = _cache_key(resource)
             try:
                 stat = os.stat(resource)

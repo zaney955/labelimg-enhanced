@@ -691,6 +691,7 @@ class CommandSurfacesTest(unittest.TestCase):
                 self.window.menus.edit.menuAction(),
                 self.window.menus.image.menuAction(),
                 self.window.menus.view.menuAction(),
+                self.window.menus.tools.menuAction(),
                 self.window.menus.settings.menuAction(),
                 self.window.menus.help.menuAction(),
             ],
@@ -762,6 +763,7 @@ class CommandSurfacesTest(unittest.TestCase):
             self.window.menus.edit,
             self.window.menus.image,
             self.window.menus.view,
+            self.window.menus.tools,
             self.window.menus.settings,
             self.window.menus.help,
         ):

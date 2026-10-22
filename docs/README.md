@@ -16,6 +16,8 @@
 | 图像处理、裁剪、质量分析、显示调整及处理恢复 | [图像工具](design/image-tools.md) |
 | 左侧工具栏、顶部命令、状态区、坐标和缩放 | [Canvas 命令布局](design/canvas-tool-rail.md) |
 | 顶层菜单归属 | [菜单信息架构](design/menu-information-architecture.md) |
+| 无对应图像或空标注文件的扫描、清理与恢复 | [标注文件清理](design/annotation-cleanup.md) |
+| 类别框数、图像数、占比及统计图表 | [标注统计](design/annotation-statistics.md) |
 | 语言切换、界面文案与快捷键帮助 | [双语界面](design/bilingual-interface.md) |
 | 类别显示颜色及会话生命周期 | [会话类别调色板](design/session-label-color-palette.md) |
 | 操作图标的几何、颜色与验证 | [图标规范](icon-design-system.md) · [当前 SVG 资源](../resources/icons/) |

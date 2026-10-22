@@ -5,6 +5,8 @@
 <file alias="app">resources/icons/app.svg</file>
 <file alias="about">resources/icons/about.svg</file>
 <file alias="annotation-current">resources/icons/annotation-current.svg</file>
+<file alias="cleanup-annotations">resources/icons/cleanup-annotations.svg</file>
+<file alias="annotation-statistics">resources/icons/annotation-statistics.svg</file>
 <file alias="done">resources/icons/done.svg</file>
 <file alias="file">resources/icons/file.svg</file>
 <file alias="labels">resources/icons/labels.svg</file>

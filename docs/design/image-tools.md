@@ -1,5 +1,7 @@
 # Image Tools Workspace
 
+All image-pixel replacements, including current geometry commits and recovery refreshes, pass the full decoded image size to Canvas independently of the display-adjustment preview bitmap size. Downsampled preview pixels never change annotation coordinates, the image bounds used by drawing, or the dimensions retained in annotation history. Drawing after processing must satisfy the same complete snapshot invariant as drawing immediately after loading an image.
+
 Current image-tool contract. [ADR 0013](../adr/0013-commit-image-processing-as-recoverable-atomic-replacement.md) records atomic replacement and recovery, [ADR 0014](../adr/0014-ship-image-tools-with-the-core-runtime.md) records core-runtime ownership, and [ADR 0015](../adr/0015-commit-geometry-changing-image-tools-with-annotations.md) records joint image/annotation geometry commits.
 
 ## Outcome

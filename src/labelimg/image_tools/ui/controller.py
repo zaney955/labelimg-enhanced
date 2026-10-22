@@ -131,7 +131,8 @@ class ImageToolsActionsMixin:
             self.canvas.replace_pixmap(
                 self._activate_display_adjustment_source(
                     self.image, self.file_path
-                )
+                ),
+                logical_size=self.image.size(),
             )
             self.annotation_scene.project(
                 self._history_projection_request(
@@ -946,7 +947,8 @@ class ImageToolsActionsMixin:
         self.canvas.replace_pixmap(
             self._activate_display_adjustment_source(
                 image, self.file_path
-            )
+            ),
+            logical_size=image.size(),
         )
         self.paint_canvas()
         return True

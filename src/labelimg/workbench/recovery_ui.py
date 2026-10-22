@@ -183,13 +183,19 @@ class RecoveryActionsMixin:
         if self.file_path is None and restored_images:
             self.load_file(restored_images[0])
         elif (
-            entry.operation == 'clear'
+            entry.operation in ('clear', 'cleanup')
             and self.file_path
             and any(
                 os.path.normcase(resource.original_path)
                 in {
                     os.path.normcase(path)
                     for path in self.annotation_paths_for_image(
+                        self.file_path
+                    )
+                }
+                | {
+                    os.path.normcase(choice.annotation_path)
+                    for choice in self.annotation_workspace.document_choices(
                         self.file_path
                     )
                 }

@@ -43,6 +43,11 @@ from labelimg.workbench.support import document_format_name, read_image as read
 
 
 class AnnotationActionsMixin:
+    def show_annotation_statistics(self, _checked=False):
+        from labelimg.annotations.ui.statistics_dialog import show_annotation_statistics
+
+        show_annotation_statistics(self)
+
     def replace_label_names(self, _checked=False):
         from labelimg.annotations.ui.label_replace_dialog import LabelReplaceDialog
 
@@ -1294,6 +1299,13 @@ class AnnotationActionsMixin:
             self.file_persistence_flags(image_path, choices=choices),
         )
 
+    def file_annotation_labels(self, image_path):
+        if self.annotation_editing.has_image(image_path):
+            view = self.annotation_editing.view_image(image_path, touch=False)
+            if view.dirty:
+                return frozenset(box.label for box in view.snapshot.boxes if box.label)
+        return self.annotation_workspace.labels_for_image(image_path)
+
 
     def set_selected_review_state(self, state, _checked=False):
         paths = self.selected_file_paths()
@@ -2163,6 +2175,7 @@ class AnnotationActionsMixin:
             self.annotation_workspace.candidate_labels
         )
         self.default_category_selector.set_candidate_labels(candidate_labels)
+        self.file_list_controls.set_available_categories(candidate_labels)
         if candidate_labels == self.candidate_labels:
             # A new workspace can reset session colors without changing labels.
             self.candidate_label_dialog.refresh_colors()

@@ -96,6 +96,7 @@ class FileListItemState:
     review_state: str = "unreviewed"
     persistence_flags: tuple = ()
     quality_findings: tuple = ()
+    labels: frozenset = frozenset()
 
     def __post_init__(self):
         object.__setattr__(self, "path", os.path.abspath(os.fspath(self.path)))
@@ -105,6 +106,7 @@ class FileListItemState:
         object.__setattr__(
             self, "quality_findings", tuple(self.quality_findings or ())
         )
+        object.__setattr__(self, "labels", frozenset(self.labels or ()))
 
 
 @dataclass(frozen=True)
@@ -118,6 +120,8 @@ class FileListQuery:
     review: str = "all"
     alert: str = "all"
     quality: str = "all"
+    categories: frozenset = frozenset()
+    category_match: str = "all"
 
     SORT_KEYS = ("name", "modified", "annotation", "review")
 
@@ -126,6 +130,9 @@ class FileListQuery:
             object.__setattr__(self, "sort_key", "name")
         object.__setattr__(self, "descending", bool(self.descending))
         object.__setattr__(self, "text", str(self.text).strip())
+        object.__setattr__(self, "categories", frozenset(self.categories or ()))
+        if self.category_match not in ("all", "any"):
+            object.__setattr__(self, "category_match", "all")
 
     @property
     def filter_active(self):
@@ -142,6 +149,7 @@ class FileListQuery:
             or self.review != "all"
             or self.alert != "all"
             or self.quality != "all"
+            or self.categories
         )
 
 
@@ -249,6 +257,12 @@ class FileListProjection:
 
     @staticmethod
     def _matches(item, root, query):
+        if query.categories:
+            if query.category_match == "all":
+                if not query.categories.issubset(item.labels):
+                    return False
+            elif not query.categories.intersection(item.labels):
+                return False
         if query.text:
             display_path = "/".join(
                 relative_path_parts(item.path, root)
