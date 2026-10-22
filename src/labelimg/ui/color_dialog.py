@@ -3,12 +3,16 @@ from PyQt5.QtWidgets import QColorDialog, QDialogButtonBox
 BB = QDialogButtonBox
 
 from labelimg.localization.runtime import localize_dialog_buttons
+from labelimg.localization.qt_controls import install_qt_control_translations
+from labelimg.ui.presentation import SURFACE_STYLE
 
 
 class ColorDialog(QColorDialog):
 
     def __init__(self, parent=None, show_alpha=False):
+        install_qt_control_translations()
         super(ColorDialog, self).__init__(parent)
+        self.setStyleSheet(SURFACE_STYLE)
         self.setOption(QColorDialog.ShowAlphaChannel, bool(show_alpha))
         # The Mac native dialog does not support our restore button.
         self.setOption(QColorDialog.DontUseNativeDialog)

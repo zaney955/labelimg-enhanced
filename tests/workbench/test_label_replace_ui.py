@@ -78,7 +78,12 @@ class LabelReplaceUiTest(unittest.TestCase):
         entries = self.window.file_operations.recovery_entries
         self.assertEqual(len(entries), 1)
         self.assertEqual(entries[0].operation, 'label-replace')
-        with patch('labelimg.workbench.recovery_ui.localized_question', return_value=QMessageBox.Yes):
+        def unexpected_warning(_parent, title, detail):
+            self.fail(f"{title}: {detail}")
+
+        with patch('labelimg.workbench.recovery_ui.localized_question', return_value=QMessageBox.Yes), patch(
+            'labelimg.workbench.recovery_ui.localized_warning', side_effect=unexpected_warning,
+        ):
             self.window._confirm_file_recovery(entries[0].entry_id)
         self.assertEqual([shape.label for shape in self.window.canvas.shapes], ['apple'])
         self.assertEqual(self.window.candidate_labels, ['apple'])

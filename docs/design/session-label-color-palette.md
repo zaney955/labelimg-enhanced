@@ -2,6 +2,8 @@
 
 ## Outcome
 
+The color manager provides category search, a table of colors and their sources, contextual edit/automatic-color actions, and a separate footer for resetting all colors and saving or canceling. Filtering preserves staged overrides; the selected row continues to display the actual category swatch. The session-only lifetime is shown as a compact footer note.
+
 Users can assign one opaque display color to an exact, case-sensitive label for the current annotation workspace session. The same resolved color is used for every matching box and label indicator. Settings → Label Color Algorithm selects fixed full-name colors (the default) or maximum color separation for the current workspace session.
 
 This feature is presentation state, not annotation data. Category-to-color mappings never write JSON, another sidecar, or application settings, and never change Pascal VOC, YOLO, or CreateML documents. Only the algorithm choice is remembered in existing application settings. Color changes do not participate in dirty tracking or Undo and Redo.

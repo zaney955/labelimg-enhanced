@@ -6,7 +6,7 @@ from PyQt5.QtCore import QEvent, QSize, Qt
 from PyQt5.QtGui import QPainter
 from PyQt5.QtWidgets import (
     QDockWidget, QFrame, QHBoxLayout, QLabel, QMenu, QPushButton,
-    QSizePolicy, QStackedWidget, QToolButton, QVBoxLayout, QWidget,
+    QSizePolicy, QStackedWidget, QToolButton, QVBoxLayout, QWidget, QStyle, QStyleOption,
 )
 
 from labelimg.annotations import AnnotationFormat
@@ -15,6 +15,7 @@ from labelimg.localization.runtime import tr
 from labelimg.platform.settings_keys import SETTING_FILE_LIST_SORT_DESCENDING, SETTING_FILE_LIST_SORT_KEY
 from labelimg.ui.actions import new_icon
 from labelimg.ui.icons import IconLabel
+from labelimg.ui.presentation import icon_tile, present_panel
 
 
 class _ElidedLabel(QLabel):
@@ -25,7 +26,11 @@ class _ElidedLabel(QLabel):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.setPen(self.palette().text().color())
+        option = QStyleOption()
+        option.initFrom(self)
+        self.style().drawPrimitive(QStyle.PE_Widget, option, painter, self)
+        painter.setFont(self.font())
+        painter.setPen(self.palette().windowText().color())
         painter.drawText(self.contentsRect(), Qt.AlignVCenter | Qt.AlignLeft,
                          self.fontMetrics().elidedText(self.text(), self._elide_mode, self.contentsRect().width()))
 
@@ -45,16 +50,22 @@ def build_file_panel(w, settings):
     w.file_dock = QDockWidget(tr('fileList'), w)
     w.file_dock.setObjectName(tr('files'))
     w.file_dock.setMinimumWidth(320)
-    w.file_header = QWidget()
+    w.file_header = QFrame()
+    w.file_header.setObjectName('filePanelHeader')
     header = QHBoxLayout(w.file_header)
-    header.setContentsMargins(12, 10, 12, 8)
-    header.setSpacing(8)
+    header.setContentsMargins(12, 9, 12, 9)
+    header.setSpacing(6)
+    header.addWidget(icon_tile('file', size=24, icon_size=16))
     w.file_panel_title = QLabel(tr('fileList'))
     w.file_panel_title.setObjectName('filePanelTitle')
     header.addWidget(w.file_panel_title)
     w.file_summary_label = _ElidedLabel()
     w.file_summary_label.setObjectName('filePanelSummary')
-    header.addWidget(w.file_summary_label, 1)
+    w.file_summary_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+    w.file_summary_label.setFixedHeight(22)
+    w.file_summary_label.setMaximumWidth(116)
+    header.addWidget(w.file_summary_label)
+    header.addStretch(1)
     w.file_list_controls = FileListControlBar(
         settings.get(SETTING_FILE_LIST_SORT_KEY, 'name'),
         settings.get(SETTING_FILE_LIST_SORT_DESCENDING, False),
@@ -62,10 +73,11 @@ def build_file_panel(w, settings):
     header.addWidget(w.file_list_controls.sort_button)
     w.file_dock.setTitleBarWidget(w.file_header)
 
-    container = QWidget()
+    container = QFrame()
+    container.setObjectName('filePanelSurface')
     layout = QVBoxLayout(container)
-    layout.setContentsMargins(12, 0, 12, 10)
-    layout.setSpacing(9)
+    layout.setContentsMargins(12, 12, 12, 12)
+    layout.setSpacing(10)
     # The action is installed later by composition, after commands are created.
     w.annotation_directory_bar = QToolButton()
     w.annotation_directory_bar.setObjectName('annotationDirectoryBar')
@@ -81,11 +93,18 @@ def build_file_panel(w, settings):
     icon.setAttribute(Qt.WA_TransparentForMouseEvents)
     directory.addWidget(icon)
     w.annotation_directory_button = w.annotation_directory_bar
-    layout.addWidget(w.annotation_directory_bar)
+    location_card = QFrame()
+    w.annotation_location_card = location_card
+    location_card.setObjectName('annotationLocationCard')
+    location = QVBoxLayout(location_card)
+    location.setContentsMargins(7, 5, 7, 7)
+    location.setSpacing(3)
+    location.addWidget(w.annotation_directory_bar)
     w.annotation_target_label = _ElidedLabel(elide_mode=Qt.ElideMiddle)
     w.annotation_target_label.setObjectName('annotationSaveTarget')
     w.annotation_target_label.setMinimumHeight(20)
-    layout.addWidget(w.annotation_target_label)
+    location.addWidget(w.annotation_target_label)
+    layout.addWidget(location_card)
     w.file_list_controls.viewChanged.connect(w.apply_file_list_view)
     w.file_list_controls.openFirstSearchResultRequested.connect(w.open_first_image_search_result)
     layout.addWidget(w.file_list_controls)
@@ -109,6 +128,7 @@ def build_file_panel(w, settings):
     w.file_list_empty_state = QWidget()
     empty = QVBoxLayout(w.file_list_empty_state)
     empty.addStretch(1)
+    empty.addWidget(icon_tile('search', size=42, icon_size=22), 0, Qt.AlignHCenter)
     w.file_list_empty_label = QLabel(tr('files.noMatch'))
     w.file_list_empty_label.setAlignment(Qt.AlignCenter)
     empty.addWidget(w.file_list_empty_label)
@@ -158,20 +178,27 @@ def build_file_panel(w, settings):
     layout.addWidget(w.file_selection_bar)
     w.file_selection_bar.hide()
     w.file_dock.setWidget(container)
-    w.file_dock.setStyleSheet('''
-        QDockWidget { background: palette(base); }
-        QLabel#filePanelTitle { font-size: 15px; font-weight: 600; }
-        QLabel#filePanelSummary, QLabel#fileSelectionCount { color: #8A93A3; font-size: 11px; }
+    present_panel(w.file_dock, '''
+        QDockWidget, QWidget#filePanelSurface { background: #FFFFFF; }
+        QFrame#filePanelHeader { background: #FFFFFF; }
+        QWidget#filePanelSurface { border-top: 1px solid #EAEDF3; }
+        QLabel#filePanelTitle { color: #303B50; font-size: 13px; font-weight: 600; }
+        QLabel#filePanelSummary { color: #68758A; font-size: 10px; background: #F1F3F8;
+            border-radius: 6px; padding: 2px 5px; }
+        QLabel#fileSelectionCount { color: #645887; font-size: 11px; }
         QToolButton { border: none; border-radius: 4px; padding: 4px 6px; }
         QToolButton:hover { background: palette(alternate-base); }
         QToolButton::menu-indicator { image: none; }
-        QToolButton#annotationDirectoryBar { background: palette(alternate-base); padding: 0; }
+        QFrame#annotationLocationCard { background: #F6F7FB; border: 1px solid #EAEDF5; border-radius: 7px; }
+        QToolButton#annotationDirectoryBar { background: transparent; padding: 0; color: #46536C; }
         QToolButton#annotationDirectoryBar:hover { background: #EBEEF4; }
-        QLineEdit { min-height: 28px; padding: 0 6px 0 0; border: 1px solid #D7DEE8; border-radius: 4px; }
-        QLineEdit:focus { border-color: #756B9E; }
+        QLabel#annotationSaveTarget { color: #68758A; font-size: 11px; padding-left: 9px; }
+        QLineEdit { min-height: 30px; padding: 0 6px 0 0; border: 1px solid #F0F2F7;
+            border-radius: 6px; background: #F6F7FB; color: #39455C; }
+        QLineEdit:focus { border-color: #A69ABD; background: #FFFFFF; }
         QToolButton#fileFilterChip { background: #ECEAF5; color: #645887; padding: 3px 7px; font-size: 11px; }
-        QListView { border: 1px solid #E2E7EF; border-radius: 3px; background: palette(base); outline: none; padding: 4px 0; }
-        QFrame#fileSelectionBar { border: none; border-top: 1px solid #E0E5ED; background: palette(alternate-base); border-radius: 3px; }
+        QListView { border: none; background: #FFFFFF; outline: none; padding: 2px 0; }
+        QFrame#fileSelectionBar { border: 1px solid #E6E1F1; background: #F5F2FA; border-radius: 6px; }
     ''')
     retranslate_file_panel(w)
     w.update_file_selection_count()

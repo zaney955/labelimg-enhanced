@@ -2,7 +2,9 @@
 
 import time
 
-from PyQt5.QtCore import QObject, QProcess, QTimer, QUrl, pyqtSignal
+from PyQt5 import sip
+
+from PyQt5.QtCore import QObject, QProcess, QTimer, QUrl, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QDesktopServices
 from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PyQt5.QtWidgets import QApplication
@@ -430,17 +432,13 @@ class UpdateUiCoordinator(QObject):
         center.viewRequested.connect(self._view_release)
         center.ignoreRequested.connect(self._ignore_release)
         center.laterRequested.connect(self.controller.snooze)
-        center.commandCopied.connect(
-            lambda: self.status(tr("updates.commandCopied"), 5000)
-        )
+        center.commandCopied.connect(self._command_copied)
         center.downloadRequested.connect(self._download_installer)
         center.retryDownloadRequested.connect(self._download_installer)
         center.cancelDownloadRequested.connect(self._cancel_download)
         center.installRequested.connect(self._launch_installer)
-        center.closed.connect(lambda: self._clear_center(center))
-        center.destroyed.connect(
-            lambda _object=None: self._clear_center(center)
-        )
+        center.closed.connect(self._center_gone)
+        center.destroyed.connect(self._center_destroyed)
         self.center = center
         return center
 
@@ -448,6 +446,24 @@ class UpdateUiCoordinator(QObject):
         if self.center is center:
             self.center = None
             self._center_positioned = False
+
+    @pyqtSlot()
+    def _center_gone(self):
+        # A QObject receiver is disconnected on destruction; a capturing lambda
+        # can run during cyclic GC after its closure cells have been cleared.
+        self._clear_center(self.sender())
+
+    @pyqtSlot()
+    def _center_destroyed(self):
+        # Qt passes a temporary QObject wrapper during destroyed(), so identity
+        # with the original Python window wrapper is no longer reliable.
+        if self.center is not None and sip.isdeleted(self.center):
+            self.center = None
+            self._center_positioned = False
+
+    @pyqtSlot()
+    def _command_copied(self):
+        self.status(tr("updates.commandCopied"), 5000)
 
     @staticmethod
     def _view_release(release):

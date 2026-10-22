@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from labelimg.ui.presentation import present_dialog, role, section, MenuButton
+
 import os
 import re
 
@@ -761,7 +763,7 @@ class FileListControlBar(QWidget):
             self.openFirstSearchResultRequested
         )
         search_row.addWidget(self.search_edit, 1)
-        self.sort_button = QToolButton(self)
+        self.sort_button = MenuButton(self)
         self.sort_button.setAutoRaise(True)
         self.sort_button.setFixedHeight(28)
         self.sort_button.setIconSize(QSize(18, 18))
@@ -1714,7 +1716,7 @@ class FileListWidget(QListView):
 
 class FileListItemDelegate(QStyledItemDelegate):
     selection_background_alpha = 28
-    hover_background_alpha = 45
+    hover_background_alpha = 18
     status_column_width = 20
     alert_column_width = 20
     status_name_gap = 6
@@ -1722,7 +1724,7 @@ class FileListItemDelegate(QStyledItemDelegate):
 
     def sizeHint(self, option, index):
         size = super().sizeHint(option, index)
-        size.setHeight(max(26, option.fontMetrics.height() + 8))
+        size.setHeight(max(32, option.fontMetrics.height() + 10))
         return size
 
     def paint(self, painter, option, index):
@@ -1746,17 +1748,23 @@ class FileListItemDelegate(QStyledItemDelegate):
             else option.palette
         )
         accent = palette.color(palette.Highlight)
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing, True)
         if selected:
             background = QColor(accent)
             background.setAlpha(self.selection_background_alpha)
-            painter.fillRect(row_rect, background)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(background)
+            painter.drawRoundedRect(QRectF(row_rect.adjusted(1, 1, -1, -1)), 6, 6)
             paint_option.state &= ~QStyle.State_Selected
             paint_option.state &= ~QStyle.State_HasFocus
             paint_option.state &= ~QStyle.State_MouseOver
-        elif hovered:
+        elif hovered or current_image:
             background = QColor(palette.color(QPalette.Mid))
-            background.setAlpha(self.hover_background_alpha)
-            painter.fillRect(row_rect, background)
+            background.setAlpha(24 if current_image else self.hover_background_alpha)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(background)
+            painter.drawRoundedRect(QRectF(row_rect.adjusted(1, 1, -1, -1)), 6, 6)
             paint_option.state &= ~QStyle.State_MouseOver
         if current_image:
             paint_option.font.setBold(True)
@@ -1800,6 +1808,7 @@ class FileListItemDelegate(QStyledItemDelegate):
             painter.setBrush(Qt.NoBrush)
             painter.drawRect(row_rect.adjusted(1, 1, -2, -2))
             painter.restore()
+        painter.restore()
 
     @staticmethod
     def _row_rect(option):
@@ -1921,7 +1930,7 @@ class BatchRenameDialog(QDialog):
         self.save_dir = save_dir
         self._mapping = {}
         self.setWindowTitle(tr("renameBatch.title"))
-        self.resize(760, 480)
+        self.resize(1000, 560)
 
         self.prefix_edit = QLineEdit()
         self.template_edit = QLineEdit(tr("renameBatch.defaultTemplate"))
@@ -1934,22 +1943,18 @@ class BatchRenameDialog(QDialog):
         self.width_spin.setValue(4)
 
         form = QFormLayout()
+        form.setRowWrapPolicy(QFormLayout.WrapAllRows)
         form.addRow(tr("renameBatch.prefix"), self.prefix_edit)
         form.addRow(tr("renameBatch.template"), self.template_edit)
         form.addRow(tr("renameBatch.suffix"), self.suffix_edit)
-        numbers = QHBoxLayout()
-        numbers.addWidget(QLabel(tr("renameBatch.start")))
-        numbers.addWidget(self.start_spin)
-        numbers.addSpacing(16)
-        numbers.addWidget(QLabel(tr("renameBatch.width")))
-        numbers.addWidget(self.width_spin)
-        numbers.addStretch(1)
-        form.addRow(tr("renameBatch.sequence"), numbers)
+        form.addRow(tr("renameBatch.start"), self.start_spin)
+        form.addRow(tr("renameBatch.width"), self.width_spin)
 
         help_label = QLabel(
-            tr("renameBatch.help")
+            tr("ui.rename.tokens")
         )
         help_label.setWordWrap(True)
+        self.template_edit.setToolTip(tr("renameBatch.help"))
 
         self.preview = QTableWidget(0, 3)
         self.preview.setHorizontalHeaderLabels(
@@ -1977,11 +1982,20 @@ class BatchRenameDialog(QDialog):
         self.buttons.rejected.connect(self.reject)
 
         layout = QVBoxLayout(self)
-        layout.addLayout(form)
-        layout.addWidget(help_label)
-        layout.addWidget(self.preview, 1)
-        layout.addWidget(self.message)
-        layout.addWidget(self.buttons)
+        parameters = section("ui.section.naming", form)
+        parameters.setFixedWidth(260)
+        parameters.layout().addWidget(help_label)
+        parameters.layout().addStretch(1)
+        body = QHBoxLayout()
+        body.addWidget(parameters)
+        body.addWidget(section("ui.section.preview", self.preview), 1)
+        layout.addLayout(body, 1)
+        role(help_label, "supporting")
+        role(self.message, "supporting")
+        footer = QHBoxLayout()
+        footer.addWidget(self.message, 1)
+        footer.addWidget(self.buttons)
+        layout.addLayout(footer)
 
         for widget in (
             self.prefix_edit,
@@ -1992,6 +2006,7 @@ class BatchRenameDialog(QDialog):
         self.start_spin.valueChanged.connect(self.update_preview)
         self.width_spin.valueChanged.connect(self.update_preview)
         self.update_preview()
+        present_dialog(self, primary=self.buttons.button(QDialogButtonBox.Ok), scroll=True, icon="edit-label")
 
     @property
     def mapping(self):

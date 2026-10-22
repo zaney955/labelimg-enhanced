@@ -19,6 +19,7 @@ from PyQt5.QtGui import QBrush, QColor, QCursor, QImage, QImageReader, QPainter,
 from PyQt5.QtWidgets import QAbstractItemView, QAction, QActionGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDockWidget, QFileDialog, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QProgressDialog, QPushButton, QScrollArea, QSizePolicy, QStackedWidget, QStyle, QStyleOptionViewItem, QStyledItemDelegate, QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget, QWidgetAction
 
 import labelimg.ui.generated_resources  # noqa: F401 - registers Qt resources
+from labelimg.ui.presentation import present_dialog, present_table
 from labelimg.platform.settings_keys import (
     SETTING_AUTO_CHECK_UPDATES,
     SETTING_HIDE_AT_CROSSHAIR,
@@ -1049,10 +1050,12 @@ class MainWindow(
         dialog = QDialog(self)
         dialog.setWindowTitle(tr('conflict.resolveTitle'))
         layout = QVBoxLayout(dialog)
-        layout.addWidget(QLabel(
-            tr('conflict.resolvePrompt')
-        ))
         conflicts = list(self.annotation_persistence.conflicts.values())
+        context = QHBoxLayout()
+        count = QLabel(tr('ui.conflicts.count', count=len(conflicts)))
+        count.setToolTip(tr('conflict.resolvePrompt'))
+        context.addWidget(count, 1)
+        layout.addLayout(context)
         table = QTableWidget(len(conflicts), 2, dialog)
         table.setHorizontalHeaderLabels((
             tr('conflict.resource'),
@@ -1083,7 +1086,7 @@ class MainWindow(
                 tr('conflict.overwriteAll'),
             )
         )
-        layout.addWidget(apply_to_all)
+        context.addWidget(apply_to_all)
         buttons = QDialogButtonBox(
             QDialogButtonBox.Ok | QDialogButtonBox.Cancel,
             dialog,
@@ -1111,6 +1114,8 @@ class MainWindow(
         buttons.rejected.connect(dialog.reject)
         layout.addWidget(buttons)
         dialog.resize(700, 300)
+        present_dialog(dialog, primary=ok_button, scroll=True, icon="status-conflict")
+        present_table(table, path_columns=(0,), stretch_path=True)
         if dialog.exec_() != QDialog.Accepted:
             return False
 
@@ -2132,9 +2137,9 @@ class MainWindow(
         dialog = QDialog(self)
         dialog.setWindowTitle(tr('unsaved.title'))
         layout = QVBoxLayout(dialog)
-        layout.addWidget(QLabel(
-            tr('unsaved.prompt')
-        ))
+        count = QLabel(tr('ui.unsaved.count', count=len(dirty_views)))
+        count.setToolTip(tr('unsaved.prompt'))
+        layout.addWidget(count)
         table = QTableWidget(len(dirty_views), 2, dialog)
         table.setHorizontalHeaderLabels((
             tr('unsaved.image'),
@@ -2174,6 +2179,8 @@ class MainWindow(
         buttons.rejected.connect(dialog.reject)
         layout.addWidget(buttons)
         dialog.resize(760, 320)
+        present_dialog(dialog, primary=ok_button, scroll=True, icon="status-dirty")
+        present_table(table, path_columns=(0,), stretch_path=True)
         if dialog.exec_() != QDialog.Accepted:
             return False
 

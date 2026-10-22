@@ -10,7 +10,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt5.QtCore import QEvent, Qt
 from PyQt5.QtGui import QImage
-from PyQt5.QtWidgets import QApplication, QDialog
+from PyQt5.QtWidgets import QApplication, QDialog, QLabel
 
 from labelimg.annotations.application.statistics import AnnotationStatistics, CategoryCount, StatisticsCanceled
 from labelimg.annotations.ui.statistics_dialog import AnnotationStatisticsDialog
@@ -77,7 +77,8 @@ class AnnotationStatisticsUiTest(unittest.TestCase):
         self.assertEqual(dialog.table.rowCount(), 2)
         self.assertEqual(dialog.table.item(0, 0).text(), "dog")
         self.assertEqual(dialog.table.item(0, 3).text(), "66.7%")
-        self.assertIn("15 boxes", dialog.summary.text())
+        self.assertEqual(dialog.box_count.value.text(), "15")
+        self.assertEqual(dialog.image_count.value.text(), "4")
         dialog.metric.setCurrentIndex(1)
         self.assertEqual([row.label for row in dialog.chart.rows], ["cat", "dog"])
         self.assertEqual(dialog.chart.metric, "images")
@@ -88,7 +89,8 @@ class AnnotationStatisticsUiTest(unittest.TestCase):
         dialog.search.setText("CAT")
         self.assertEqual([row.label for row in dialog.chart.rows], ["cat"])
         self.assertEqual(dialog.table.rowCount(), 1)
-        self.assertIn("15 boxes", dialog.summary.text())
+        self.assertEqual(dialog.box_count.value.text(), "15")
+        self.assertEqual(dialog.category_count.value.text(), "2")
         self.assertEqual(dialog.table.item(0, 3).text(), "33.3%")
         dialog.search.setText("not found")
         self.assertEqual(dialog.chart.rows, ())
@@ -111,7 +113,8 @@ class AnnotationStatisticsUiTest(unittest.TestCase):
         self.assertEqual(dialog.windowTitle(), "标注统计…")
         self.assertEqual(dialog.metric.currentText(), "包含该类别的图像数")
         self.assertEqual([row.label for row in dialog.chart.rows], ["cat"])
-        self.assertIn("15 个标注框", dialog.summary.text())
+        self.assertEqual(dialog.box_count.value.text(), "15")
+        self.assertEqual(dialog.box_count.findChildren(QLabel)[1].text(), "标注框")
 
     def test_cancel_statistics_discards_the_previous_result(self):
         dialog = self.dialog()

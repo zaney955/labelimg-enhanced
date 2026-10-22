@@ -378,7 +378,7 @@ class FileListSelectionTest(unittest.TestCase):
             ),
         )
         self.assertEqual(
-            selected.pixelColor(1, 2),
+            selected.pixelColor(3, selected.height() // 2),
             selected.pixelColor(210, 2),
         )
         self.assertEqual(

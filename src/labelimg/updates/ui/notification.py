@@ -1,5 +1,7 @@
 """Independent update center for every visible update state."""
 
+from labelimg.ui.presentation import present_dialog, role
+
 import os
 import shlex
 import subprocess
@@ -153,6 +155,11 @@ class UpdateCenterWindow(QDialog):
         self.ignore_button.clicked.connect(self._ignore)
         self.close_button.clicked.connect(self.close)
         self._set_state("idle", tr("updates.checking"), progress=False)
+        present_dialog(self, minimum_width=520, title=False)
+        role(self.heading, "heading")
+        for button in (self.download_button, self.install_button, self.view_button):
+            role(button, "primary")
+        role(self.detail, "supporting")
 
     @property
     def state(self):

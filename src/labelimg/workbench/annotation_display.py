@@ -5,6 +5,7 @@ from PyQt5.QtWidgets import (
 )
 
 from labelimg.localization.runtime import localize_dialog_buttons, tr
+from labelimg.ui.presentation import present_dialog, role, section
 
 
 def show_annotation_display_settings(window):
@@ -13,11 +14,11 @@ def show_annotation_display_settings(window):
     dialog = QDialog(window)
     dialog.setWindowTitle(tr('annotationDisplay.title'))
     layout = QVBoxLayout(dialog)
-    description = QLabel(tr('annotationDisplay.detail'), dialog)
-    description.setWordWrap(True)
-    layout.addWidget(description)
     form = QFormLayout()
     layout.addLayout(form)
+    description = QLabel(tr('ui.appearance.preview'), dialog)
+    description.setToolTip(tr('annotationDisplay.detail'))
+    role(description, 'supporting')
     width = QDoubleSpinBox(dialog)
     width.setObjectName('annotationLineWidth')
     width.setRange(0.5, 6.0)
@@ -36,6 +37,7 @@ def show_annotation_display_settings(window):
     font.setAccessibleName(tr('annotationDisplay.fontSize'))
     form.addRow(tr('annotationDisplay.lineWidth'), width)
     form.addRow(tr('annotationDisplay.fontSize'), font)
+    layout.addWidget(description)
 
     def preview():
         canvas.set_annotation_style(width.value(), font.value())
@@ -56,6 +58,7 @@ def show_annotation_display_settings(window):
 
     buttons.button(QDialogButtonBox.RestoreDefaults).clicked.connect(defaults)
     layout.addWidget(buttons)
+    present_dialog(dialog, primary=buttons.button(QDialogButtonBox.Ok), minimum_width=420, icon="annotation-display")
     if dialog.exec_() != QDialog.Accepted:
         canvas.set_annotation_style(*previous)
     dialog.deleteLater()

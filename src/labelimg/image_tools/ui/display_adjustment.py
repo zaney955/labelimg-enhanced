@@ -105,8 +105,8 @@ class DisplayAdjustmentButton(QToolButton):
         self.setFocusPolicy(Qt.TabFocus)
         self.setStyleSheet("""
             QToolButton#displayAdjustmentButton {
-                background: palette(window);
-                border: 1px solid palette(mid);
+                background: #FFFFFF;
+                border: 1px solid #D7DEE8;
                 border-radius: 10px;
                 padding: 6px;
             }
@@ -615,10 +615,11 @@ class DisplayAdjustmentOverlay(QObject):
         self.panel_shell.setObjectName("displayAdjustmentFloatingPanel")
         self.panel_shell.setStyleSheet("""
             QFrame#displayAdjustmentFloatingPanel {
-                background: palette(window);
-                border: 1px solid palette(mid);
+                background: #FFFFFF;
+                border: 1px solid #D7DEE8;
                 border-radius: 8px;
             }
+            QWidget#displayAdjustmentPanel { background: #FFFFFF; border-radius: 8px; }
         """)
         shadow = QGraphicsDropShadowEffect(self.panel_shell)
         shadow.setBlurRadius(18)

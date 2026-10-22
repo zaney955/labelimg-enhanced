@@ -7,7 +7,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
-from PyQt5.QtCore import QEvent, Qt
+from PyQt5.QtCore import QEvent, QPoint, Qt
 from PyQt5.QtGui import QColor, QImage
 from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication, QDialog, QSlider
@@ -37,6 +37,25 @@ class ImageAdjustmentDialogTest(unittest.TestCase):
         image.fill(color)
         self.assertTrue(image.save(path))
         return path
+
+    def test_preview_expands_beside_settings_without_changing_adjustments(self):
+        dialog = ImageAdjustmentDialog(self.first, (self.first, self.second))
+        dialog.brightness_slider.setValue(25)
+        dialog.show()
+        self.app.processEvents()
+        QTest.qWait(80)
+        dialog.resize(1180, 760)
+        self.app.processEvents()
+        QTest.qWait(80)
+        preview = dialog.preview_label
+        pixmap = preview.pixmap()
+        self.assertTrue(abs(pixmap.width() - preview.width()) <= 2 or
+                        abs(pixmap.height() - preview.height()) <= 2)
+        self.assertLess(preview.mapTo(dialog, QPoint(preview.width(), 0)).x(),
+                        dialog.scope_combo.mapTo(dialog, QPoint()).x())
+        self.assertEqual(dialog.brightness_slider.value(), 25)
+        self.assertIsNone(dialog.request)
+        dialog.deleteLater()
 
     def test_auto_adjust_updates_three_sliders_and_preserves_grayscale(self):
         dialog = ImageAdjustmentDialog(self.first, (self.first, self.second))

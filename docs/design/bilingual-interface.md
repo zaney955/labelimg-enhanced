@@ -33,6 +33,8 @@ Transient context menus and dialogs translate their text when opened. Applicatio
 
 Internal annotation-history descriptions remain stable English identifiers inside history state. They are translated only when projected into Undo, Redo, and pending-operation text, so switching languages never mutates or invalidates history.
 
+The application-owned Qt translator also covers the built-in color picker's controls and standard button contexts. It follows the current language, preserves the selected RGBA value, and returns no translation for unknown Qt messages. Shared sections, compact summaries and transient dialogs follow the [global presentation contract](ui-presentation.md).
+
 ## Keyboard shortcut catalog
 
 Help → Keyboard Shortcuts provides the complete bilingual catalog of keyboard commands and context-specific interactions, grouped by where they apply. Each entry includes its current binding and a concise usage explanation; Canvas and annotation-list mouse gestures are included where they explain the same interaction. Menu ownership follows [the menu contract](menu-information-architecture.md).

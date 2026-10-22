@@ -1,3 +1,5 @@
+
+from labelimg.ui.presentation import present_dialog, role
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor, QIcon, QPixmap
 from PyQt5.QtWidgets import (
@@ -7,11 +9,15 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
+    QStyledItemDelegate,
+    QStyle,
+    QStyleOptionViewItem,
 )
 
 from labelimg.annotations.ui.candidate_label_dialog import contrast_text_color
@@ -25,6 +31,14 @@ from labelimg.localization.runtime import (
 
 def _label_sort_key(label):
     return str(label).casefold(), str(label)
+
+
+class _ColorSwatchDelegate(QStyledItemDelegate):
+    def paint(self, painter, option, index):
+        # The selection belongs to the row; this cell previews user data.
+        preview = QStyleOptionViewItem(option)
+        preview.state &= ~QStyle.State_Selected
+        super().paint(painter, preview, index)
 
 
 class LabelColorPaletteDialog(QDialog):
@@ -43,10 +57,14 @@ class LabelColorPaletteDialog(QDialog):
 
         self.description = QLabel()
         self.description.setWordWrap(True)
+        role(self.description, "supporting")
+        self.search = QLineEdit(self)
+        self.search.textChanged.connect(self._filter_rows)
         self.table = QTableWidget(0, 3, self)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.setItemDelegateForColumn(1, _ColorSwatchDelegate(self.table))
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.Stretch
@@ -72,7 +90,6 @@ class LabelColorPaletteDialog(QDialog):
         action_layout.addWidget(self.choose_button)
         action_layout.addWidget(self.restore_button)
         action_layout.addStretch(1)
-        action_layout.addWidget(self.restore_all_button)
 
         self.button_box = QDialogButtonBox(
             QDialogButtonBox.Save | QDialogButtonBox.Cancel,
@@ -83,10 +100,14 @@ class LabelColorPaletteDialog(QDialog):
         self.button_box.rejected.connect(self.reject)
 
         layout = QVBoxLayout(self)
-        layout.addWidget(self.description)
-        layout.addWidget(self.table)
+        layout.addWidget(self.search)
+        layout.addWidget(self.table, 1)
         layout.addLayout(action_layout)
-        layout.addWidget(self.button_box)
+        footer = QHBoxLayout()
+        footer.addWidget(self.restore_all_button)
+        footer.addWidget(self.description, 1)
+        footer.addWidget(self.button_box)
+        layout.addLayout(footer)
 
         self.table.itemSelectionChanged.connect(self._sync_buttons)
         language_changed.connect(self.retranslate_ui)
@@ -94,7 +115,8 @@ class LabelColorPaletteDialog(QDialog):
         self._rebuild_rows()
         if self.table.rowCount():
             self.table.selectRow(0)
-        self.resize(560, 420)
+        self.resize(760, 480)
+        present_dialog(self, primary=self.button_box.button(QDialogButtonBox.Save), scroll=True, icon="color")
 
     @property
     def overrides(self):
@@ -105,17 +127,28 @@ class LabelColorPaletteDialog(QDialog):
 
     def retranslate_ui(self, _language=None):
         self.setWindowTitle(tr("labelColor.manageTitle"))
-        self.description.setText(tr("labelColor.manageDescription"))
+        self.description.setText(tr("ui.palette.session"))
+        self.description.setToolTip(tr("labelColor.manageDescription"))
+        self.search.setPlaceholderText(tr("ui.palette.search"))
+        self.search.setAccessibleName(tr("ui.palette.search"))
         self.table.setHorizontalHeaderLabels((
             tr("labelColor.labelColumn"),
             tr("labelColor.colorColumn"),
             tr("labelColor.sourceColumn"),
         ))
-        self.choose_button.setText(tr("labelColor.choose"))
-        self.restore_button.setText(tr("labelColor.restore"))
-        self.restore_all_button.setText(tr("labelColor.restoreAll"))
+        self.choose_button.setText(tr("ui.palette.choose"))
+        self.restore_button.setText(tr("ui.palette.restore"))
+        self.restore_all_button.setText(tr("ui.palette.restoreAll"))
         localize_dialog_buttons(self.button_box)
         self._rebuild_rows()
+
+    def _filter_rows(self, *_args):
+        query = self.search.text().strip().casefold()
+        for row in range(self.table.rowCount()):
+            self.table.setRowHidden(row, query not in self.table.item(row, 0).text().casefold())
+        if self.table.currentRow() >= 0 and self.table.isRowHidden(self.table.currentRow()):
+            self.table.setCurrentCell(-1, -1)
+        self._sync_buttons()
 
     def selected_label(self):
         row = self.table.currentRow()
@@ -202,7 +235,7 @@ class LabelColorPaletteDialog(QDialog):
             self.table.setItem(row, 2, source_item)
             if label == select_label:
                 self.table.selectRow(row)
-        self._sync_buttons()
+        self._filter_rows()
 
     def _sync_buttons(self):
         label = self.selected_label()

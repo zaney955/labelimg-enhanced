@@ -15,6 +15,7 @@ from labelimg.localization.runtime import localize_dialog_buttons, question as l
 from labelimg.files import FileRecoveryBlocked
 from labelimg.image_tools import ImageProcessingOperation, ImageRecoveryBlocked
 from labelimg.annotations.ui.errors import annotation_error_text
+from labelimg.ui.presentation import present_dialog, present_table, empty_table_hint
 
 
 class RecoveryActionsMixin:
@@ -73,11 +74,15 @@ class RecoveryActionsMixin:
             )
             table.setCellWidget(row, 4, recover)
         layout.addWidget(table)
+        empty = empty_table_hint(table, 'ui.recovery.empty')
+        empty.setVisible(not table.rowCount())
         buttons = QDialogButtonBox(QDialogButtonBox.Close, dialog)
         localize_dialog_buttons(buttons)
         buttons.rejected.connect(dialog.reject)
         layout.addWidget(buttons)
         dialog.resize(680, 360)
+        present_dialog(dialog, scroll=True, icon="recent-operations")
+        present_table(table)
         dialog.exec_()
 
 

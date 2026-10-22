@@ -410,7 +410,7 @@ class CommandSurfacesTest(unittest.TestCase):
             self.window.label_list,
         ]
         file_rows = [
-            self.window.annotation_directory_bar,
+            self.window.annotation_location_card,
             self.window.file_list_controls,
             self.window.file_list_stack,
         ]

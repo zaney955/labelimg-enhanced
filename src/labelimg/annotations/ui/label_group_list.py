@@ -68,6 +68,7 @@ class LabelGroupListWidget(QAbstractScrollArea):
         self._selected = tuple()
         self._active = None
         self._filter_text = ""
+        self._image_available = True
         self._anchor = None
         self._focus_target = None
         self._local_hover = None
@@ -80,6 +81,8 @@ class LabelGroupListWidget(QAbstractScrollArea):
         self._near_duplicate_clusters = tuple()
         self._near_duplicate_by_shape = {}
         self.setFocusPolicy(Qt.StrongFocus)
+        self.viewport().setBackgroundRole(QPalette.Base)
+        self.viewport().setAutoFillBackground(True)
         self.setMouseTracking(True)
         self.viewport().setMouseTracking(True)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -89,6 +92,10 @@ class LabelGroupListWidget(QAbstractScrollArea):
 
     def _language_changed(self, _language):
         self._emit_summary()
+        self.viewport().update()
+
+    def set_image_size(self, size):
+        self._image_available = not size.isEmpty()
         self.viewport().update()
 
     # Scene projection -------------------------------------------------
@@ -508,7 +515,6 @@ class LabelGroupListWidget(QAbstractScrollArea):
         self._paint_strip(painter, group, layout)
         self._paint_count(painter, group, layout["count"], foreground)
         self._paint_visibility(painter, group, layout["visibility"])
-        self._paint_column_dividers(painter, layout)
 
         if row_hovered:
             painter.setBrush(Qt.NoBrush)
@@ -555,7 +561,7 @@ class LabelGroupListWidget(QAbstractScrollArea):
             if is_hovered:
                 pen.setDashPattern([3.0, 2.5])
             painter.setPen(pen)
-            painter.drawRoundedRect(QRectF(rect).adjusted(1, 1, -1, -1), 3, 3)
+            painter.drawRoundedRect(QRectF(rect).adjusted(1, 1, -1, -1), 5, 5)
             font = QFont(painter.font())
             font.setBold(is_selected)
             painter.setFont(font)
@@ -667,13 +673,22 @@ class LabelGroupListWidget(QAbstractScrollArea):
     def _paint_empty_state(self, painter):
         painter.save()
         painter.setPen(self.palette().color(QPalette.Mid))
-        if self._filter_text and self._groups:
+        if not self._image_available:
+            title = tr("ui.annotations.noImage")
+            detail = ""
+        elif self._filter_text and self._groups:
             title = tr("labelList.noMatch")
             detail = tr("labelList.clearFilter")
         else:
             title = tr("labelList.empty")
             detail = tr("labelList.create")
         center = self.viewport().rect().center()
+        badge = QRect(center.x() - 18, center.y() - 68, 36, 36)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(self.palette().color(QPalette.AlternateBase))
+        painter.drawRoundedRect(QRectF(badge), 9, 9)
+        paint_icon(painter, badge, "search" if self._filter_text else "annotation-panel", size=22)
+        painter.setPen(self.palette().color(QPalette.Text))
         painter.drawText(
             QRect(8, center.y() - 24, self.viewport().width() - 16, 24),
             Qt.AlignCenter,

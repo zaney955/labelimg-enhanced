@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from labelimg.ui.presentation import SURFACE_STYLE, present_dialog, present_table, role, section, empty_table_hint
+
 from dataclasses import dataclass
 import os
 import threading
@@ -13,6 +15,7 @@ from PyQt5.QtWidgets import (
     QDialogButtonBox,
     QDoubleSpinBox,
     QFormLayout,
+    QHeaderView,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -79,15 +82,23 @@ class ImageQualityDialog(QDialog):
         self.overexposed = QDoubleSpinBox()
         self.overexposed.setRange(0.0, 255.0)
         self.overexposed.setValue(standard.overexposed_mean)
-        form.addRow(tr("quality.minWidth"), self.min_width)
-        form.addRow(tr("quality.minHeight"), self.min_height)
-        form.addRow(tr("quality.maxAspect"), self.max_aspect)
-        form.addRow(tr("quality.blurThreshold"), self.blur)
-        form.addRow(tr("quality.darkThreshold"), self.dark)
-        form.addRow(tr("quality.overexposedThreshold"), self.overexposed)
+        dimensions = QFormLayout()
+        dimensions.addRow(tr("quality.minWidth"), self.min_width)
+        dimensions.addRow(tr("quality.minHeight"), self.min_height)
+        dimensions.addRow(tr("quality.maxAspect"), self.max_aspect)
+        thresholds = QFormLayout()
+        thresholds.addRow(tr("quality.blurThreshold"), self.blur)
+        thresholds.addRow(tr("quality.darkThreshold"), self.dark)
+        thresholds.addRow(tr("quality.overexposedThreshold"), self.overexposed)
         layout.addLayout(form)
-        self.note = QLabel(tr("quality.analysisOnly"))
+        parameters = QHBoxLayout()
+        parameters.addWidget(section("ui.section.resolution", dimensions), 1)
+        parameters.addWidget(section("ui.section.thresholds", thresholds), 1)
+        layout.addLayout(parameters)
+        self.note = QLabel(tr("ui.quality.analysis"))
+        self.note.setToolTip(tr("quality.analysisOnly"))
         self.note.setWordWrap(True)
+        role(self.note, "supporting")
         layout.addWidget(self.note)
         self.buttons = QDialogButtonBox(
             QDialogButtonBox.Ok | QDialogButtonBox.Cancel
@@ -96,6 +107,7 @@ class ImageQualityDialog(QDialog):
         self.buttons.accepted.connect(self.accept)
         self.buttons.rejected.connect(self.reject)
         layout.addWidget(self.buttons)
+        present_dialog(self, primary=self.buttons.button(QDialogButtonBox.Ok), minimum_width=620, scroll=True, icon="image-quality")
 
     def accept(self):
         scope = self.scope_combo.currentData()
@@ -129,7 +141,6 @@ class ImageQualityPanel(QWidget):
         self._results = ()
         layout = QVBoxLayout(self)
         self.summary = QLabel()
-        layout.addWidget(self.summary)
         self.table = QTableWidget(0, 2)
         self.table.setHorizontalHeaderLabels((
             tr("quality.file"), tr("quality.findings")
@@ -138,7 +149,6 @@ class ImageQualityPanel(QWidget):
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.cellDoubleClicked.connect(self._open_row)
         self.table.horizontalHeader().setStretchLastSection(True)
-        layout.addWidget(self.table)
         controls = QHBoxLayout()
         self.refresh_button = QPushButton(tr("quality.refresh"))
         self.clear_button = QPushButton(tr("quality.clear"))
@@ -146,10 +156,17 @@ class ImageQualityPanel(QWidget):
         self.clear_button.clicked.connect(self.clearRequested)
         controls.addWidget(self.refresh_button)
         controls.addWidget(self.clear_button)
-        controls.addStretch(1)
+        controls.insertWidget(0, self.summary, 1)
         layout.addLayout(controls)
+        layout.addWidget(self.table, 1)
+        self.empty_hint = empty_table_hint(self.table, "ui.quality.empty")
         language_changed.connect(self.retranslate_ui)
         self.retranslate_ui()
+        self.setStyleSheet(SURFACE_STYLE)
+        present_table(self.table, path_columns=(0,), stretch_path=True)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Interactive)
+        self.table.setColumnWidth(1, 300)
+        role(self.summary, "supporting")
 
     @property
     def result_paths(self):
@@ -158,6 +175,7 @@ class ImageQualityPanel(QWidget):
     def set_results(self, results):
         self._results = tuple(results)
         self.table.setRowCount(len(self._results))
+        self.empty_hint.setVisible(not self._results)
         issue_count = 0
         for row, result in enumerate(self._results):
             codes = tuple(item.code for item in result.findings)

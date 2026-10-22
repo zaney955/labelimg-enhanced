@@ -63,9 +63,17 @@ class AnnotationPanelTest(unittest.TestCase):
         self.assertIs(w.dock.titleBarWidget(), w.annotation_header)
         for control in (w.visibility_button, w.label_color_button, w.near_duplicate_more_button):
             self.assertIs(control.parentWidget(), w.annotation_header)
-        self.assertEqual(w.label_summary_label.text(), "1 classes · 2 boxes")
+        self.assertEqual(w.label_summary_label.text(), "Classes 1 · Boxes 2")
         self.assertEqual(w.label_summary_label.toolTip(), w.label_list.summary_text())
         self.assertFalse(w.annotation_selection_bar.isVisible())
+
+    def test_dock_content_and_custom_count_receive_the_designed_surface(self):
+        w = self.window
+        self.assertEqual(w.default_category_caption.font().pixelSize(), 11)
+        self.assertEqual(w.default_category_caption.palette().windowText().color(), QColor("#68758A"))
+        badge = w.label_summary_label
+        rendered = badge.grab().toImage()
+        self.assertEqual(rendered.pixelColor(2, badge.height() // 2), QColor("#F1F3F8"))
 
     def test_context_bar_tracks_selection_without_moving_list_entry(self):
         w = self.window

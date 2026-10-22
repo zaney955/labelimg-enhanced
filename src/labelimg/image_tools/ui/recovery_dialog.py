@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from labelimg.ui.presentation import present_dialog
+
 import os
 
 from PyQt5.QtCore import Qt
@@ -27,10 +29,11 @@ class ImageRecoverySelectionDialog(QDialog):
 
         layout = QVBoxLayout(self)
         instructions = QLabel(
-            tr("imageTools.recovery.instructions"),
+            tr("ui.recovery.selection"),
             self,
         )
         instructions.setWordWrap(True)
+        instructions.setToolTip(tr("imageTools.recovery.instructions"))
         layout.addWidget(instructions)
 
         self.list_widget = QListWidget(self)
@@ -55,6 +58,7 @@ class ImageRecoverySelectionDialog(QDialog):
         layout.addWidget(self.buttons)
         self._update_restore_button()
         self.resize(520, 340)
+        present_dialog(self, primary=self.restore_button, scroll=True, icon="undo-image-processing")
 
     @property
     def selected_paths(self):

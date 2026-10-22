@@ -123,6 +123,10 @@ def localize_message_box_buttons(message_box):
         from PyQt5.QtWidgets import QMessageBox
     except ImportError:  # pragma: no cover
         from PyQt4.QtGui import QMessageBox
+    from labelimg.ui.presentation import SURFACE_STYLE
+    if not message_box.property("labelimgPresentation"):
+        message_box.setStyleSheet(SURFACE_STYLE + "\n" + message_box.styleSheet())
+        message_box.setProperty("labelimgPresentation", True)
     messages = {
         QMessageBox.Ok: "standard.ok",
         QMessageBox.Cancel: "standard.cancel",

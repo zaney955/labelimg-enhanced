@@ -8,6 +8,7 @@
 
 | 阅读目的 | 文档 |
 | --- | --- |
+| 全局浅色外观、对话框分区、底部操作区与缩放渲染验证 | [全局界面外观](design/ui-presentation.md) |
 | 功能模块、状态归属、调用关系与架构检查范围 | [模块化架构](design/modular-architecture-refactor.md) |
 | 标注事务、Undo/Redo、自动保存、格式选择、外部冲突、候选类别与文件恢复 | [标注历史与文件恢复](design/undo-redo-and-file-recovery.md) |
 | 绘制预览、指针命中、框选、标签编辑、标注列表及近重复框提示 | [标注交互](design/annotation-interaction.md) |

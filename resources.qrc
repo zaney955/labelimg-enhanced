@@ -1,5 +1,7 @@
 <!DOCTYPE RCC><RCC version="1.0">
 <qresource>
+<file alias="external-link">resources/icons/external-link.svg</file>
+<file alias="external-link">resources/icons/external-link.svg</file>
 
 <file alias="help">resources/icons/help.svg</file>
 <file alias="app">resources/icons/app.svg</file>

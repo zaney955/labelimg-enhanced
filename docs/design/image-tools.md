@@ -28,7 +28,7 @@ The Image menu presents Crop first, followed by a Rotate / Flip submenu containi
 
 Every mutating image-tool session begins with an explicit target set, defaulting to the current Canvas image. A batch-capable workspace separately offers “Selected images (N)” when multiple files are selected and “All images (N)” when the workspace contains multiple images. Both batch scopes require explicit choice; All includes images hidden by file-list filters, and opening a tool never infers a directory-wide batch. These rules also apply to rotation, flip, and resize; Crop is current-image-only. Analysis-only quality checking has its own all-images default.
 
-The target list remains visible in the workspace. Results are prepared in the background, each image can be inspected, and any image can be excluded before commit. Images with no selected repair candidates are automatically excluded and retain their exact original bytes.
+Geometry and adjustment keep the target list beside the large preview. Border repair places Images and Detected Borders in adjacent sidebar tabs, with scope and detection controls above them. Results are prepared in the background, each image can be inspected, and any image can be excluded before commit. Images with no selected repair candidates are automatically excluded and retain their exact original bytes. Layout and compact copy follow the [global presentation contract](ui-presentation.md).
 
 ## Workspace and history
 

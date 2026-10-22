@@ -19,6 +19,7 @@ from PyQt5.QtWidgets import (
 from labelimg.canvas import CATEGORY_CONFLICT
 from labelimg.localization.runtime import language_changed, tr
 from labelimg.ui.actions import new_icon
+from labelimg.ui.presentation import SURFACE_STYLE, role
 
 
 class _MemberRow(QWidget):
@@ -86,8 +87,8 @@ class NearDuplicateChooser(QFrame):
         self._rows = {}
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(6)
+        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setSpacing(10)
         self.title_label = QLabel()
         self.title_label.setObjectName("nearDuplicateChooserTitle")
         self.member_list = QListWidget()
@@ -114,6 +115,10 @@ class NearDuplicateChooser(QFrame):
         layout.addWidget(self.member_list)
         layout.addLayout(button_row)
         self.resize(340, 250)
+        self.setStyleSheet(SURFACE_STYLE + "QFrame#nearDuplicateChooser { background: #FFFFFF; border: 1px solid #D7DEE8; border-radius: 8px; }")
+        role(self.title_label, 'sectionTitle')
+        role(self.edit_button, 'primary')
+        role(self.delete_button, 'destructive')
         language_changed.connect(self._language_changed)
         QShortcut(QKeySequence(Qt.Key_F2), self, activated=self.edit_current)
         QShortcut(QKeySequence(Qt.Key_Delete), self, activated=self.delete_current)
@@ -187,7 +192,8 @@ class NearDuplicateChooser(QFrame):
             ))
         self.edit_button.setText(tr("nearDuplicate.editMember"))
         self.delete_button.setText(tr("nearDuplicate.deleteMember"))
-        self.dismiss_button.setText(tr("nearDuplicate.dismissSession"))
+        self.dismiss_button.setText(tr("ui.duplicate.ignore"))
+        self.dismiss_button.setToolTip(tr("nearDuplicate.dismissSession"))
         for row in self._rows.values():
             row.retranslate_ui()
 

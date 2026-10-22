@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Redesign the workbench's annotation/file/result panels with consistent surfaces, counters, location context and list states; add a branded About window, an actionable empty workbench, and aligned SVG menu affordances. Preserve annotation-color rendering and existing command bindings.
+
+- Align application-owned windows, menus, toolbars, tables and controls with the light workbench UI; add shared dialog sections, pinned action footers, screen-aware scrolling, readable conflict paths, bilingual Qt color controls and reproducible bilingual/DPI renders. Preserve command ownership, shortcuts, annotation colors and transactions.
+
 - Add Tools → Annotation Statistics with category box/image counts, scrollable bar charts, numeric details and shares, category filtering, read-only unsaved-snapshot support, active-document deduplication, and localized skipped-image diagnostics.
 
 - Preserve original Canvas geometry when adjusted image previews are refreshed after rotation, flipping, cropping, or image recovery, preventing drawing from failing with an annotation-history snapshot mismatch.

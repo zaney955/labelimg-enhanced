@@ -1,6 +1,7 @@
 """Stable, task-oriented command surfaces for the main window."""
 
 import math
+from labelimg.ui.presentation import MenuButton
 
 try:
     from PyQt5.QtCore import QEvent, QSignalBlocker, Qt, QSize, pyqtSignal
@@ -211,7 +212,7 @@ class ReviewControl(QFrame):
             action.setEnabled(enabled)
 
 
-class FormatSelector(QToolButton):
+class FormatSelector(MenuButton):
     formatRequested = pyqtSignal(object)
 
     FORMATS = (
@@ -440,7 +441,7 @@ class ZoomControl(QFrame):
         self.slider.setRange(0, self.SLIDER_STEPS)
         self._compact = False
         self.slider.setFixedWidth(112)
-        self.value_button = QToolButton()
+        self.value_button = MenuButton()
         self.value_button.setAutoRaise(True)
         self.value_button.setPopupMode(QToolButton.InstantPopup)
         self.value_button.setMinimumWidth(58)

@@ -91,6 +91,7 @@ from labelimg.annotations.ui.label_list import (
     LabelListWidget,
 )
 from labelimg.ui.color_dialog import ColorDialog
+from labelimg.ui.presentation import present_workbench, present_result_panel
 from labelimg.annotations.domain.model import (
     AnnotationDocument,
     AnnotationDocumentError,
@@ -204,6 +205,7 @@ class WorkbenchComposer:
 
     @staticmethod
     def compose(self, default_filename=None, default_prefdef_class_file=None, default_save_dir=None):
+        present_workbench(self)
         self.workbench_session = WorkbenchSession(default_filename)
         self.setWindowTitle(__appname__)
 
@@ -299,11 +301,14 @@ class WorkbenchComposer:
         self.image_quality_dock = QDockWidget(tr('quality.panelTitle'), self)
         self.image_quality_dock.setObjectName('imageQuality')
         self.image_quality_dock.setWidget(self.image_quality_panel)
+        present_result_panel(self.image_quality_dock, "image-quality")
 
         self.zoom_widget = ZoomControl()
         self.color_dialog = ColorDialog(parent=self)
 
         self.canvas = Canvas(parent=self)
+        self.label_list.set_image_size(self.canvas.pixmap.size())
+        self.canvas.imageSizeChanged.connect(self.label_list.set_image_size)
         self.near_duplicate_chooser = NearDuplicateChooser(self)
         self.canvas.installEventFilter(self)
         self.canvas.zoomRequest.connect(self.zoom_request)
@@ -1326,5 +1331,9 @@ class WorkbenchComposer:
 
         self.zoom_widget.show()
         self.top_commands.set_counter(0, 0)
+        from labelimg.workbench.empty_state import WorkbenchEmptyState
+        self.empty_state = WorkbenchEmptyState(
+            self.scroll_area.viewport(), self.actions.openDir, self.canvas,
+        )
         QTimer.singleShot(3000, self.update_ui.check_automatic)
 

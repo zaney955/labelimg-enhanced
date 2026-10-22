@@ -1,16 +1,23 @@
 """Local, bilingual Help dialogs for the annotation workbench."""
 
-from dataclasses import dataclass
-from html import escape
+from labelimg.ui.presentation import present_dialog, role
+from labelimg.ui.icons import IconLabel
+from labelimg.ui.actions import new_icon
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QKeySequence
+from dataclasses import dataclass
+
+from PyQt5.QtCore import Qt, QUrl, QT_VERSION_STR
+from PyQt5.QtGui import QKeySequence, QDesktopServices
 from PyQt5.QtWidgets import (
     QAction,
     QDialog,
     QDialogButtonBox,
     QHeaderView,
     QLabel,
+    QLineEdit,
+    QFrame,
+    QHBoxLayout,
+    QPushButton,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -270,7 +277,11 @@ class ShortcutCatalogDialog(QDialog):
         intro = QLabel(tr("shortcuts.intro"), self)
         intro.setObjectName("shortcutCatalogIntro")
         intro.setWordWrap(True)
-        layout.addWidget(intro)
+        self.search = QLineEdit(self)
+        self.search.setPlaceholderText(tr("ui.shortcuts.search"))
+        self.search.setAccessibleName(tr("ui.shortcuts.search"))
+        self.search.setToolTip(intro.text())
+        layout.addWidget(self.search)
 
         self.tree = QTreeWidget(self)
         self.tree.setObjectName("shortcutCatalogTree")
@@ -305,13 +316,28 @@ class ShortcutCatalogDialog(QDialog):
         header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.Stretch)
-        layout.addWidget(self.tree)
+        layout.addWidget(self.tree, 1)
+        self.search.textChanged.connect(self._filter)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Close, self)
         buttons.setObjectName("shortcutCatalogButtons")
         localize_dialog_buttons(buttons)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+        present_dialog(self, scroll=True, icon="keyboard-shortcuts")
+
+    def _filter(self, text):
+        query = text.strip().casefold()
+        for index in range(self.tree.topLevelItemCount()):
+            group = self.tree.topLevelItem(index)
+            group_matches = query in group.text(0).casefold()
+            shown = 0
+            for row in range(group.childCount()):
+                item = group.child(row)
+                matches = group_matches or any(query in item.text(column).casefold() for column in range(3))
+                item.setHidden(not matches)
+                shown += matches
+            group.setHidden(not shown)
 
 
 class AboutDialog(QDialog):
@@ -324,26 +350,61 @@ class AboutDialog(QDialog):
         self.setMinimumWidth(520)
 
         layout = QVBoxLayout(self)
-        self.information = QLabel(self)
-        self.information.setObjectName("aboutInformation")
-        self.information.setTextFormat(Qt.RichText)
-        self.information.setTextInteractionFlags(Qt.TextBrowserInteraction)
-        self.information.setOpenExternalLinks(True)
-        self.information.setWordWrap(True)
-        self.information.setText(tr(
-            "info.messageHtml",
-            name=escape(str(name)),
-            version=escape(str(version)),
-            python=escape(str(python_version)),
-            repository=escape(REPOSITORY_URL),
-        ))
-        layout.addWidget(self.information)
+        brand = QFrame(self)
+        brand.setObjectName("aboutIdentity")
+        identity = QHBoxLayout(brand)
+        identity.setContentsMargins(18, 18, 18, 18)
+        identity.setSpacing(16)
+        identity.addWidget(IconLabel("app", size=72))
+        names = QVBoxLayout()
+        names.setSpacing(7)
+        name_label = QLabel(str(name))
+        name_label.setTextFormat(Qt.PlainText)
+        name_label.setObjectName("aboutProductName")
+        names.addWidget(name_label)
+        names.addWidget(role(QLabel(tr("ui.about.tagline")), "supporting"))
+        release = QLabel("v" + str(version))
+        release.setObjectName("aboutVersion")
+        names.addWidget(release, 0, Qt.AlignLeft)
+        identity.addLayout(names, 1)
+        layout.addWidget(brand)
+
+        runtime = QFrame(self)
+        runtime.setObjectName("aboutRuntime")
+        environment = QHBoxLayout(runtime)
+        environment.setContentsMargins(14, 12, 14, 12)
+        environment.addWidget(role(QLabel(tr("ui.about.environment")), "supporting"))
+        values = QLabel(f"Python {python_version}  ·  Qt {QT_VERSION_STR}")
+        values.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        environment.addWidget(values, 1, Qt.AlignRight)
+        layout.addWidget(runtime)
+
+        self.repository_button = QPushButton(tr("ui.about.repository"))
+        self.repository_button.setObjectName("aboutRepository")
+        self.repository_button.setIcon(new_icon("external-link"))
+        self.repository_button.setToolTip(REPOSITORY_URL)
+        self.repository_button.clicked.connect(self._open_repository)
+        layout.addWidget(self.repository_button)
+        self.setStyleSheet("""
+            QFrame#aboutIdentity { background: #F5F3FA; border: 1px solid #ECE7F4; border-radius: 10px; }
+            QLabel#aboutProductName { color: #30384D; font-size: 20px; font-weight: 600; }
+            QLabel#aboutVersion { color: #756B9E; background: #E9E4F3; padding: 3px 8px;
+                border-radius: 6px; font-size: 11px; }
+            QFrame#aboutRuntime { background: #F7F8FB; border: none; border-radius: 7px; }
+            QPushButton#aboutRepository { min-height: 38px; text-align: left; background: #FFFFFF;
+                border: 1px solid #E4E8F0; border-radius: 7px; padding: 0 14px; color: #4D5C75; }
+            QPushButton#aboutRepository:hover { background: #F7F8FB; border-color: #C9C1DA; }
+        """)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Close, self)
         buttons.setObjectName("aboutButtons")
         localize_dialog_buttons(buttons)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+        present_dialog(self, minimum_width=520, title=False)
+
+    def _open_repository(self):
+        QDesktopServices.openUrl(QUrl(REPOSITORY_URL))
 
 
 __all__ = (

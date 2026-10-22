@@ -200,19 +200,28 @@ class HelpDialogTest(unittest.TestCase):
         self.assertEqual(dialog.sections[-1].title, "图像工具对话框")
         dialog.deleteLater()
 
+    def test_shortcut_search_finds_live_bindings_and_can_restore_the_catalog(self):
+        self.window.actions.save.setShortcut("Alt+S")
+        dialog = ShortcutCatalogDialog(self.window)
+        dialog.search.setText("Alt+S")
+        visible = [group.child(row) for index in range(dialog.tree.topLevelItemCount())
+                   for group in (dialog.tree.topLevelItem(index),)
+                   for row in range(group.childCount())
+                   if not group.isHidden() and not group.child(row).isHidden()]
+        self.assertTrue(visible)
+        self.assertTrue(all("alt+s" in item.text(1).casefold() for item in visible))
+        dialog.search.clear()
+        self.assertTrue(all(not dialog.tree.topLevelItem(index).isHidden()
+                            for index in range(dialog.tree.topLevelItemCount())))
+        dialog.deleteLater()
+
     def test_about_dialog_exposes_clickable_canonical_repository(self):
         dialog = AboutDialog("labelImg", "2.0.0", "3.14.0", self.window)
 
-        self.assertIn(REPOSITORY_URL, dialog.information.text())
-        self.assertTrue(dialog.information.openExternalLinks())
-        self.assertTrue(
-            dialog.information.textInteractionFlags()
-            & Qt.LinksAccessibleByMouse
-        )
-        self.assertTrue(
-            dialog.information.textInteractionFlags()
-            & Qt.TextSelectableByMouse
-        )
+        self.assertEqual(dialog.repository_button.toolTip(), REPOSITORY_URL)
+        with patch("labelimg.workbench.help_ui.QDesktopServices.openUrl") as open_url:
+            dialog.repository_button.click()
+        self.assertEqual(open_url.call_args.args[0].toString(), REPOSITORY_URL)
         dialog.deleteLater()
 
 

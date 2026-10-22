@@ -1,5 +1,7 @@
 """Directory cleanup preview and the workbench adapter for its transaction."""
 
+from labelimg.ui.presentation import present_dialog, role, compact_paths, empty_table_hint
+
 import os
 
 from PyQt5.QtCore import QSignalBlocker, Qt
@@ -34,11 +36,14 @@ class AnnotationCleanupDialog(QDialog):
         self.scope = QLabel()
         self.scope.setTextFormat(Qt.PlainText)
         self.scope.setWordWrap(True)
+        role(self.scope, "supporting")
         self.scope.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        layout.addWidget(self.scope)
         self.scan_button = QPushButton()
         self.scan_button.clicked.connect(self.scan)
-        layout.addWidget(self.scan_button)
+        context = QHBoxLayout()
+        context.addWidget(self.scope, 1)
+        context.addWidget(self.scan_button)
+        layout.addLayout(context)
         categories = QHBoxLayout()
         self.orphans = QCheckBox()
         self.orphans.setChecked(True)
@@ -52,6 +57,7 @@ class AnnotationCleanupDialog(QDialog):
         self.summary = QLabel()
         self.summary.setTextFormat(Qt.PlainText)
         self.summary.setWordWrap(True)
+        role(self.summary, "summary")
         layout.addWidget(self.summary)
         self.tabs = QTabWidget()
         self.table = QTableWidget(0, 2)
@@ -65,18 +71,23 @@ class AnnotationCleanupDialog(QDialog):
         self.table.itemChanged.connect(self._update_selection)
         self.tabs.addTab(self.table, "")
         self.tabs.addTab(self.skipped, "")
-        layout.addWidget(self.tabs)
+        self.empty_hint = empty_table_hint(self.table, "ui.cleanup.empty")
+        layout.addWidget(self.tabs, 1)
         self.note = QLabel()
         self.note.setWordWrap(True)
-        layout.addWidget(self.note)
+        role(self.note, "supporting")
         self.buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         self.apply_button = self.buttons.button(QDialogButtonBox.Ok)
         self.buttons.accepted.connect(self.accept)
         self.buttons.rejected.connect(self.reject)
-        layout.addWidget(self.buttons)
+        footer = QHBoxLayout()
+        footer.addWidget(self.note, 1)
+        footer.addWidget(self.buttons)
+        layout.addLayout(footer)
         language_changed.connect(self.retranslate)
         self.resize(880, 600)
         self.retranslate()
+        present_dialog(self, primary=self.apply_button, scroll=True, icon="cleanup-annotations")
 
     @property
     def selected_items(self):
@@ -86,7 +97,7 @@ class AnnotationCleanupDialog(QDialog):
 
     def retranslate(self, *_args):
         self.setWindowTitle(tr("cleanup.title"))
-        self.scope.setText(tr("cleanup.scope", images=self.image_dir, annotations=self.annotation_dir))
+        compact_paths(self.scope, self.image_dir, self.annotation_dir)
         self.scan_button.setText(tr("cleanup.scan"))
         self.orphans.setText(tr("cleanup.orphans"))
         self.empty.setText(tr("cleanup.empty"))
@@ -94,7 +105,8 @@ class AnnotationCleanupDialog(QDialog):
         self.skipped.setHorizontalHeaderLabels((tr("cleanup.path"), tr("cleanup.diagnostic")))
         self.tabs.setTabText(0, tr("cleanup.candidates"))
         self.tabs.setTabText(1, tr("cleanup.skipped"))
-        self.note.setText(tr("cleanup.note"))
+        self.note.setText(tr("ui.cleanup.safety"))
+        self.note.setToolTip(tr("cleanup.note"))
         localize_dialog_buttons(self.buttons)
         if self.plan:
             for row, item in enumerate(self.plan.items):
@@ -168,9 +180,12 @@ class AnnotationCleanupDialog(QDialog):
             self.summary.setText(tr(
                 "cleanup.summary", candidates=len(self.plan.items), selected=count,
                 skipped=len(self.plan.skipped), images=len(self.plan.image_paths),
-            ) + "\n" + tr("cleanup.scanScope", paths="; ".join(directory for directory, _recursive in self.plan.scan_directories)))
+            ))
+            self.summary.setToolTip(tr("cleanup.scanScope", paths="; ".join(directory for directory, _recursive in self.plan.scan_directories)))
+            self.empty_hint.setVisible(not self.plan.items)
         else:
             self.summary.setText(tr("cleanup.previewFirst"))
+            self.empty_hint.hide()
 
     def accept(self):
         count = len(self.selected_items)

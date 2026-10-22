@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+from labelimg.ui.presentation import present_dialog, section
+
 from dataclasses import dataclass
 import math
 import os
 
 import cv2
 import numpy as np
-from PyQt5.QtCore import QTimer, Qt
+from PyQt5.QtCore import QEvent, QTimer, Qt
 from PyQt5.QtGui import QImage
 from PyQt5.QtWidgets import (
     QCheckBox,
@@ -22,6 +24,7 @@ from PyQt5.QtWidgets import (
     QListWidget,
     QPushButton,
     QSlider,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -68,10 +71,9 @@ class _AdjustmentSliderRow(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setHorizontalSpacing(10)
         layout.setVerticalSpacing(0)
-        layout.setColumnStretch(1, 1)
+        layout.setColumnStretch(0, 1)
 
         self.title_label = QLabel(label, self)
-        self.title_label.setMinimumWidth(112)
         self.slider = QSlider(Qt.Horizontal, self)
         self.slider.setRange(minimum, maximum)
         self.slider.setSingleStep(1)
@@ -92,8 +94,8 @@ class _AdjustmentSliderRow(QWidget):
         """)
 
         layout.addWidget(self.title_label, 0, 0)
-        layout.addWidget(self.slider, 0, 1)
-        layout.addWidget(self.value_label, 0, 2)
+        layout.addWidget(self.value_label, 0, 1)
+        layout.addWidget(self.slider, 1, 0, 1, 2)
         self.slider.valueChanged.connect(self._update_value)
         self.slider.setValue(value)
         self._update_value(self.slider.value())
@@ -137,7 +139,7 @@ class ImageAdjustmentDialog(QDialog):
         self._preview_timer.setInterval(self.PREVIEW_DEBOUNCE_MS)
         self._preview_timer.timeout.connect(self._refresh_preview)
         self.setWindowTitle(tr("adjustment.title"))
-        self.resize(920, 640)
+        self.resize(980, 680)
 
         root = QVBoxLayout(self)
         top = QFormLayout()
@@ -154,20 +156,19 @@ class ImageAdjustmentDialog(QDialog):
                 "workspace",
             )
         top.addRow(tr("geometry.workspace.scope"), self.scope_combo)
-        root.addLayout(top)
+        scope_panel = section("ui.section.scope", top)
 
         body = QHBoxLayout()
         self.target_list = QListWidget(self)
-        self.target_list.setMinimumWidth(220)
-        body.addWidget(self.target_list)
+        self.target_list.setMinimumHeight(92)
         self.preview_label = QLabel(self)
-        self.preview_label.setMinimumSize(460, 340)
+        self.preview_label.setMinimumSize(400, 300)
+        self.preview_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
         self.preview_label.setAlignment(Qt.AlignCenter)
         self.preview_label.setStyleSheet(
             "QLabel { background: #202428; border: 1px solid #5f686f; }"
         )
-        body.addWidget(self.preview_label, 1)
-        root.addLayout(body, 1)
+        body.addWidget(section("ui.section.preview", self.preview_label, stretch=1), 1)
 
         controls = QVBoxLayout()
         controls.setSpacing(8)
@@ -213,10 +214,19 @@ class ImageAdjustmentDialog(QDialog):
         option_row = QHBoxLayout()
         option_row.addWidget(self.auto_adjust_button)
         option_row.addWidget(self.reset_button)
-        option_row.addWidget(self.grayscale_checkbox)
         option_row.addStretch(1)
         controls.addLayout(option_row)
-        root.addLayout(controls)
+        controls.addWidget(self.grayscale_checkbox)
+        sidebar = QWidget(self)
+        sidebar.setFixedWidth(310)
+        sidebar_layout = QVBoxLayout(sidebar)
+        sidebar_layout.setContentsMargins(0, 0, 0, 0)
+        sidebar_layout.setSpacing(12)
+        sidebar_layout.addWidget(scope_panel)
+        sidebar_layout.addWidget(section("ui.section.parameters", controls))
+        sidebar_layout.addWidget(section("ui.section.targets", self.target_list, stretch=1), 1)
+        body.addWidget(sidebar)
+        root.addLayout(body, 1)
 
         self.buttons = QDialogButtonBox(
             QDialogButtonBox.Ok | QDialogButtonBox.Cancel,
@@ -242,6 +252,13 @@ class ImageAdjustmentDialog(QDialog):
         root.activate()
         self._preview = self._load_preview()
         self._scope_changed()
+        present_dialog(self, primary=self.apply_button, scroll=True, icon="adjust-image")
+        self.preview_label.installEventFilter(self)
+
+    def eventFilter(self, watched, event):
+        if watched is self.preview_label and event.type() == QEvent.Resize:
+            self._preview_timer.start()
+        return super().eventFilter(watched, event)
 
     def _load_preview(self):
         max_pixels = self._preview_pixel_budget()

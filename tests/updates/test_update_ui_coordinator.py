@@ -1,7 +1,8 @@
+import gc
 import unittest
 from unittest.mock import patch
 
-from PyQt5.QtCore import QObject, pyqtSignal
+from PyQt5.QtCore import QEvent, QObject, pyqtSignal
 from PyQt5.QtWidgets import QApplication, QWidget
 
 from labelimg.updates import (
@@ -156,6 +157,18 @@ class UpdateUiCoordinatorTest(unittest.TestCase):
         self.assertFalse(self.coordinator.check_manual())
         self.assertIs(self.coordinator.center, center)
         self.assertEqual(self.client.fetch_count, 1)
+
+    def test_destroyed_center_disconnects_safely_after_owner_cleanup(self):
+        self.coordinator.check_manual()
+        center = self.coordinator.center
+        center.deleteLater()
+        QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        self.application.processEvents()
+        self.assertIsNone(self.coordinator.center)
+        self.coordinator.check_manual()
+        self.coordinator.close()
+        gc.collect()
+        self.application.processEvents()
 
     def test_manual_results_stay_in_the_same_center(self):
         self.coordinator.check_manual()

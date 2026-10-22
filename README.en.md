@@ -10,6 +10,7 @@ LabelImg Enhanced is an independently maintained bounding-box annotation tool de
 
 - Supports Pascal VOC, YOLO, and CreateML with an explicit save-format selector.
 - Provides complete Simplified Chinese and English interfaces with instant, persisted switching.
+- [A consistent modern interface](docs/design/ui-presentation.md), with rules beside batch previews, image previews beside settings, and clear layouts for statistics, cleanup, recovery and dialogs.
 - Supports multi-selection, deterministic overlap targeting, and direct single-box label editing by double-clicking a box or its label text.
 - Flags likely duplicate boxes and overlapping category conflicts for focused inspection, editing, visibility changes, deletion, or session-only dismissal.
 - Searches the current image directory live by file name or relative path, and tracks `Unreviewed / Needs Review / Verified` states with annotation, review, and save-state filtering or sorting.

@@ -1,5 +1,7 @@
 """Scrollable category charts and numeric details for annotation statistics."""
 
+from labelimg.ui.presentation import present_dialog, role, compact_paths, metric_card
+
 import math
 
 from PyQt5.QtCore import QPointF, QRectF, Qt, QTimer
@@ -105,11 +107,20 @@ class AnnotationStatisticsDialog(QDialog):
         self.scope = QLabel()
         self.scope.setTextFormat(Qt.PlainText)
         self.scope.setWordWrap(True)
+        role(self.scope, "supporting")
         self.scope.setTextInteractionFlags(Qt.TextSelectableByMouse)
         layout.addWidget(self.scope)
+        counters = QHBoxLayout()
+        self.image_count = metric_card("ui.stats.images")
+        self.category_count = metric_card("ui.stats.categories")
+        self.box_count = metric_card("ui.stats.boxes")
+        for card in (self.image_count, self.category_count, self.box_count):
+            counters.addWidget(card, 1)
+        layout.addLayout(counters)
         self.summary = QLabel()
         self.summary.setTextFormat(Qt.PlainText)
         self.summary.setWordWrap(True)
+        role(self.summary, "supporting")
         layout.addWidget(self.summary)
         controls = QHBoxLayout()
         self.metric = QComboBox()
@@ -140,21 +151,25 @@ class AnnotationStatisticsDialog(QDialog):
         self.tabs.addTab(scroll, "")
         self.tabs.addTab(self.table, "")
         self.tabs.addTab(self.issues, "")
-        layout.addWidget(self.tabs)
+        layout.addWidget(self.tabs, 1)
         self.note = QLabel()
         self.note.setWordWrap(True)
-        layout.addWidget(self.note)
+        role(self.note, "supporting")
         buttons = QDialogButtonBox(QDialogButtonBox.Close)
         buttons.rejected.connect(self.reject)
         self.buttons = buttons
-        layout.addWidget(buttons)
+        footer = QHBoxLayout()
+        footer.addWidget(self.note, 1)
+        footer.addWidget(buttons)
+        layout.addLayout(footer)
         self.resize(920, 650)
         language_changed.connect(self.retranslate)
         self.retranslate()
+        present_dialog(self, scroll=True, icon="annotation-statistics")
 
     def retranslate(self, *_args):
         self.setWindowTitle(tr("annotationStats.title"))
-        self.scope.setText(tr("annotationStats.scope", images=self.image_dir, annotations=self.annotation_dir))
+        compact_paths(self.scope, self.image_dir, self.annotation_dir)
         self.metric.setItemText(0, tr("annotationStats.boxes"))
         self.metric.setItemText(1, tr("annotationStats.images"))
         self.search.setPlaceholderText(tr("annotationStats.search"))
@@ -164,7 +179,8 @@ class AnnotationStatisticsDialog(QDialog):
             self.tabs.setTabText(index, tr("annotationStats." + key))
         self.table.setHorizontalHeaderLabels(tuple(tr("annotationStats." + key) for key in ("category", "boxes", "images", "share")))
         self.issues.setHorizontalHeaderLabels(tuple(tr("annotationStats." + key) for key in ("imagePath", "annotationPath", "diagnostic")))
-        self.note.setText(tr("annotationStats.note"))
+        self.note.setText(tr("ui.stats.readOnly"))
+        self.note.setToolTip(tr("annotationStats.note"))
         self.chart.setAccessibleName(tr("annotationStats.chart"))
         localize_dialog_buttons(self.buttons)
         self._render()
@@ -204,6 +220,8 @@ class AnnotationStatisticsDialog(QDialog):
         self.table.setRowCount(0)
         self.issues.setRowCount(0)
         if result is None:
+            for card in (self.image_count, self.category_count, self.box_count):
+                card.value.setText("—")
             self.summary.setText(tr("annotationStats.ready"))
             self.chart.set_rows((), self.metric.currentData())
             return
@@ -212,8 +230,12 @@ class AnnotationStatisticsDialog(QDialog):
         metric = self.metric.currentData()
         rows.sort(key=lambda row: (-getattr(row, metric), row.label.casefold(), row.label))
         self.chart.set_rows(rows, metric)
+        for card, value in ((self.image_count, result.total_images),
+                            (self.category_count, len(result.categories)),
+                            (self.box_count, result.total_boxes)):
+            card.value.setText(f"{value:,}")
         self.summary.setText(tr(
-            "annotationStats.summary", categories=len(result.categories), boxes=result.total_boxes,
+            "ui.stats.details",
             images=result.total_images, annotated=result.annotated_images, empty=result.empty_images,
             missing=result.missing_images, failed=len(result.issues), unsaved=result.unsaved_images,
             shown=len(rows),

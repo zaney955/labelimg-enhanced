@@ -11,10 +11,15 @@ import sys
 
 def main() -> int:
     argument_parser = argparse.ArgumentParser()
-    argument_parser.add_argument(
+    target = argument_parser.add_mutually_exclusive_group()
+    target.add_argument(
         "--installed",
         action="store_true",
         help="test the installed wheel instead of the repository source tree",
+    )
+    target.add_argument(
+        "--package-root", type=Path,
+        help="test an isolated wheel installation containing the labelimg package",
     )
     arguments = argument_parser.parse_args()
 
@@ -28,7 +33,12 @@ def main() -> int:
     ))
     test_config_dir.mkdir(parents=True, exist_ok=True)
     environment["LABELIMG_CONFIG_DIR"] = str(test_config_dir)
-    if arguments.installed:
+    if arguments.package_root:
+        package_root = arguments.package_root.resolve()
+        if not (package_root / "labelimg" / "__init__.py").is_file():
+            argument_parser.error("--package-root must contain an installed labelimg package")
+        environment["PYTHONPATH"] = str(package_root)
+    elif arguments.installed:
         environment.pop("PYTHONPATH", None)
     else:
         environment["PYTHONPATH"] = str(repository_root / "src")
@@ -43,7 +53,8 @@ def main() -> int:
                 "-X",
                 "faulthandler",
                 "-B",
-                str(test_file),
+                "-m", "unittest", "discover",
+                "-s", str(test_file.parent), "-p", test_file.name,
             ],
             cwd=repository_root,
             env=environment,

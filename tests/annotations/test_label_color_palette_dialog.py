@@ -76,7 +76,7 @@ class LabelColorPaletteDialogTest(unittest.TestCase):
 
         set_language(SIMPLIFIED_CHINESE)
         self.assertEqual(self.dialog.windowTitle(), "管理标签颜色")
-        self.assertEqual(self.dialog.choose_button.text(), "选择颜色…")
+        self.assertEqual(self.dialog.choose_button.text(), "修改颜色")
 
     def test_restore_all_is_confirmed_and_staged(self):
         with patch.object(
@@ -89,12 +89,38 @@ class LabelColorPaletteDialogTest(unittest.TestCase):
         self.assertEqual(self.dialog.overrides, {})
         self.assertEqual(self.palette.override("unused"), QColor("red"))
 
+    def test_search_preserves_staged_colors_across_language_and_row_rebuild(self):
+        self.dialog.table.selectRow(0)
+        self.dialog.choose_selected_color()
+        self.dialog.search.setText("CAT")
+        self.assertFalse(self.dialog.table.isRowHidden(0))
+        self.assertTrue(self.dialog.table.isRowHidden(1))
+        set_language(SIMPLIFIED_CHINESE)
+        self.assertEqual(self.dialog.search.text(), "CAT")
+        self.assertTrue(self.dialog.table.isRowHidden(1))
+        self.assertEqual(self.dialog.overrides["cat"], QColor(12, 34, 56, 255))
+        self.dialog.search.setText("not a category")
+        self.assertFalse(self.dialog.choose_button.isEnabled())
+        self.dialog.search.clear()
+        self.assertTrue(all(not self.dialog.table.isRowHidden(row) for row in range(2)))
+
     def test_palette_color_dialog_hides_alpha_channel(self):
         dialog = ColorDialog()
         try:
             self.assertFalse(dialog.testOption(QColorDialog.ShowAlphaChannel))
         finally:
             dialog.deleteLater()
+
+    def test_selected_row_keeps_the_actual_category_color_visible(self):
+        self.dialog.show()
+        self.dialog.table.selectRow(0)
+        self.app.processEvents()
+        table = self.dialog.table
+        item = table.item(0, 1)
+        rect = table.visualItemRect(item)
+        rendered = table.viewport().grab().toImage()
+        self.assertEqual(rendered.pixelColor(rect.right() - 4, rect.top() + 4),
+                         item.background().color())
 
 
 if __name__ == "__main__":

@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+from labelimg.ui.presentation import present_dialog, section
+
 from dataclasses import dataclass
 import os
 
 import cv2
 import numpy as np
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import QEvent, QTimer, Qt
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtWidgets import (
     QComboBox,
@@ -20,6 +22,7 @@ from PyQt5.QtWidgets import (
     QLabel,
     QListWidget,
     QSpinBox,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -73,7 +76,7 @@ class GeometryTransformDialog(QDialog):
         self._updating_size = False
         self._preview_failed = False
         self.setWindowTitle(tr("geometry.workspace.title"))
-        self.resize(900, 620)
+        self.resize(980, 620)
 
         root = QVBoxLayout(self)
         controls = QFormLayout()
@@ -107,16 +110,16 @@ class GeometryTransformDialog(QDialog):
         index = self.operation_combo.findData(GeometryOperation(preselected))
         self.operation_combo.setCurrentIndex(max(0, index))
         controls.addRow(tr("geometry.workspace.operation"), self.operation_combo)
-        root.addLayout(controls)
+        scope_panel = section("ui.section.transform", controls)
 
         body = QHBoxLayout()
         self.target_list = QListWidget(self)
-        self.target_list.setMinimumWidth(220)
-        body.addWidget(self.target_list, 0)
+        self.target_list.setMinimumHeight(100)
         preview_column = QVBoxLayout()
         self.preview_label = QLabel(self)
         self.preview_label.setAlignment(Qt.AlignCenter)
-        self.preview_label.setMinimumSize(440, 320)
+        self.preview_label.setMinimumSize(400, 300)
+        self.preview_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
         self.preview_label.setStyleSheet(
             "QLabel { background: #202428; border: 1px solid #5f686f; }"
         )
@@ -124,8 +127,7 @@ class GeometryTransformDialog(QDialog):
         self.preview_size_label = QLabel(self)
         self.preview_size_label.setAlignment(Qt.AlignCenter)
         preview_column.addWidget(self.preview_size_label)
-        body.addLayout(preview_column, 1)
-        root.addLayout(body, 1)
+        body.addWidget(section("ui.section.preview", preview_column, stretch=1), 1)
 
         self.resize_panel = QWidget(self)
         resize_form = QFormLayout(self.resize_panel)
@@ -144,7 +146,16 @@ class GeometryTransformDialog(QDialog):
         resize_form.addRow(tr("geometry.workspace.width"), self.width_spin)
         resize_form.addRow(tr("geometry.workspace.height"), self.height_spin)
         resize_form.addRow(tr("geometry.workspace.percent"), self.percent_spin)
-        root.addWidget(self.resize_panel)
+        sidebar = QWidget(self)
+        sidebar.setFixedWidth(310)
+        sidebar_layout = QVBoxLayout(sidebar)
+        sidebar_layout.setContentsMargins(0, 0, 0, 0)
+        sidebar_layout.setSpacing(12)
+        sidebar_layout.addWidget(scope_panel)
+        scope_panel.layout().addWidget(self.resize_panel)
+        sidebar_layout.addWidget(section("ui.section.targets", self.target_list, stretch=1), 1)
+        body.addWidget(sidebar)
+        root.addLayout(body, 1)
 
         self.buttons = QDialogButtonBox(
             QDialogButtonBox.Ok | QDialogButtonBox.Cancel,
@@ -163,6 +174,13 @@ class GeometryTransformDialog(QDialog):
         self.buttons.accepted.connect(self._accept_request)
         self.buttons.rejected.connect(self.reject)
         self._scope_changed()
+        present_dialog(self, primary=self.apply_button, scroll=True, icon="geometry-transform")
+        self.preview_label.installEventFilter(self)
+
+    def eventFilter(self, watched, event):
+        if watched is self.preview_label and event.type() == QEvent.Resize:
+            QTimer.singleShot(0, self._refresh)
+        return super().eventFilter(watched, event)
 
     def _paths(self):
         scope = self.scope_combo.currentData()

@@ -61,7 +61,7 @@ class FilePanelTest(unittest.TestCase):
         w = self.window
         self.assertIs(w.file_dock.titleBarWidget(), w.file_header)
         self.assertIs(w.file_list_controls.sort_button.parentWidget(), w.file_header)
-        self.assertEqual(w.file_summary_label.text(), '4 files')
+        self.assertEqual(w.file_summary_label.text(), '4')
         self.assertEqual(w.file_list_controls.sort_button.text(), 'File Name')
         self.assertFalse(w.file_selection_bar.isVisible())
         start = w.file_list_stack.mapTo(w.file_dock, QPoint())
@@ -132,6 +132,13 @@ class FilePanelTest(unittest.TestCase):
             self.window.annotation_directory_bar.click()
             chooser.assert_called_once()
         self.assertEqual(calls, [True])
+
+    def test_path_and_count_are_rendered_with_the_panel_metadata_style(self):
+        label = self.window.annotation_target_label
+        self.assertEqual(label.font().pixelSize(), 11)
+        self.assertEqual(label.palette().windowText().color(), QColor('#68758A'))
+        badge = self.window.file_summary_label
+        self.assertEqual(badge.grab().toImage().pixelColor(2, badge.height() // 2), QColor('#F1F3F8'))
 
     def test_footer_is_disabled_with_list_during_blocked_operations(self):
         self.select(1, 2)

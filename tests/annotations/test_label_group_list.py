@@ -364,17 +364,13 @@ class LabelGroupListWidgetTest(unittest.TestCase):
 
         self.assert_color_close(image.pixelColor(sample), expected)
 
-    def test_count_and_visibility_columns_use_faint_dividers(self):
+    def test_count_and_visibility_columns_are_separate_without_grid_lines(self):
         shape = rectangle("car", 10)
         self.set_scene([shape])
         image = self.render_view()
         count = self.widget.count_rect_for_label("car")
         visibility = self.widget.visibility_rect_for_label("car")
-        expected = self.blended(
-            self.widget.palette().color(QPalette.Mid),
-            self.widget.palette().color(QPalette.Base),
-            45,
-        )
+        expected = self.widget.palette().color(QPalette.Base)
 
         self.assert_color_close(
             image.pixelColor(count.left(), count.center().y()),

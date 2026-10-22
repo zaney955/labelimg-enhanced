@@ -4,7 +4,7 @@ from PyQt5.QtCore import Qt, QSize
 from PyQt5.QtGui import QPainter
 from PyQt5.QtWidgets import (
     QCheckBox, QDockWidget, QFrame, QHBoxLayout, QLabel, QLineEdit,
-    QMenu, QSizePolicy, QToolButton, QVBoxLayout, QWidget, QAction,
+    QMenu, QSizePolicy, QToolButton, QVBoxLayout, QWidget, QAction, QStyle, QStyleOption,
 )
 
 from labelimg.annotations.ui.default_category_selector import DefaultCategorySelector
@@ -12,6 +12,7 @@ from labelimg.annotations.ui.label_group_list import LabelGroupListWidget
 from labelimg.localization.runtime import tr
 from labelimg.ui.actions import new_icon
 from labelimg.ui.query_field import decorate_list_query_field
+from labelimg.ui.presentation import icon_tile, present_panel
 
 
 class _SummaryLabel(QLabel):
@@ -21,10 +22,13 @@ class _SummaryLabel(QLabel):
 
     def paintEvent(self, event):
         painter = QPainter(self)
+        option = QStyleOption()
+        option.initFrom(self)
+        self.style().drawPrimitive(QStyle.PE_Widget, option, painter, self)
         painter.setFont(self.font())
-        painter.setPen(self.palette().mid().color())
-        painter.drawText(self.rect(), Qt.AlignVCenter | Qt.AlignLeft,
-                         self.fontMetrics().elidedText(self.text(), Qt.ElideRight, self.width()))
+        painter.setPen(self.palette().windowText().color())
+        painter.drawText(self.contentsRect(), Qt.AlignVCenter | Qt.AlignLeft,
+                         self.fontMetrics().elidedText(self.text(), Qt.ElideRight, self.contentsRect().width()))
 
 
 def build_annotation_panel(window):
@@ -32,21 +36,28 @@ def build_annotation_panel(window):
     w.dock = QDockWidget(tr("boxLabelText"), w)
     w.dock.setObjectName(tr("labels"))
     w.dock.setMinimumWidth(320)
-    container = QWidget()
+    container = QFrame()
+    container.setObjectName("annotationPanelSurface")
     layout = QVBoxLayout(container)
-    layout.setContentsMargins(12, 0, 12, 10)
+    layout.setContentsMargins(12, 12, 12, 12)
     layout.setSpacing(10)
 
-    w.annotation_header = QWidget()
+    w.annotation_header = QFrame()
+    w.annotation_header.setObjectName("annotationPanelHeader")
     header = QHBoxLayout(w.annotation_header)
-    header.setContentsMargins(12, 10, 12, 8)
-    header.setSpacing(8)
+    header.setContentsMargins(12, 9, 12, 9)
+    header.setSpacing(6)
+    header.addWidget(icon_tile("annotation-panel", size=24, icon_size=16))
     w.annotation_title = QLabel(tr("boxLabelText"))
     w.annotation_title.setObjectName("annotationPanelTitle")
     header.addWidget(w.annotation_title)
     w.label_summary_label = _SummaryLabel()
     w.label_summary_label.setObjectName("annotationPanelSummary")
-    header.addWidget(w.label_summary_label, 1)
+    w.label_summary_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+    w.label_summary_label.setFixedHeight(22)
+    w.label_summary_label.setMaximumWidth(112)
+    header.addWidget(w.label_summary_label)
+    header.addStretch(1)
 
     def button(name):
         result = QToolButton()
@@ -73,11 +84,13 @@ def build_annotation_panel(window):
         header.addWidget(control)
     w.dock.setTitleBarWidget(w.annotation_header)
 
-    w.default_label_row = QWidget()
+    w.default_label_row = QFrame()
+    w.default_label_row.setObjectName("annotationCreationSettings")
     defaults = QHBoxLayout(w.default_label_row)
-    defaults.setContentsMargins(0, 0, 0, 0)
+    defaults.setContentsMargins(8, 5, 4, 5)
     defaults.setSpacing(10)
     w.default_category_caption = QLabel(tr("annotationPanel.defaultCategory"))
+    w.default_category_caption.setObjectName("annotationCreationCaption")
     w.default_category_selector = DefaultCategorySelector(
         lambda text: w.candidate_label_dialog.choose(text)
     )
@@ -118,20 +131,27 @@ def build_annotation_panel(window):
     w.annotation_selection_bar.hide()
     layout.addWidget(w.annotation_selection_bar)
     w.dock.setWidget(container)
-    w.dock.setStyleSheet("""
-        QDockWidget { background: palette(base); }
-        QLabel#annotationPanelTitle { font-size: 15px; font-weight: 600; }
-        QLabel#annotationPanelSummary, QLabel#annotationSelectionCount { font-size: 11px; }
+    present_panel(w.dock, """
+        QDockWidget, QWidget#annotationPanelSurface { background: #FFFFFF; }
+        QFrame#annotationPanelHeader { background: #FFFFFF; }
+        QWidget#annotationPanelSurface { border-top: 1px solid #EAEDF3; }
+        QLabel#annotationPanelTitle { color: #303B50; font-size: 13px; font-weight: 600; }
+        QLabel#annotationPanelSummary { color: #68758A; font-size: 10px; background: #F1F3F8;
+            border-radius: 6px; padding: 2px 5px; }
+        QLabel#annotationSelectionCount { color: #645887; font-size: 11px; }
+        QWidget#annotationCreationSettings { background: #F6F7FB; border-radius: 6px; }
+        QLabel#annotationCreationCaption { color: #68758A; font-size: 11px; }
         QToolButton { border: none; border-radius: 4px; padding: 0; }
         QToolButton:hover { background: palette(alternate-base); }
         QToolButton::menu-indicator { image: none; }
-        QComboBox { min-height: 28px; padding: 0 8px; border: 1px solid #DFE5ED;
-            border-radius: 4px; background: palette(alternate-base); color: palette(text); }
+        QComboBox { min-height: 26px; padding: 0 8px; border: none;
+            border-radius: 4px; background: #F6F7FB; color: #39455C; }
         QComboBox::drop-down { border: none; width: 24px; }
         QComboBox::down-arrow { image: url(:/chevron-down); width: 16px; height: 16px; }
-        QLineEdit { min-height: 28px; padding: 0 6px 0 0; border: 1px solid #D7DEE8; border-radius: 4px; }
-        QLineEdit:focus { border-color: #756B9E; }
-        QFrame#annotationSelectionBar { border: none; border-top: 1px solid #E2E7EF; background: palette(alternate-base); }
+        QLineEdit { min-height: 30px; padding: 0 6px 0 0; border: 1px solid #F0F2F7;
+            border-radius: 6px; background: #F6F7FB; color: #39455C; }
+        QLineEdit:focus { border-color: #A69ABD; background: #FFFFFF; }
+        QFrame#annotationSelectionBar { border: 1px solid #E6E1F1; border-radius: 6px; background: #F5F2FA; }
         QCheckBox { spacing: 4px; }
     """)
     w.label_filter.textChanged.connect(w.label_list.set_filter_text)

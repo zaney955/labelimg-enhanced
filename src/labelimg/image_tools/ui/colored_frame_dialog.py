@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from labelimg.ui.presentation import present_dialog, present_table, role
+
 from dataclasses import dataclass
 import math
 import os
@@ -29,8 +31,6 @@ from PyQt5.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
-    QListWidget,
-    QListWidgetItem,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -39,6 +39,7 @@ from PyQt5.QtWidgets import (
     QToolButton,
     QTreeWidget,
     QTreeWidgetItem,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -332,13 +333,15 @@ class ImageToolsDialog(QDialog):
         self._prepare_timer.setInterval(self.OPTIONS_DEBOUNCE_MS)
         self._prepare_timer.timeout.connect(self._prepare_all)
 
-        self.setWindowTitle(tr("imageTools.title"))
+        self.setWindowTitle(tr("ui.frames.title"))
         self.setModal(True)
         self.resize(1180, 760)
         self._build_ui()
         self._connect_ui()
         self._populate_scope()
         self._set_targets((self.current_path,))
+        present_dialog(self, primary=self.apply_button, scroll=True, icon="remove-frames")
+        present_table(self.target_list, path_columns=(0,), stretch_path=True)
 
     @property
     def target_paths(self):
@@ -351,28 +354,16 @@ class ImageToolsDialog(QDialog):
         self.scope_combo = QComboBox(self)
         header.addWidget(self.scope_combo)
         header.addStretch(1)
-        outer.addLayout(header)
 
         splitter = QSplitter(Qt.Horizontal, self)
         outer.addWidget(splitter, 1)
 
-        left = QWidget(splitter)
-        left_layout = QVBoxLayout(left)
-        left_layout.addWidget(QLabel(tr("imageTools.tools"), left))
-        self.tool_list = QListWidget(left)
-        tool = QListWidgetItem(tr("imageTools.removeFrames"))
-        tool.setData(Qt.UserRole, "removeFrames")
-        self.tool_list.addItem(tool)
-        self.tool_list.setCurrentRow(0)
-        left_layout.addWidget(self.tool_list)
-        left_layout.addWidget(QLabel(tr("imageTools.targets"), left))
-        self.target_list = QTreeWidget(left)
+        self.target_list = QTreeWidget(self)
         self.target_list.setColumnCount(2)
         self.target_list.setHeaderLabels((
             tr("imageTools.target"),
             tr("imageTools.status"),
         ))
-        left_layout.addWidget(self.target_list, 1)
 
         center = QWidget(splitter)
         center_layout = QVBoxLayout(center)
@@ -400,9 +391,11 @@ class ImageToolsDialog(QDialog):
         center_layout.addWidget(self.preview_summary)
 
         right = QWidget(splitter)
+        right.setMinimumWidth(310)
         right_layout = QVBoxLayout(right)
+        right_layout.addLayout(header)
         colors = QGroupBox(tr("imageTools.colors"), right)
-        colors_layout = QVBoxLayout(colors)
+        colors_layout = QHBoxLayout(colors)
         self.red_checkbox = QCheckBox(tr("imageTools.color.red"), colors)
         self.yellow_checkbox = QCheckBox(
             tr("imageTools.color.yellow"),
@@ -429,16 +422,19 @@ class ImageToolsDialog(QDialog):
         )
         right_layout.addLayout(strength_form)
 
-        right_layout.addWidget(QLabel(tr("imageTools.candidates"), right))
         self.candidate_list = QTreeWidget(right)
         self.candidate_list.setColumnCount(2)
         self.candidate_list.setHeaderLabels((
             tr("imageTools.candidate"),
             tr("imageTools.color"),
         ))
-        right_layout.addWidget(self.candidate_list, 1)
+        self.result_tabs = QTabWidget(right)
+        self.result_tabs.addTab(self.candidate_list, tr("imageTools.candidates"))
+        self.result_tabs.addTab(self.target_list, tr("imageTools.targets"))
+        right_layout.addWidget(self.result_tabs, 1)
 
         self.advanced_toggle = QToolButton(right)
+        self.advanced_toggle.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.advanced_toggle.setText(tr("imageTools.advanced"))
         self.advanced_toggle.setCheckable(True)
         self.advanced_toggle.setArrowType(Qt.RightArrow)
@@ -461,10 +457,9 @@ class ImageToolsDialog(QDialog):
         self.advanced_panel.setVisible(False)
         right_layout.addWidget(self.advanced_panel)
 
-        splitter.addWidget(left)
         splitter.addWidget(center)
         splitter.addWidget(right)
-        splitter.setSizes((250, 650, 280))
+        splitter.setSizes((800, 340))
 
         footer = QHBoxLayout()
         self.undo_button = QPushButton(tr("imageTools.undo"), self)

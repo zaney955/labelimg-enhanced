@@ -86,6 +86,11 @@ class CanvasStatusStrip(QFrame):
                   else max(text_height, zoom_height))
         self.setMinimumWidth(max(*widths, zoom_chrome + 64) + 16)
         self.setFixedHeight(height + 8)
+        # Styled controls can change their size hint during the image-size
+        # update. Settle the reserved row now, before pointer readouts arrive.
+        self._grid.activate()
+        self.view_controls.layout().activate()
+        self.zoom.layout().activate()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

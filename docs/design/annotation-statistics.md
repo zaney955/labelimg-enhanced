@@ -2,6 +2,8 @@
 
 **Tools → Annotation Statistics…** opens read-only category statistics for all images in the current workspace, including images hidden by search or filters. A standalone image is also supported. The command has no shortcut or toolbar button and does not interrupt an unfinished drawing/edit transaction.
 
+The top row shows separate image, category and box totals. A compact status line reports annotation coverage, skipped/unsaved images and the number of displayed categories. Directory names appear in the context line, with full paths in its tooltip. Chart/table tabs own the result area; filtering and refresh sit immediately above them.
+
 The dialog starts a fresh scan and provides:
 
 - total distinct used categories and annotation-box count;
