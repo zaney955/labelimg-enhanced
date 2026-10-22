@@ -37,7 +37,6 @@ class LabelGroupListWidget(QAbstractScrollArea):
     nearDuplicateGroupRequested = pyqtSignal(object, object)
 
     row_height = 32
-    marker_width = 3
     row_inset = 1
     label_min_width = 36
     label_max_width = 240
@@ -79,6 +78,7 @@ class LabelGroupListWidget(QAbstractScrollArea):
         self._dragging_strip = False
         self._context_target = None
         self._label_width_cache = {}
+        self._count_width = self.count_area_width
         self._near_duplicate_clusters = tuple()
         self._near_duplicate_by_shape = {}
         self.setFocusPolicy(Qt.StrongFocus)
@@ -449,41 +449,36 @@ class LabelGroupListWidget(QAbstractScrollArea):
 
     def _paint_group(self, painter, group, row_rect):
         layout = self._layout(group, row_rect)
-        foreground = self.palette().color(QPalette.Text)
         selected = [shape for shape in group.shapes if shape in self._selected]
         all_selected = bool(selected) and len(selected) == len(group.shapes)
         partial_selected = bool(selected) and not all_selected
         row_hovered = self._row_is_hovered(group)
+        foreground = (
+            QColor(COLORS["selection_foreground"])
+            if selected else self.palette().color(QPalette.Text)
+        )
 
         painter.save()
-        if row_hovered:
+        if selected:
+            painter.setPen(QPen(
+                QColor(COLORS["selection_border"]), 1.0,
+                Qt.DashLine if partial_selected else Qt.SolidLine,
+            ))
+            painter.setBrush(QColor(COLORS["selection_background"]))
+            painter.drawRoundedRect(
+                QRectF(row_rect).adjusted(1.5, 1.5, -1.5, -1.5), 6, 6
+            )
+        elif row_hovered:
             hover_background = QColor(self.palette().color(QPalette.Mid))
             hover_background.setAlpha(self.hover_background_alpha)
             painter.fillRect(row_rect, hover_background)
 
-        separator = QColor(self.palette().color(QPalette.Mid))
-        separator.setAlpha(self.separator_alpha)
-        painter.fillRect(
-            QRect(row_rect.left(), row_rect.bottom(), row_rect.width(), 1),
-            separator,
-        )
-
-        if partial_selected:
-            painter.setPen(Qt.NoPen)
-            painter.setBrush(self.palette().color(QPalette.Highlight))
-            painter.drawEllipse(QPointF(row_rect.left() + 3, row_rect.center().y()), 3, 3)
-        elif all_selected:
-            painter.setPen(Qt.NoPen)
-            painter.setBrush(self.palette().color(QPalette.Highlight))
-            painter.drawRoundedRect(
-                QRectF(
-                    row_rect.left(),
-                    row_rect.top() + 4,
-                    self.marker_width,
-                    row_rect.height() - 8,
-                ),
-                1.5,
-                1.5,
+        if not selected:
+            separator = QColor(self.palette().color(QPalette.Mid))
+            separator.setAlpha(self.separator_alpha)
+            painter.fillRect(
+                QRect(row_rect.left(), row_rect.bottom(), row_rect.width(), 1),
+                separator,
             )
 
         color = QColor(group.shapes[0].line_color)
@@ -513,11 +508,11 @@ class LabelGroupListWidget(QAbstractScrollArea):
             text,
         )
 
-        self._paint_strip(painter, group, layout)
-        self._paint_count(painter, group, layout["count"], foreground)
+        self._paint_strip(painter, group, layout, foreground)
+        self._paint_count(painter, group, layout["count"], foreground, len(selected))
         self._paint_visibility(painter, group, layout["visibility"])
 
-        if row_hovered:
+        if row_hovered and not selected:
             painter.setBrush(Qt.NoBrush)
             painter.setPen(QPen(
                 self.palette().color(QPalette.Mid),
@@ -529,7 +524,7 @@ class LabelGroupListWidget(QAbstractScrollArea):
             painter.drawRoundedRect(QRectF(row_rect.adjusted(1, 1, -1, -1)), 3, 3)
         painter.restore()
 
-    def _paint_strip(self, painter, group, layout):
+    def _paint_strip(self, painter, group, layout, foreground):
         strip = layout["buttons"]
         painter.save()
         painter.setClipRect(strip)
@@ -566,10 +561,10 @@ class LabelGroupListWidget(QAbstractScrollArea):
             font = QFont(painter.font())
             font.setBold(is_selected)
             painter.setFont(font)
-            painter.setPen(self.palette().color(QPalette.Text))
+            painter.setPen(foreground)
             painter.drawText(rect, Qt.AlignCenter, str(index + 1))
             if not is_visible:
-                slash = QColor(self.palette().color(QPalette.Text))
+                slash = QColor(foreground)
                 painter.setPen(QPen(slash, 1.2, Qt.SolidLine, Qt.RoundCap))
                 painter.drawLine(rect.topLeft() + QPoint(4, 4), rect.bottomRight() - QPoint(4, 4))
             cluster = self._near_duplicate_by_shape.get(shape)
@@ -603,7 +598,7 @@ class LabelGroupListWidget(QAbstractScrollArea):
                    size=16)
         painter.restore()
 
-    def _paint_count(self, painter, group, rect, foreground):
+    def _paint_count(self, painter, group, rect, foreground, selected_count=None):
         risk, clusters = self._group_near_duplicate_status(group)
         painter.save()
         if clusters:
@@ -612,12 +607,19 @@ class LabelGroupListWidget(QAbstractScrollArea):
                 self._group_risk_rect(rect),
                 risk,
             )
-        painter.setPen(foreground)
-        painter.drawText(
-            self._group_count_value_rect(rect).adjusted(0, 0, -4, 0),
-            Qt.AlignVCenter | Qt.AlignRight,
-            "×%d" % len(group.shapes),
+        if selected_count is None:
+            selected_count = sum(shape in self._selected for shape in group.shapes)
+        total = len(group.shapes)
+        count_text = (
+            "%d/%d" % (selected_count, total)
+            if 0 < selected_count < total else "×%d" % total
         )
+        text_rect = self._group_count_value_rect(rect).adjusted(0, 0, -4, 0)
+        count_text = QFontMetrics(self._label_measurement_font()).elidedText(
+            count_text, Qt.ElideMiddle, max(0, text_rect.width())
+        )
+        painter.setPen(foreground)
+        painter.drawText(text_rect, Qt.AlignVCenter | Qt.AlignRight, count_text)
         painter.restore()
 
     @staticmethod
@@ -1064,10 +1066,11 @@ class LabelGroupListWidget(QAbstractScrollArea):
             self.visibility_area_width,
             row_rect.height(),
         )
+        count_width = self._count_column_width(available)
         count = QRect(
-            visibility.left() - self.count_area_width,
+            visibility.left() - count_width,
             row_rect.top(),
-            self.count_area_width,
+            count_width,
             row_rect.height(),
         )
         strip = QRect(
@@ -1119,7 +1122,7 @@ class LabelGroupListWidget(QAbstractScrollArea):
             self.label_min_width,
             widest + self.label_button_gap,
         )
-        fixed_right = self.count_area_width + self.visibility_area_width
+        fixed_right = self._count_column_width(available) + self.visibility_area_width
         button_reserve_limit = max(
             0,
             available
@@ -1139,6 +1142,13 @@ class LabelGroupListWidget(QAbstractScrollArea):
         self._label_width_cache[available] = width
         return width
 
+    def _count_column_width(self, available):
+        # Very narrow embedded views still retain one complete instance chip.
+        return min(self._count_width, max(
+            self.count_area_width,
+            available - self.label_left_margin - self.chip_size - self.visibility_area_width,
+        ))
+
     def _label_measurement_font(self):
         font = QFont(self.font())
         font.setBold(True)
@@ -1153,6 +1163,18 @@ class LabelGroupListWidget(QAbstractScrollArea):
 
     def _invalidate_label_width(self):
         self._label_width_cache.clear()
+        metrics = QFontMetrics(self._label_measurement_font())
+        measure = getattr(metrics, "horizontalAdvance", metrics.width)
+        widest_count = max(
+            [measure("%d/%d" % (len(group.shapes), len(group.shapes)))
+             for group in self._filtered_groups()] or [0]
+        )
+        # Reserve mixed-selection counts before selecting anything, so neither
+        # instance buttons nor fixed status columns move as selection changes.
+        self._count_width = max(
+            self.count_area_width,
+            widest_count + self.risk_area_width + self.risk_count_gap + 4,
+        )
 
     def _chip_rect(self, group, index, layout):
         buttons = layout["buttons"]

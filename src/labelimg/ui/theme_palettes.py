@@ -100,6 +100,9 @@ def appearance_colors(base, mode, accent_id):
     colors = dict(base)
     colors.update(
         surface="#242A34" if dark else "#FFFFFF",
+        workspace_gutter="#141820" if dark else "#EBEEF3",
+        panel_header="#2A313C" if dark else "#F5F6F9",
+        panel_border="#505C6D" if dark else "#C4CBD5",
         background="#1B2028" if dark else "#F5F6F9",
         text="#EBEFF6" if dark else "#253047",
         divider="#37414F" if dark else "#E2E7EF",
@@ -155,6 +158,7 @@ def appearance_colors(base, mode, accent_id):
         selected,
         colors["canvas_verified"],
         colors["canvas_questioned"],
+        colors["panel_header"],
     )
     colors["text"] = readable(colors["text"], all_bodies)
     colors["muted"] = readable("#A7B3C5" if dark else "#68758A", all_bodies)
@@ -164,5 +168,12 @@ def appearance_colors(base, mode, accent_id):
     )
     colors["danger_border"] = readable(
         blend(colors["danger"], colors["surface"], 0.65), bodies, 3.05
+    )
+    # File selection needs a persistent, opaque fill, distinct from subtle
+    # control/chip selection. Never fade a stylesheet Highlight a second time.
+    colors["selection_background"] = blend(accent, colors["surface"], 0.16 if dark else 0.14)
+    colors["selection_border"] = blend(accent, colors["surface"], 0.32 if dark else 0.38)
+    colors["selection_foreground"] = readable(
+        colors["text"], (colors["selection_background"],)
     )
     return colors

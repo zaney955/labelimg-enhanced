@@ -1785,10 +1785,6 @@ class Canvas(QWidget):
         ).contains(scene_point)
 
     def status_background_color(self):
-        if self.verified:
-            return QColor(COLORS["canvas_verified"])
-        if self.questioned:
-            return QColor(COLORS["canvas_questioned"])
         return QColor(COLORS["background"])
 
     def transform_pos(self, point):

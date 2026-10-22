@@ -75,7 +75,7 @@ class AnnotationPanelTest(unittest.TestCase):
         self.assertEqual(w.default_category_caption.palette().windowText().color(), QColor(COLORS["muted"]))
         badge = w.label_summary_label
         rendered = badge.grab().toImage()
-        self.assertEqual(rendered.pixelColor(2, badge.height() // 2), QColor(COLORS["background"]))
+        self.assertEqual(rendered.pixelColor(2, badge.height() // 2), QColor(COLORS["surface"]))
 
     def test_context_bar_tracks_selection_without_moving_list_entry(self):
         w = self.window

@@ -130,5 +130,7 @@
 <file alias="mode-system">resources/icons/mode-system.svg</file>
 <file alias="mode-light">resources/icons/mode-light.svg</file>
 <file alias="mode-dark">resources/icons/mode-dark.svg</file>
+<file alias="refresh">resources/icons/refresh.svg</file>
+<file alias="clear-results">resources/icons/clear-results.svg</file>
 </qresource>
 </RCC>

@@ -2,7 +2,7 @@
 
 ## Scope
 
-The operation icon set contains the 116 SVG files used by actions, buttons, and
+The operation icon set contains the 118 SVG files used by actions, buttons, and
 query-field decorations, including the [Canvas rail and top command surface](design/canvas-tool-rail.md).
 The application identity asset, `app.svg`, is outside this system.
 
@@ -58,6 +58,11 @@ not a visual reference.
   diagonal edit instrument. A pointer alone means selection and is insufficient.
 - Verification: an annotation document plus a check. Shields are reserved for
   security and must not represent review state.
+- Canvas review ribbon: preserve the document/check/question geometry as
+  single-color outlines without document fills. Inactive states are neutral;
+  only the selected state carries its semantic color. All state names remain
+  visible with stable button widths. File-list
+  indicators and other command surfaces keep their existing artwork treatment.
 - VOC: a document plus an XML hierarchy mark. Generic nested squares alone are
   insufficient to identify the storage format.
 - Language choice: one speech surface plus a large, simplified path glyph. The

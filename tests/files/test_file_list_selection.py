@@ -343,7 +343,64 @@ class FileListSelectionTest(unittest.TestCase):
             )
         )
 
-    def test_hover_is_gray_and_selected_row_has_no_leading_block(self):
+    def test_selected_rows_remain_distinct_in_every_theme_after_focus_moves(self):
+        from labelimg.ui.theme_palettes import available_accents, contrast_ratio
+        from PyQt5.QtGui import QFont, QFontDatabase
+
+        original_font = self.app.font()
+        self.addCleanup(lambda: self.app.setFont(original_font))
+        font_id = QFontDatabase.addApplicationFont("C:/Windows/Fonts/msyh.ttc")
+        if font_id >= 0:
+            self.app.setFont(QFont(QFontDatabase.applicationFontFamilies(font_id)[0], 9))
+        self.window.resize(1280, 900)
+        view = self.window.file_list_widget
+        self.click_row(1)
+        self.click_row(2, Qt.ControlModifier)
+        expected = self.selected_paths()
+        for mode in ("light", "dark"):
+            for preset in available_accents():
+                with self.subTest(mode=mode, accent=preset.identifier):
+                    self.window.appearance.apply_preferences(mode, preset.identifier)
+                    self.window.file_rename_button.setFocus()
+                    QTest.mouseMove(self.window.file_rename_button)
+                    self.app.processEvents()
+                    image = view.viewport().grab().toImage()
+                    normal = view.visualItemRect(view.item(3))
+                    normal_color = image.pixelColor(
+                        normal.center().x(), normal.bottom() - 5
+                    )
+                    for row in (1, 2):
+                        rect = view.visualItemRect(view.item(row))
+                        fill = image.pixelColor(rect.center().x(), rect.bottom() - 5)
+                        self.assertGreaterEqual(
+                            contrast_ratio(fill.name(), normal_color.name()),
+                            1.15,
+                            (
+                                mode,
+                                preset.identifier,
+                                "selection fill",
+                                fill.name(),
+                                normal_color.name(),
+                            ),
+                        )
+                        edge_ratio = max(
+                            contrast_ratio(
+                                image.pixelColor(rect.left() + x, rect.center().y()).name(),
+                                normal_color.name(),
+                            )
+                            for x in range(1, 5)
+                        )
+                        self.assertGreaterEqual(
+                            edge_ratio, 1.45, (mode, preset.identifier, "selection outline")
+                        )
+                        self.assertLessEqual(
+                            contrast_ratio(fill.name(), normal_color.name()), 1.6
+                        )
+                        self.assertLessEqual(edge_ratio, 2.2)
+                    self.assertEqual(self.selected_paths(), expected)
+                    self.assertEqual(self.window.file_path, self.paths[0])
+
+    def test_hover_is_gray_and_selection_keeps_its_full_row_fill(self):
         normal = self.render_file_item(QStyle.State_None)
         hovered = self.render_file_item(QStyle.State_MouseOver)
         selected = self.render_file_item(QStyle.State_Selected)
@@ -379,15 +436,15 @@ class FileListSelectionTest(unittest.TestCase):
         )
         self.assertEqual(
             selected.pixelColor(3, selected.height() // 2),
-            selected.pixelColor(210, 2),
+            selected.pixelColor(210, selected.height() // 2),
         )
         self.assertEqual(
-            selected_hovered.pixelColor(210, 2),
-            selected.pixelColor(210, 2),
+            selected_hovered.pixelColor(210, selected_hovered.height() // 2),
+            selected.pixelColor(210, selected.height() // 2),
         )
         self.assertEqual(
-            preserved_appearance.pixelColor(210, 2),
-            selected.pixelColor(210, 2),
+            preserved_appearance.pixelColor(210, preserved_appearance.height() // 2),
+            selected.pixelColor(210, selected.height() // 2),
         )
 
     def test_file_list_uses_fixed_status_name_quality_and_alert_columns(self):

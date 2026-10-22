@@ -21,6 +21,7 @@ from PyQt5.QtWidgets import QApplication, QPushButton
 from labelimg.annotations.ui.label_group_list import LabelGroupListWidget
 from labelimg.localization.runtime import SIMPLIFIED_CHINESE, set_language
 from labelimg.canvas.shape import Shape
+from labelimg.ui.theme import COLORS
 
 
 def rectangle(label, x, color=None):
@@ -250,7 +251,7 @@ class LabelGroupListWidgetTest(unittest.TestCase):
         rect = self.widget.instance_rect(shape)
         expected = self.blended(
             QColor(40, 120, 200),
-            self.widget.palette().color(QPalette.Base),
+            QColor(COLORS["selection_background"]),
             48,
         )
         self.assertEqual(self.widget.selected_fill_alpha, 48)
@@ -308,11 +309,7 @@ class LabelGroupListWidgetTest(unittest.TestCase):
 
         QTest.mouseMove(self.widget.viewport(), pos=rect.center())
         image = self.render_view()
-        hover_background = self.blended(
-            self.widget.palette().color(QPalette.Mid),
-            self.widget.palette().color(QPalette.Base),
-            45,
-        )
+        hover_background = QColor(COLORS["selection_background"])
         expected_fill = self.blended(
             QColor(40, 120, 200),
             hover_background,

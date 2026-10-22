@@ -126,6 +126,23 @@ def icon(name):
     return _native_icon(name, current_theme().identifier, _icon_cache_directory())
 
 
+@lru_cache(maxsize=256)
+def outline_icon(name, color):
+    """Render existing SVG geometry as a native, single-color outline icon."""
+    from hashlib import sha256
+    from pathlib import Path
+    import re
+
+    artwork = _source_svg(name)
+    if artwork is None:
+        return QIcon()
+    artwork = re.sub(rb'stroke="#[0-9a-fA-F]{6}"', b'stroke="' + color.encode() + b'"', artwork)
+    artwork = re.sub(rb'fill="#[0-9a-fA-F]{6}"', b'fill="none"', artwork)
+    path = Path(_icon_cache_directory()) / (sha256(artwork).hexdigest() + ".svg")
+    path.write_bytes(artwork)
+    return QIcon(path.as_posix())
+
+
 def _refresh_command_icons(_identifier):
     app = QApplication.instance()
     if app is None:
@@ -239,6 +256,14 @@ class IconStyle(QProxyStyle):
         return super().standardPixmap(standard_pixmap, option, widget)
 
     def drawPrimitive(self, element, option, painter, widget=None):
+        if element == QStyle.PE_IndicatorDockWidgetResizeHandle:
+            token = (
+                "accent_border"
+                if option.state & QStyle.State_MouseOver
+                else "workspace_gutter"
+            )
+            painter.fillRect(option.rect, QColor(COLORS[token]))
+            return
         if element in (
             QStyle.PE_IndicatorCheckBox,
             QStyle.PE_IndicatorItemViewItemCheck,

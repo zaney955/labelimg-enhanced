@@ -72,7 +72,6 @@ from labelimg.canvas.widget import Canvas
 from labelimg.workbench.commands import (
     CanvasToolRail,
     FormatSelector,
-    ReviewControl,
     TopCommandBar,
     ZoomControl,
 )

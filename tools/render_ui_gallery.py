@@ -23,6 +23,26 @@ parser.add_argument(
 parser.add_argument(
     "--focus", action="store_true", help="Render the appearance regression subset"
 )
+parser.add_argument(
+    "--panels-only",
+    action="store_true",
+    help="Render dock layout and interaction states only",
+)
+PANEL_CAPTURES = {
+    "01-workbench",
+    "36-quality-dock",
+    "37-empty-workbench",
+    "60-panels-selection",
+    "61-panels-narrow",
+    "62-panels-quality",
+    "63-panels-left",
+    "64-panels-bottom",
+    "65-panels-tabbed",
+    "66-panel-floating",
+    "67-panel-menu",
+    "68-panel-separator-hover",
+    "69-panels-top",
+}
 args = parser.parse_args()
 if args.scale <= 0:
     parser.error("--scale must be positive")
@@ -38,6 +58,7 @@ from PyQt5.QtGui import (
     QFont,
     QFontDatabase,
     QImage,
+    QHoverEvent,
     QMouseEvent,
     QPainter,
     QPen,
@@ -151,6 +172,10 @@ widgets = []
 def capture(name, widget, hide=True):
     if widget not in widgets:
         widgets.append(widget)
+    if args.panels_only and name not in PANEL_CAPTURES:
+        if hide:
+            widget.hide()
+        return
     if args.focus and name not in {
         "01-workbench",
         "07-color-palette",
@@ -214,10 +239,44 @@ def capture(name, widget, hide=True):
                     problems.append("footer button outside action area")
             if any(area.isAncestorOf(box) for area in widget.findChildren(QScrollArea)):
                 problems.append("footer scrolls with body")
+    if name in PANEL_CAPTURES:
+        if widget is window and (
+            window.width() > virtual_screen.width()
+            or window.height() > virtual_screen.height()
+        ):
+            problems.append("workbench exceeds available desktop")
+        from PyQt5.QtWidgets import QToolButton
+
+        for dock in (window.dock, window.file_dock, window.image_quality_dock):
+            if not dock.isVisible():
+                continue
+            header = dock.titleBarWidget()
+            if header.height() != 38 or dock.widget().y() != 38:
+                problems.append("dock header overlaps its content")
+            for control in header.findChildren(QToolButton):
+                if control.isVisible() and not header.rect().contains(
+                    control.geometry()
+                ):
+                    problems.append("dock title action is clipped")
     if problems:
         raise AssertionError(name + ": " + ", ".join(problems))
+    if name == "68-panel-separator-hover":
+        # Hidden popup menus can suppress offscreen cursor delivery. Send Qt's
+        # real hover event so the native dock separator enters this state.
+        point = QPoint(window.dock.x() - 4, window.dock.geometry().center().y())
+        app.sendEvent(window, QHoverEvent(QEvent.HoverMove, point, QPoint(-1, -1)))
+        app.processEvents()
     file = ROOT / (name + ".png")
-    widget.grab().save(str(file))
+    rendered = widget.grab()
+    if name == "68-panel-separator-hover":
+        dpr = rendered.devicePixelRatioF()
+        sampled = rendered.toImage().pixelColor(
+            round(point.x() * dpr), round(point.y() * dpr)
+        )
+        assert sampled == QColor(
+            current_theme().colors["accent_border"]
+        ), "separator did not enter hover state"
+    rendered.save(str(file))
     manifest.append(
         {
             "name": name,
@@ -539,6 +598,64 @@ try:
     capture("46-theme-switch-magnifier", window, False)
     window.actions.selectTool.trigger()
     window.appearance.apply_preferences(args.mode, args.accent)
+    # Exercise real native dock layout paths, retaining the workbench's data.
+    window.canvas.set_magnifier_enabled(False)
+    initial_layout = window.saveState()
+    initial_size = window.size()
+    if window.canvas.shapes:
+        first_shape = window.canvas.shapes[0]
+        window.canvas.set_selected_shapes([first_shape], active_shape=first_shape)
+    window.file_list_widget.clearSelection()
+    for row in range(min(2, window.file_list_widget.count())):
+        window.file_list_widget.item(row).setSelected(True)
+    capture("60-panels-selection", window, False)
+    window.resize(min(1060, virtual_screen.width()), min(800, virtual_screen.height()))
+    window.resizeDocks([window.dock, window.file_dock], [320, 320], Qt.Horizontal)
+    capture("61-panels-narrow", window, False)
+    window.canvas.clear_selection()
+    window.file_list_widget.clearSelection()
+    window.restoreState(initial_layout)
+    window.resize(initial_size)
+    window.image_quality_dock.show()
+    # The tightest dock layout also includes both contextual selection bars.
+    if window.canvas.shapes:
+        window.canvas.set_selected_shapes(
+            [window.canvas.shapes[0]], active_shape=window.canvas.shapes[0]
+        )
+    window.file_list_widget.item(0).setSelected(True)
+    capture("62-panels-quality", window, False)
+    window.canvas.clear_selection()
+    window.file_list_widget.clearSelection()
+    window.restoreState(initial_layout)
+    window.file_dock.panel_header.move_to(Qt.LeftDockWidgetArea)
+    capture("63-panels-left", window, False)
+    window.restoreState(initial_layout)
+    window.file_dock.panel_header.move_to(Qt.BottomDockWidgetArea)
+    window.resizeDocks([window.file_dock], [230], Qt.Vertical)
+    capture("64-panels-bottom", window, False)
+    window.restoreState(initial_layout)
+    window.tabifyDockWidget(window.dock, window.file_dock)
+    window.file_dock.raise_()
+    capture("65-panels-tabbed", window, False)
+    window.restoreState(initial_layout)
+    window.file_dock.panel_header.toggle_floating()
+    window.file_dock.resize(360, 430)
+    capture("66-panel-floating", window.file_dock, False)
+    window.restoreState(initial_layout)
+    window.resize(initial_size)
+    app.processEvents()
+    menu = window.file_header.position_menu()
+    menu.popup(window.file_header.mapToGlobal(QPoint(10, 30)))
+    capture("67-panel-menu", menu)
+    divider = QPoint(window.dock.x() - 4, window.dock.geometry().center().y())
+    QTest.mouseMove(window, divider)
+    capture("68-panel-separator-hover", window, False)
+    window.file_dock.panel_header.move_to(Qt.TopDockWidgetArea)
+    window.resizeDocks([window.file_dock], [230], Qt.Vertical)
+    capture("69-panels-top", window, False)
+    window.restoreState(initial_layout)
+    window.resize(initial_size)
+
     (ROOT / "manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
     )

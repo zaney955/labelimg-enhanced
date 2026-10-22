@@ -25,7 +25,7 @@ from PyQt5.QtCore import (
     Qt,
     pyqtSignal,
 )
-from PyQt5.QtGui import QColor, QPainter, QPalette, QPen
+from PyQt5.QtGui import QColor, QFontMetrics, QPainter, QPalette, QPen
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -1718,7 +1718,6 @@ class FileListWidget(QListView):
 
 
 class FileListItemDelegate(QStyledItemDelegate):
-    selection_background_alpha = 28
     hover_background_alpha = 18
     status_column_width = 20
     alert_column_width = 20
@@ -1732,6 +1731,7 @@ class FileListItemDelegate(QStyledItemDelegate):
 
     def paint(self, painter, option, index):
         paint_option = QStyleOptionViewItem(option)
+        self.initStyleOption(paint_option, index)
         row_rect = self._row_rect(option)
         selected = (
             bool(option.state & QStyle.State_Selected)
@@ -1750,15 +1750,15 @@ class FileListItemDelegate(QStyledItemDelegate):
             if option.widget is not None
             else option.palette
         )
-        accent = palette.color(palette.Highlight)
+        accent = QColor(COLORS["accent"])
         painter.save()
         painter.setRenderHint(QPainter.Antialiasing, True)
         if selected:
-            background = QColor(accent)
-            background.setAlpha(self.selection_background_alpha)
-            painter.setPen(Qt.NoPen)
-            painter.setBrush(background)
-            painter.drawRoundedRect(QRectF(row_rect.adjusted(1, 1, -1, -1)), 6, 6)
+            painter.setPen(QPen(QColor(COLORS["selection_border"]), 1.0))
+            painter.setBrush(QColor(COLORS["selection_background"]))
+            painter.drawRoundedRect(
+                QRectF(row_rect).adjusted(1.5, 1.5, -1.5, -1.5), 6, 6
+            )
             paint_option.state &= ~QStyle.State_Selected
             paint_option.state &= ~QStyle.State_HasFocus
             paint_option.state &= ~QStyle.State_MouseOver
@@ -1777,7 +1777,22 @@ class FileListItemDelegate(QStyledItemDelegate):
         layout = self.row_layout(row_rect)
         paint_option.rect = layout["name"]
         paint_option.textElideMode = Qt.ElideMiddle
-        super().paint(painter, paint_option, index)
+        # Draw the label once, after the full-row state. The native delegate
+        # may replace custom fills/ink with QSS selection colors and stale
+        # inactive palettes; file selection must stay visible after focus moves.
+        painter.save()
+        painter.setClipRect(layout["name"], Qt.IntersectClip)
+        painter.setFont(paint_option.font)
+        painter.setPen(
+            QColor(COLORS["selection_foreground"])
+            if selected else palette.color(QPalette.Text)
+        )
+        metrics = QFontMetrics(paint_option.font)
+        painter.drawText(
+            layout["name"], Qt.AlignLeft | Qt.AlignVCenter,
+            metrics.elidedText(paint_option.text, Qt.ElideMiddle, layout["name"].width()),
+        )
+        painter.restore()
 
         self._paint_annotation_indicator(
             painter,

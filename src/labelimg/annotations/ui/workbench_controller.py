@@ -611,6 +611,12 @@ class AnnotationActionsMixin:
         shapes,
         active_shape,
     ):
+        if hasattr(self, 'review_control'):
+            self.review_control.set_state(
+                'questioned' if snapshot.questioned
+                else 'verified' if snapshot.verified
+                else 'unreviewed'
+            )
         if hasattr(self, 'near_duplicate_chooser'):
             self.near_duplicate_chooser.close()
         self.canvas.clear_near_duplicate_focus()

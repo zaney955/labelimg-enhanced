@@ -261,7 +261,7 @@ class AppearanceTest(unittest.TestCase):
             image = widget.grab().toImage()
             self.assertEqual(
                 image.pixelColor(image.width() - 25, image.height() // 2),
-                QColor(COLORS["surface"]),
+                QColor(COLORS["panel_header"] if widget.objectName() == "canvasToolRail" else COLORS["surface"]),
             )
         window.zoom_widget.setEnabled(True)
         pixels = window.zoom_widget.slider.grab().toImage()

@@ -77,7 +77,6 @@ from labelimg.canvas.widget import Canvas
 from labelimg.workbench.commands import (
     CanvasToolRail,
     FormatSelector,
-    ReviewControl,
     TopCommandBar,
     ZoomControl,
 )
@@ -86,6 +85,7 @@ from labelimg.workbench.canvas_context_menu import (
 )
 from labelimg.workbench.canvas_status import CanvasStatusStrip
 from labelimg.annotations.ui.candidate_label_dialog import CandidateLabelDialog
+from labelimg.annotations.ui.review_control import ReviewControl
 from labelimg.annotations.ui.label_list import (
     LabelListItemDelegate,
     LabelListWidget,
@@ -303,7 +303,13 @@ class WorkbenchComposer:
         self.image_quality_dock = QDockWidget(tr('quality.panelTitle'), self)
         self.image_quality_dock.setObjectName('imageQuality')
         self.image_quality_dock.setWidget(self.image_quality_panel)
-        present_result_panel(self.image_quality_dock, "image-quality")
+        quality_header = present_result_panel(self.image_quality_dock, "image-quality")
+        quality_header.add_control(self.image_quality_panel.refresh_button)
+        quality_header.add_control(self.image_quality_panel.clear_button)
+        self.image_quality_panel.summaryChanged.connect(
+            lambda total, issues: quality_header.set_count(
+                str(issues), tr("quality.summary", total=total, issues=issues)))
+        self.image_quality_panel.set_results(())
 
         self.zoom_widget = ZoomControl()
         self.color_dialog = ColorDialog(parent=self)
@@ -469,9 +475,13 @@ class WorkbenchComposer:
             .set_canvas_gesture_active(False)
         )
 
-        canvas_container = QWidget(self)
+        from PyQt5.QtWidgets import QFrame
+        canvas_container = QFrame(self)
+        canvas_container.setObjectName("canvasWorkspace")
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setObjectName("canvasScrollArea")
         canvas_layout = QVBoxLayout(canvas_container)
-        canvas_layout.setContentsMargins(0, 0, 0, 0)
+        canvas_layout.setContentsMargins(1, 1, 1, 1)
         canvas_layout.setSpacing(0)
         canvas_layout.addWidget(scroll, 1)
         self.canvas_status = CanvasStatusStrip(self.zoom_widget)
@@ -488,10 +498,8 @@ class WorkbenchComposer:
         self.addDockWidget(Qt.RightDockWidgetArea, self.file_dock)
         self.addDockWidget(Qt.RightDockWidgetArea, self.image_quality_dock)
         self.image_quality_dock.hide()
-        self.file_dock.setFeatures(QDockWidget.DockWidgetFloatable)
-
-        self.dock_features = QDockWidget.DockWidgetClosable | QDockWidget.DockWidgetFloatable
-        self.dock.setFeatures(self.dock.features() ^ self.dock_features)
+        for panel in (self.dock, self.file_dock):
+            panel.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable)
 
         from labelimg.image_tools.ui.crop_overlay import (
             CropControlBar,
@@ -573,7 +581,7 @@ class WorkbenchComposer:
             tr('action.questionImageTip'),
         )
         # Keep review shortcuts active even though review state is presented
-        # by the explicit top segmented control rather than a toolbar action.
+        # by the explicit Canvas review control rather than a toolbar action.
         self.addAction(verify)
         self.addAction(question)
 
@@ -1143,7 +1151,7 @@ class WorkbenchComposer:
             self.canvas_context_menu.show
         )
 
-        self.review_control = ReviewControl(self)
+        self.review_control = ReviewControl(self.scroll_area.viewport())
         self.review_control.setEnabled(False)
         self.review_control.stateRequested.connect(
             self.set_current_review_state
@@ -1152,7 +1160,6 @@ class WorkbenchComposer:
             open_dir,
             open_prev_image,
             open_next_image,
-            self.review_control,
             rotate_clockwise,
             flip_horizontal,
             self.format_selector,

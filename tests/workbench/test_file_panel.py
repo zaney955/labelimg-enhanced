@@ -140,7 +140,7 @@ class FilePanelTest(unittest.TestCase):
         self.assertEqual(label.font().pixelSize(), 11)
         self.assertEqual(label.palette().windowText().color(), QColor(COLORS["muted"]))
         badge = self.window.file_summary_label
-        self.assertEqual(badge.grab().toImage().pixelColor(2, badge.height() // 2), QColor(COLORS["background"]))
+        self.assertEqual(badge.grab().toImage().pixelColor(2, badge.height() // 2), QColor(COLORS["surface"]))
 
     def test_footer_is_disabled_with_list_during_blocked_operations(self):
         self.select(1, 2)

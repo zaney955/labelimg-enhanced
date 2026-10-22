@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Align annotation category multi-selection with file rows: persistent themed fills, readable text, solid full-selection outlines and dashed partial-selection outlines with selected/total counts; remove left selection markers while preserving category colors, instance chips and partial-selection semantics.
+
+- Move current-image review into a continuous translucent Canvas ribbon with persistent state labels, stable button positions, neutral inactive icons and text, adaptive light/dark colors and mouse-transparent drawing space; replace whole-Canvas tinting and synchronize review controls through Undo/Redo.
+
+- Unify movable dock panels with shared headers, context rows, list regions and selection footers; add themed workspace gutters and resize feedback, native floating/docking and bilingual position menus. Keep existing commands, shortcuts, data and saved dock layouts.
+
 - Redesign Appearance as compact mode segments and named circular accent swatches without a preview panel; redesign every update-center state with application identity, version metadata, one primary action, bounded diagnostics and readable progress.
 
 - Add bilingual Settings → Appearance with System/Light/Dark modes, eight independent adaptive accent presets, contrast-checked semantic palettes, live preview, persisted preferences and cancel rollback.

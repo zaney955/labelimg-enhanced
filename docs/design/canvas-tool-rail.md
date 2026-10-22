@@ -43,11 +43,13 @@ Copy, Delete, Hide All, Show All, workspace entry, navigation, review state, Sav
 The top command surface has four task groups in reading order:
 
 1. Workspace entry: Open Image Directory as the primary split command, with Open File in its menu.
-2. Current-image context: Previous, image position and count, Next, followed by the three-segment `Unreviewed | Review Required | Verified` control.
+2. Current-image navigation: Previous, image position and count, Next.
 3. Image quick actions: separate Rotate and Flip split commands. Their default clicks remain Rotate Clockwise 90 Degrees and Flip Horizontally; their menus expose the approved alternatives.
 4. Saving context: explicit annotation-format selector, automatic-save state, and Save.
 
-The review control always shows exactly one current-image state and remains visible even when the annotation panel is hidden. It replaces the two unselected Verify and Review Required toolbar buttons. Its segments are disabled when no image is open.
+Current-image review belongs to the Canvas viewport rather than the top toolbar. A compact three-state control stays flush with the viewport's upper-right corner, independently of dock placement, zoom, and pan. All three buttons retain their icons and state names; inactive states use neutral outlines and text, with bilingual accessible names and shortcut tooltips. Button widths depend on language, font and viewport width, never on the selected state, so neither the group nor its segments jump during switching. Extremely narrow viewports proportionally constrain widths while retaining complete names in tooltips. No image means both the controls and their ribbon are hidden.
+
+The controls have no separate card, border, or persistent selected-button fill. They occupy the right end of one continuous full-width ribbon over the image, without reserving layout space. The ribbon uses a translucent amber or green tint for questioned or verified state, with approximately 26% opacity in light mode and 22% in dark mode; unreviewed has no state tint or accent. A neutral readability scrim gradually strengthens towards the commands, and foregrounds adapt to both light and dark themes over arbitrary image pixels. Keyboard focus and transient hover/press feedback remain visible. Only button hit areas accept input; the remaining ribbon is mouse-transparent so drawing, selection, pan, zoom, and Canvas context commands continue underneath. Review requests retain the existing guarded editing and persistence paths, shortcuts, and undo/redo projection.
 
 The annotation-format selector sits beside Save, displays the current format, and directly lists Pascal VOC, YOLO, and CreateML. It replaces the command that cycles formats on each click and continues to use the existing pending-edit and storage-transition safeguards.
 
@@ -59,7 +61,7 @@ When horizontal space becomes insufficient:
 
 1. Rotate and Flip collapse into one labeled Image Quick Actions menu.
 2. Open Image Directory becomes an icon-only split button without changing its primary or secondary action.
-3. Navigation, image position and count, review state, annotation format, and Save remain directly visible.
+3. Navigation, image position and count, annotation format, and Save remain directly visible. Canvas review controls size independently of this toolbar.
 
 The 1024-by-720 layout is a required supported baseline. The same logical hierarchy must remain usable at device-pixel ratios 1, 1.5, and 2 and in both Simplified Chinese and English.
 

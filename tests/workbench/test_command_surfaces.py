@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt5.QtCore import QEvent, QPointF, QSize, Qt
+from PyQt5.QtCore import QEvent, QPoint, QPointF, QSize, Qt
 from PyQt5.QtGui import QColor, QImage, QMouseEvent
 from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication
@@ -213,16 +213,12 @@ class CommandSurfacesTest(unittest.TestCase):
 
     def test_top_bar_collapses_by_measured_available_width(self):
         bar = self.window.top_commands
-        bar.update_responsive_layout(800)
+        bar.update_responsive_layout(600)
         self.assertTrue(bar.image_quick_widget_action.isVisible())
         self.assertFalse(bar.rotate_widget_action.isVisible())
         self.assertFalse(bar.flip_widget_action.isVisible())
         self.assertEqual(bar.open_button.width(), 44)
         self.assertEqual(self.window.format_selector.width(), 44)
-        self.assertTrue(all(
-            button.width() == 44
-            for button in self.window.review_control.buttons.values()
-        ))
 
         bar.update_responsive_layout(4000)
         self.assertFalse(bar.image_quick_widget_action.isVisible())
@@ -231,7 +227,6 @@ class CommandSurfacesTest(unittest.TestCase):
         for button in (
             bar.open_button,
             self.window.format_selector,
-            *self.window.review_control.buttons.values(),
         ):
             self.assertEqual(
                 button.toolButtonStyle(),
@@ -245,10 +240,9 @@ class CommandSurfacesTest(unittest.TestCase):
         bar.update_responsive_layout(bar.width())
         self.assertLessEqual(bar.sizeHint().width(), bar.width())
         self.assertTrue(bar.open_button.isVisible())
-        self.assertTrue(all(
-            button.isVisible()
-            for button in self.window.review_control.buttons.values()
-        ))
+        self.load_image()
+        self.assertTrue(self.window.review_control.isVisible())
+        self.assertFalse(bar.isAncestorOf(self.window.review_control))
         self.assertTrue(self.window.format_selector.isVisible())
         self.assertTrue(bar.save_button.isVisible())
 
@@ -256,7 +250,6 @@ class CommandSurfacesTest(unittest.TestCase):
         bar = self.window.top_commands
         text_controls = [
             bar.open_button,
-            *self.window.review_control.buttons.values(),
             self.window.format_selector,
         ]
 
@@ -301,12 +294,6 @@ class CommandSurfacesTest(unittest.TestCase):
             chinese_widths["openWorkspaceButton"],
             english_widths["openWorkspaceButton"],
         )
-        for state in self.window.review_control.buttons:
-            object_name = "review_%s" % state
-            self.assertLess(
-                chinese_widths[object_name],
-                english_widths[object_name],
-            )
 
     def test_canvas_context_menus_are_target_scoped_and_bilingual(self):
         self.load_image()
@@ -390,7 +377,6 @@ class CommandSurfacesTest(unittest.TestCase):
             bar.previous_button,
             bar.counter_label,
             bar.next_button,
-            *self.window.review_control.buttons.values(),
             bar.rotate_button,
             bar.flip_button,
             self.window.format_selector,
@@ -414,8 +400,8 @@ class CommandSurfacesTest(unittest.TestCase):
             self.window.file_list_controls,
             self.window.file_list_stack,
         ]
-        for rows, margin in ((annotation_rows, 12), (file_rows, 12)):
-            self.assertEqual({row.x() for row in rows}, {margin})
+        for rows, dock in ((annotation_rows, self.window.dock), (file_rows, self.window.file_dock)):
+            self.assertEqual({row.mapTo(dock.widget(), QPoint()).x() for row in rows}, {12})
             self.assertEqual({row.width() for row in rows}, {rows[0].width()})
 
         self.assertGreaterEqual(self.window.label_filter.height(), 28)

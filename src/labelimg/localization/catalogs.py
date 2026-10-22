@@ -2,6 +2,13 @@
 
 
 ENGLISH_MESSAGES = {
+    'panels.dock': 'Dock Panel',
+    'panels.float': 'Float Panel',
+    'panels.move.top': 'Move to Top',
+    'panels.move.bottom': 'Move to Bottom',
+    'panels.move.right': 'Move to Right',
+    'panels.move.left': 'Move to Left',
+    'panels.moveTip': 'Drag to move · Double-click to float or dock · Right-click for position',
     'appearance.title': 'Appearance…',
     'appearance.tip': 'Choose the color mode and accent color',
     'appearance.mode': 'Color mode',
@@ -1036,6 +1043,13 @@ ENGLISH_MESSAGES = {
 
 
 CHINESE_MESSAGES = {
+    'panels.dock': '停靠面板',
+    'panels.float': '浮动面板',
+    'panels.move.top': '移至顶部',
+    'panels.move.bottom': '移至底部',
+    'panels.move.right': '移至右侧',
+    'panels.move.left': '移至左侧',
+    'panels.moveTip': '拖动标题栏移动 · 双击浮动或停靠 · 右键选择位置',
     'appearance.title': '外观…',
     'appearance.tip': '选择颜色模式和强调色',
     'appearance.mode': '颜色模式',

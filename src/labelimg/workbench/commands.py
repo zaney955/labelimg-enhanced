@@ -140,78 +140,6 @@ class CanvasToolRail(QToolBar):
         return hint
 
 
-class ReviewControl(QFrame):
-    stateRequested = pyqtSignal(str)
-
-    STATES = (
-        ("unreviewed", "review.unreviewed", "review-unreviewed", None),
-        (
-            "questioned", "review.questioned", "review-questioned",
-            "Ctrl+Space",
-        ),
-        ("verified", "review.verified", "review-verified", "Space"),
-    )
-
-    def __init__(self, parent=None):
-        super(ReviewControl, self).__init__(parent)
-        self.setObjectName("currentImageReviewControl")
-        self._compact = False
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-        self.group = QActionGroup(self)
-        self.group.setExclusive(True)
-        self.actions = {}
-        self.buttons = {}
-        for state, message_id, icon_name, _shortcut in self.STATES:
-            action = QAction(new_icon(icon_name), "", self)
-            action.setCheckable(True)
-            action.triggered.connect(
-                lambda checked=False, value=state:
-                self.stateRequested.emit(value) if checked else None
-            )
-            self.group.addAction(action)
-            button = _tool_button(action)
-            button.setObjectName("review_%s" % state)
-            layout.addWidget(button)
-            self.actions[state] = action
-            self.buttons[state] = button
-        language_changed.connect(self.retranslate_ui)
-        self.retranslate_ui()
-        self.set_state("unreviewed")
-
-    def retranslate_ui(self, _language=None):
-        for state, message_id, _icon_name, shortcut in self.STATES:
-            title = tr(message_id)
-            tooltip = format_action_tooltip(
-                title,
-                (shortcut,) if shortcut else (),
-            )
-            action = self.actions[state]
-            action.setText(title)
-            action.setToolTip(tooltip)
-            button = self.buttons[state]
-            button.setToolTip(tooltip)
-            button.setAccessibleName(title)
-            button.setAccessibleDescription(tooltip)
-        self.set_compact(self._compact)
-
-    def set_state(self, state):
-        action = self.actions.get(state, self.actions["unreviewed"])
-        action.setChecked(True)
-
-    def set_compact(self, compact):
-        self._compact = bool(compact)
-        for button in self.buttons.values():
-            _set_text_button_compact(button, self._compact)
-        self.updateGeometry()
-
-    def setEnabled(self, enabled):
-        super(ReviewControl, self).setEnabled(enabled)
-        for action in self.actions.values():
-            action.setEnabled(enabled)
-
-
 class FormatSelector(MenuButton):
     formatRequested = pyqtSignal(object)
 
@@ -271,7 +199,7 @@ class TopCommandBar(QToolBar):
     """Stable primary commands with deterministic responsive collapse."""
 
     def __init__(self, open_action, previous_action, next_action,
-                 review_control, rotate_action, flip_action,
+                 rotate_action, flip_action,
                  format_selector, auto_save_action, save_action, parent=None):
         super(TopCommandBar, self).__init__(parent)
         self.setObjectName("topCommandBar")
@@ -302,10 +230,6 @@ class TopCommandBar(QToolBar):
         self.next_button = _tool_button(next_action)
         self.next_button.setObjectName("nextImageButton")
         self.addWidget(self.next_button)
-        self.addSeparator()
-
-        self.review_control = review_control
-        self.addWidget(review_control)
         self.addSeparator()
 
         self.rotate_button = _tool_button(
@@ -405,7 +329,6 @@ class TopCommandBar(QToolBar):
         self.flip_widget_action.setVisible(not quick_actions_compact)
         self.image_quick_widget_action.setVisible(quick_actions_compact)
         _set_text_button_compact(self.open_button, open_compact)
-        self.review_control.set_compact(context_compact)
         self.format_selector.set_compact(context_compact)
         self.layout().invalidate()
 

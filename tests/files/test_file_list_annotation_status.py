@@ -333,10 +333,7 @@ class FileListAnnotationStatusTest(unittest.TestCase):
             set(self.window.review_control.actions),
             {'unreviewed', 'questioned', 'verified'},
         )
-        self.assertIs(
-            self.window.top_commands.review_control,
-            self.window.review_control,
-        )
+        self.assertIs(self.window.review_control.parentWidget(), self.window.scroll_area.viewport())
 
     def test_ctrl_space_triggers_question_status(self):
         self.window.file_item_double_clicked(self.item(1))
@@ -776,7 +773,7 @@ class FileListAnnotationStatusTest(unittest.TestCase):
         self.assertFalse(self.window.canvas.verified)
         self.assertEqual(
             self.window.canvas.status_background_color(),
-            QColor(COLORS["canvas_questioned"]),
+            QColor(COLORS["background"]),
         )
 
         self.window.verify_image()
@@ -788,7 +785,7 @@ class FileListAnnotationStatusTest(unittest.TestCase):
         self.assertTrue(self.window.canvas.verified)
         self.assertEqual(
             self.window.canvas.status_background_color(),
-            QColor(COLORS["canvas_verified"]),
+            QColor(COLORS["background"]),
         )
 
         self.window.question_image()

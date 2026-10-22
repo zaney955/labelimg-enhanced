@@ -32,6 +32,7 @@ from PyQt5.QtWidgets import (
 )
 from labelimg.localization.runtime import language_changed, tr
 from labelimg.ui.icons import IconLabel, paint_icon, icon as operation_icon
+from labelimg.ui.panels import PANEL_STYLE, PanelHeader
 
 # Keep selectors on Qt controls; Canvas paint and category swatches remain data.
 SURFACE_STYLE = theme_style("""
@@ -195,11 +196,11 @@ def install_application_theme():
 
 def present_panel(dock, stylesheet):
     """Style the actual header/content roots across the QDockWidget boundary."""
-    apply_theme_style(dock, stylesheet)
+    apply_theme_style(dock, PANEL_STYLE + stylesheet)
     for surface in (dock.titleBarWidget(), dock.widget()):
         if surface is not None:
             _surface_palette(surface)
-            apply_theme_style(surface, SURFACE_STYLE + stylesheet)
+            apply_theme_style(surface, SURFACE_STYLE + PANEL_STYLE + stylesheet)
 
 
 class _PanelCloseButton(QToolButton):
@@ -217,25 +218,13 @@ class _PanelCloseButton(QToolButton):
 
 
 def present_result_panel(dock, icon):
-    header = QFrame()
-    header.setObjectName("resultPanelHeader")
-    layout = QHBoxLayout(header)
-    layout.setContentsMargins(12, 9, 12, 9)
-    layout.setSpacing(8)
-    layout.addWidget(icon_tile(icon, size=24, icon_size=16))
-    title = role(QLabel(dock.windowTitle()), "sectionTitle")
-    dock.windowTitleChanged.connect(title.setText)
-    layout.addWidget(title, 1)
+    header = PanelHeader(dock, icon)
     close = _PanelCloseButton(header)
     close.clicked.connect(dock.hide)
-    layout.addWidget(close)
-    dock.setTitleBarWidget(header)
-    present_panel(
-        dock,
-        theme_style(
-            "QFrame#resultPanelHeader { background: ${surface}; border-bottom: 1px solid ${divider}; }"
-        ),
-    )
+    header.add_control(close)
+    header.close_button = close
+    present_panel(dock, "")
+    return header
 
 
 class _TranslatedLabel(QLabel):
@@ -448,11 +437,21 @@ def present_dialog(
 
 
 def present_workbench(window):
+    from PyQt5.QtWidgets import QMainWindow, QTabWidget
+
+    window.setDockOptions(window.dockOptions() | QMainWindow.AllowNestedDocks)
+    window.setTabPosition(Qt.AllDockWidgetAreas, QTabWidget.North)
     _surface_palette(window)
     apply_theme_style(
         window,
         SURFACE_STYLE + theme_style("""
-        QMainWindow { background: ${background}; }
+        QMainWindow { background: ${workspace_gutter}; }
+        QMainWindow::separator { background: ${workspace_gutter}; width: 6px; height: 6px; }
+        QMainWindow::separator:hover { background: ${accent_border}; }
+        QFrame#canvasWorkspace { background: ${background}; border: 1px solid ${panel_border}; border-radius: 5px; }
+        QScrollArea#canvasScrollArea { border: none; background: ${background}; }
+        QFrame#canvasStatusStrip { background: ${panel_header}; border: none; border-top: 1px solid ${divider}; }
+        QToolBar#canvasToolRail { background: ${panel_header}; border: none; border-right: 1px solid ${panel_border}; }
         QToolBar { background: ${surface}; border: none; border-bottom: 1px solid ${divider}; spacing: 4px; }
         QToolBar::separator { background: ${divider}; width: 1px; height: 1px; margin: 6px; }
         QMenuBar { background: ${surface}; color: ${text}; padding: 2px 4px; }

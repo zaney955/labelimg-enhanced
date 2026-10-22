@@ -12,6 +12,9 @@ from PyQt5.QtGui import QColor, QPalette
 
 _LIGHT_COLORS = {
     "surface": "#FFFFFF",
+    "workspace_gutter": "#EBEEF3",
+    "panel_header": "#F5F6F9",
+    "panel_border": "#C4CBD5",
     "background": "#F5F6F9",
     "border": "#D7DEE8",
     "divider": "#E2E7EF",
@@ -24,6 +27,9 @@ _LIGHT_COLORS = {
     "accent_hover": "#665B8E",
     "on_accent": "#FFFFFF",
     "selected": "#ECEAF5",
+    "selection_background": "#ECEAF1",
+    "selection_border": "#CBC7DA",
+    "selection_foreground": "#253047",
     "accent_border": "#D6CFE6",
     "disabled_text": "#929AA6",
     "disabled_background": "#F0F2F6",
