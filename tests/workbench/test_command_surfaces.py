@@ -9,7 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt5.QtCore import QEvent, QPoint, QPointF, QSize, Qt
 from PyQt5.QtGui import QColor, QImage, QMouseEvent
 from PyQt5.QtTest import QTest
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtWidgets import QApplication, QMessageBox
 
 from labelimg.annotations.domain.model import AnnotationFormat
 from labelimg.annotations.ui.color_algorithms import FIXED, MAXIMIN
@@ -318,7 +318,7 @@ class CommandSurfacesTest(unittest.TestCase):
         self.assertEqual(
             self.menu_labels(single),
             [
-                "Edit Label…",
+                "Edit Category…",
                 "Copy Annotation",
                 "Duplicate Annotation",
                 "Hide Annotation",
@@ -326,7 +326,7 @@ class CommandSurfacesTest(unittest.TestCase):
                 "Delete Annotation",
             ],
         )
-        self.assertEqual(single.defaultAction().text(), "Edit Label…")
+        self.assertEqual(single.defaultAction().text(), "Edit Category…")
         self.assertTrue(all(
             action.shortcut().isEmpty()
             for action in single.actions()
@@ -412,9 +412,9 @@ class CommandSurfacesTest(unittest.TestCase):
         )
         self.assertEqual(
             self.window.label_filter.accessibleName(),
-            "Label filter",
+            "Category filter",
         )
-        self.assertEqual(self.window.label_filter.toolTip(), "Label filter")
+        self.assertEqual(self.window.label_filter.toolTip(), "Category filter")
 
     def test_one_shot_create_accept_returns_to_enabled_selection(self):
         self.load_image("accept.png")
@@ -633,7 +633,7 @@ class CommandSurfacesTest(unittest.TestCase):
         self.assertIn("准星", crosshair.statusTip())
         self.assertIn("选中", selected.statusTip())
         self.window.change_language(ENGLISH)
-        self.assertEqual(crosshair.text(), "Hide Boxes and Labels Covering the Crosshair Center")
+        self.assertEqual(crosshair.text(), "Hide at Crosshair")
         self.assertEqual(selected.text(), "Hide Parts Obscuring Selected Annotations")
         self.assertTrue(self.window.close())
         self.assertTrue(self.window.settings[SETTING_HIDE_AT_CROSSHAIR])
@@ -649,7 +649,9 @@ class CommandSurfacesTest(unittest.TestCase):
         self.reopen_window()
         self.assertFalse(self.window.canvas.hide_at_crosshair)
         self.assertTrue(self.window.canvas.protect_selected_annotations)
-        with patch("labelimg.workbench.main_window.QProcess.startDetached"):
+        with patch("labelimg.workbench.main_window.QProcess.startDetached"), patch(
+            "labelimg.workbench.main_window.localized_question", return_value=QMessageBox.Yes
+        ):
             self.window.reset_all()
         self.reopen_window()
         self.assertFalse(self.window.hide_at_crosshair_option.isChecked())
@@ -686,19 +688,21 @@ class CommandSurfacesTest(unittest.TestCase):
         self.assertEqual(
             actions,
             [
+                self.window.actions.preferences,
+                actions[1],
                 self.window.actions.appearance,
                 self.window.menus.language.menuAction(),
                 self.window.menus.labelColorAlgorithm.menuAction(),
-                actions[3],
+                actions[5],
                 self.window.auto_saving,
                 self.window.single_class_mode,
                 self.window.auto_update_check,
-                actions[7],
+                actions[9],
                 self.window.actions.resetAll,
             ],
         )
-        self.assertTrue(actions[3].isSeparator())
-        self.assertTrue(actions[7].isSeparator())
+        for index in (1, 5, 9):
+            self.assertTrue(actions[index].isSeparator())
         self.assertTrue(self.window.single_class_mode.shortcut().isEmpty())
 
     def test_color_algorithm_selection_persists_only_mode_and_reset_defaults_to_fixed(self):
@@ -719,7 +723,9 @@ class CommandSurfacesTest(unittest.TestCase):
         self.assertEqual(self.window.label_color_palette.algorithm, MAXIMIN)
         self.assertEqual(self.window.label_color_palette.snapshot(), {})
         self.assertTrue(self.window.menus.labelColorAlgorithm.actions_by_algorithm[MAXIMIN].isChecked())
-        with patch("labelimg.workbench.main_window.QProcess.startDetached"):
+        with patch("labelimg.workbench.main_window.QProcess.startDetached"), patch(
+            "labelimg.workbench.main_window.localized_question", return_value=QMessageBox.Yes
+        ):
             self.window.reset_all()
         self.reopen_window()
         self.assertEqual(self.window.label_color_palette.algorithm, FIXED)
@@ -834,14 +840,14 @@ class CommandSurfacesTest(unittest.TestCase):
         )
         self.assertEqual(
             self.window.label_color_button.accessibleName(),
-            "Manage Label Colors",
+            "Manage Category Colors",
         )
 
         self.window.change_language(SIMPLIFIED_CHINESE)
 
         self.assertEqual(
             self.window.label_color_button.accessibleName(),
-            "管理标签颜色",
+            "管理类别颜色",
         )
 
     def test_file_menu_presents_annotation_format_as_a_selector(self):
@@ -891,9 +897,11 @@ class CommandSurfacesTest(unittest.TestCase):
                 view_actions[16],
                 self.window.actions.fitWindow,
                 self.window.actions.fitWidth,
+                view_actions[19],
+                self.window.actions.restoreLayout,
             ],
         )
-        for index in (3, 6, 9, 12, 16):
+        for index in (3, 6, 9, 12, 16, 19):
             self.assertTrue(view_actions[index].isSeparator())
         self.assertEqual(self.window.actions.labels.text(), "Annotation Panel")
         self.assertEqual(

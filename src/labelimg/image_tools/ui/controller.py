@@ -544,6 +544,8 @@ class ImageToolsActionsMixin:
 
 
     def _fail_image_quality_scan(self, error):
+        self.image_quality_panel.set_failure(error)
+        self.image_quality_dock.show()
         localized_warning(
             self,
             tr('quality.failedTitle'),

@@ -28,7 +28,7 @@ from PyQt5.QtWidgets import QAbstractItemView, QAction, QApplication, QDialog, Q
 import labelimg.ui.generated_resources  # noqa: F401 - registers Qt resources
 from labelimg.ui.actions import new_icon
 from labelimg.localization.runtime import localize_message_box_buttons, question as localized_question, tr, warning as localized_warning
-from labelimg.annotations import AnnotationFormat
+from labelimg.annotations import AnnotationFormat, annotation_stems_for_image
 from labelimg.files import discover_images
 from labelimg.platform.text import native_text as ustr
 from labelimg.files.ui.list_widget import BatchRenameDialog, CURRENT_IMAGE_ROLE, FILE_CATEGORY_LABELS_ROLE, FILE_ANNOTATION_STATE_ROLE, FILE_PERSISTENCE_FLAGS_ROLE, FILE_QUALITY_FINDINGS_ROLE, FILE_REVIEW_STATE_ROLE, compare_relative_image_paths, validate_base_name, validate_rename_mapping
@@ -208,7 +208,8 @@ class FileActionsMixin:
             and not state.descending
             and (
                 previous_projection is None
-                or previous_projection.query == projection_query
+                or (previous_projection.query.sort_key == state.sort_key
+                    and previous_projection.query.descending == state.descending)
             )
         )
         projection = state.project(
@@ -244,16 +245,20 @@ class FileActionsMixin:
             path: index for index, path in enumerate(row_paths)
         }
         self.img_count = len(self.m_img_list)
+        self.file_list_widget.set_visible_items(
+            items[path] for path in row_paths if path in visible_paths
+        )
+        self.file_list_widget.set_selected_items(
+            items[path] for path in row_paths if path in selected_paths
+        )
         visible_count = 0
         current_item = None
         focused_item = None
         for row, path in enumerate(row_paths):
             item = self.file_list_widget.item(row)
             matches = path in visible_paths
-            item.setHidden(not matches)
             if matches:
                 visible_count += 1
-            item.setSelected(path in selected_paths)
             if path == self.file_path:
                 current_item = item
             if path == focused_path and matches:
@@ -555,11 +560,10 @@ class FileActionsMixin:
 
     def _select_files_by_role(self, role, state):
         blocker = QSignalBlocker(self.file_list_widget)
-        self.file_list_widget.clearSelection()
-        for index in range(self.file_list_widget.count()):
-            item = self.file_list_widget.item(index)
-            if not item.isHidden() and item.data(role) == state:
-                item.setSelected(True)
+        self.file_list_widget.set_selected_items(
+            item for item in self.file_list_widget.visible_items()
+            if item.data(role) == state
+        )
         del blocker
         self.update_file_selection_count()
         self.file_list_widget.viewport().update()
@@ -850,6 +854,13 @@ class FileActionsMixin:
         )
         result = outcome.file_result
         self._warn_manual_trash_recovery(result)
+        # Re-index annotations only when this operation touched them. Plain
+        # image deletion cannot alter the annotation index.
+        if not self.file_list_controls.index_complete or any(
+            os.path.splitext(path)[1].casefold() in ('.xml', '.txt', '.json')
+            for path in result.affected_paths
+        ):
+            self.rescan_annotation_workspace()
         self.rebuild_file_list_after_deletion(
             before,
             old_current,
@@ -857,7 +868,6 @@ class FileActionsMixin:
             result,
             visible_before=visible_before,
         )
-        self.rescan_annotation_workspace()
         self.report_file_operation_result(tr('fileOps.delete'), result)
         return result
 
@@ -921,7 +931,44 @@ class FileActionsMixin:
         visible_before = set(before) if visible_before is None else visible_before
         succeeded = set(result.succeeded_images)
         failed = set(result.failed_images)
-        self.populate_file_list(self.scan_all_images(self.dir_name))
+        existing = {
+            self.file_list_widget.item(row).data(Qt.UserRole): self.file_list_widget.item(row)
+            for row in range(self.file_list_widget.count())
+        }
+        self.m_img_list = [path for path in before if path not in succeeded]
+        blocker = QSignalBlocker(self.file_list_widget)
+        self.file_list_widget.setItems(
+            existing[path] if path in existing else self._file_list_item(path)
+            for path in self.m_img_list
+        )
+        self._file_row_by_path = {path: row for row, path in enumerate(self.m_img_list)}
+        # Shared CreateML rewrites and partial failures can change surviving
+        # annotation statuses; ordinary successful per-image deletes cannot.
+        shared_changed = (
+            not self.file_list_controls.index_complete
+            or any(path.lower().endswith('.json') for path in result.affected_paths)
+        )
+        changed_stems = {
+            os.path.normcase(os.path.splitext(path)[0])
+            for path in result.affected_paths
+            if os.path.splitext(path)[1].casefold() in ('.xml', '.txt')
+        }
+        refresh_paths = set(failed)
+        if shared_changed:
+            refresh_paths.update(self.m_img_list)
+        elif changed_stems:
+            refresh_paths.update(
+                path for path in self.m_img_list
+                if any(os.path.normcase(stem) in changed_stems
+                       for stem in annotation_stems_for_image(
+                           path, self.default_save_dir, self.dir_name))
+            )
+        for path in refresh_paths:
+            self.update_file_list_item_status(path, refresh_view=False)
+        self.file_list_controls.set_index_complete(True)
+        self.apply_file_list_view(scroll_current=False)
+        del blocker
+        remaining = set(self.m_img_list)
 
         next_path = None
         if old_current and old_current not in succeeded:
@@ -929,17 +976,17 @@ class FileActionsMixin:
                 next_path = old_current
         elif old_current:
             for candidate in before[old_index + 1:]:
-                if candidate in self.m_img_list and candidate in visible_before:
+                if candidate in remaining and candidate in visible_before:
                     next_path = candidate
                     break
             if next_path is None:
                 for candidate in reversed(before[:old_index]):
-                    if candidate in self.m_img_list and candidate in visible_before:
+                    if candidate in remaining and candidate in visible_before:
                         next_path = candidate
                         break
 
         if (
-            next_path == old_current
+            next_path is not None and next_path == old_current
             and old_current not in failed
         ):
             self.cur_img_idx = self.m_img_list.index(old_current)
@@ -958,10 +1005,7 @@ class FileActionsMixin:
             self.actions.saveAs.setEnabled(False)
             self.update_current_file_marker()
 
-        for index in range(self.file_list_widget.count()):
-            item = self.file_list_widget.item(index)
-            if item.data(Qt.UserRole) in failed:
-                item.setSelected(True)
+        self.file_list_widget._restore_selection_paths(failed)
         self.update_file_selection_count()
 
 
@@ -1182,10 +1226,7 @@ class FileActionsMixin:
         elif current_after in self.m_img_list:
             self.cur_img_idx = self.m_img_list.index(current_after)
             self.update_current_file_marker()
-        for index in range(self.file_list_widget.count()):
-            item = self.file_list_widget.item(index)
-            if item.data(Qt.UserRole) in selected_after:
-                item.setSelected(True)
+        self.file_list_widget._restore_selection_paths(selected_after)
         self.rescan_annotation_workspace()
         self.refresh_file_list_statuses()
         self.update_file_selection_count()
@@ -1290,10 +1331,7 @@ class FileActionsMixin:
             tuple(self.m_img_list), preserve_query=True
         )
         blocker = QSignalBlocker(self.file_list_widget)
-        for path in selected_paths:
-            row = self._file_row_by_path.get(path)
-            if row is not None:
-                self.file_list_widget.item(row).setSelected(True)
+        self.file_list_widget._restore_selection_paths(selected_paths)
         focused_row = self._file_row_by_path.get(focused_path)
         if focused_row is not None:
             self.file_list_widget.setCurrentItem(

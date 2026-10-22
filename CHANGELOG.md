@@ -2,43 +2,24 @@
 
 ## Unreleased
 
-- Align annotation category multi-selection with file rows: persistent themed fills, readable text, solid full-selection outlines and dashed partial-selection outlines with selected/total counts; remove left selection markers while preserving category colors, instance chips and partial-selection semantics.
+- Remove quadratic file filtering and selection refreshes; batch annotation visibility paints, reuse surviving rows after deletion, cache state-sort keys, merge recovery identities by path, and scope Windows recycle-location probes to one operation while retaining recovery and rollback checks.
 
-- Move current-image review into a continuous translucent Canvas ribbon with persistent state labels, stable button positions, neutral inactive icons and text, adaptive light/dark colors and mouse-transparent drawing space; replace whole-Canvas tinting and synchronize review controls through Undo/Redo.
+- Resolve the full UI audit: searchable Preferences, visible menu checks and autosave state, synchronized category strategies, independent layout/appearance reset, cancellation-safe full reset, compact color entry, shared typography and quieter surfaces, aligned dialog actions, clearer quality-check policies and empty/error states, and consistent category terminology in both languages.
 
-- Unify movable dock panels with shared headers, context rows, list regions and selection footers; add themed workspace gutters and resize feedback, native floating/docking and bilingual position menus. Keep existing commands, shortcuts, data and saved dock layouts.
+- Make the current review selection distinct in its text as well as its ribbon: bold semantic foregrounds for the selected state, regular neutral inactive labels, and stable button widths across state changes.
 
-- Redesign Appearance as compact mode segments and named circular accent swatches without a preview panel; redesign every update-center state with application identity, version metadata, one primary action, bounded diagnostics and readable progress.
-
-- Add bilingual Settings → Appearance with System/Light/Dark modes, eight independent adaptive accent presets, contrast-checked semantic palettes, live preview, persisted preferences and cancel rollback.
-
-- Centralize semantic theme roles and live theme registration/switching; theme native controls, standalone surfaces, command artwork, loupe/crop/selection chrome and review backgrounds without changing image or annotation data.
-
-- Redesign the workbench's annotation/file/result panels with consistent surfaces, counters, location context and list states; add a branded About window, an actionable empty workbench, and aligned SVG menu affordances. Preserve annotation-color rendering and existing command bindings.
-
-- Align application-owned windows, menus, toolbars, tables and controls with the light workbench UI; add shared dialog sections, pinned action footers, screen-aware scrolling, readable conflict paths, bilingual Qt color controls and reproducible bilingual/DPI renders. Preserve command ownership, shortcuts, annotation colors and transactions.
-
-- Add Tools → Annotation Statistics with category box/image counts, scrollable bar charts, numeric details and shares, category filtering, read-only unsaved-snapshot support, active-document deduplication, and localized skipped-image diagnostics.
-
-- Preserve original Canvas geometry when adjusted image previews are refreshed after rotation, flipping, cropping, or image recovery, preventing drawing from failing with an annotation-history snapshot mismatch.
-
-- Clip other annotations inside the pending rectangle throughout drawing, including when the crosshair center is outside their bounds; retain uncovered portions and center-based whole-component hiding.
-
-- Add a top-level Tools menu and Clean Annotation Files with directory-pair scanning, per-file previews, opt-in empty/negative-sample cleanup, split/shared-CreateML protection, stale-preview and unsaved-edit guards, Recycle Bin recovery, and Simplified Chinese/English text.
-
-- Add searchable category multi-selection in file-list Advanced Filters, with all/any matching, editable and independently removable summaries, live XML/YOLO/CreateML and unsaved-edit updates, and Simplified Chinese/English text.
-
-- Unify compact controls, sorting, filtering, visibility states, file status indicators, reset/zoom controls, crop handles and Qt control glyphs with the shared SVG icon system.
-
-- Reorganize the file dock with header counts and readable sort state, a full-row annotation-directory entry, removable filter chips, compact middle-elided file rows, and selection-dependent actions; keep unsaved changes and persistence warnings in the rightmost status slot.
-
-- Preserve original box coordinates when duplicating with Ctrl+D, matching Ctrl+C / Ctrl+V without an automatic offset, including repeated duplication and multi-selection at image boundaries.
-
-- Reorganize the annotation dock into global header controls, a compact Default Category selector, filtering, and a selection-dependent bottom bar; preserve annotation transactions and restore the all-annotation visibility button's enabled state.
-
-- Refresh the category chooser with compact equal-width labels, opaque color strips and outlines, annotation-list pale fills, live filtering, natural numeric sorting, and keyboard navigation; keep filtering geometry and pending-annotation behavior stable.
-
-- Add Settings → Label Color Algorithm with improved fixed full-name OKLCH colors by default and optional session-only maximum color separation; remember only the algorithm choice and preserve manual overrides when switching.
+- Align category multi-selection with file rows: persistent theme fills, solid full-selection and dashed partial-selection outlines, readable selected/total counts, and preserved category colors and instance semantics.
+- Move current-image review into a translucent Canvas ribbon with stable labeled controls, theme-adaptive foregrounds, mouse-transparent drawing space, and Undo/Redo synchronization.
+- Unify dock panels, headers, context rows, selection footers, file statuses, sorting/filtering controls, and SVG affordances; preserve commands, shortcuts, data, and saved layouts.
+- Add Settings → Appearance with System/Light/Dark modes, eight independent accents, contrast-checked palettes, live application, persistence, and cancel rollback. Theme shared controls and Canvas chrome while preserving image and annotation data.
+- Align dialogs, tables, menus, About, the empty workbench, and update-center states with shared layouts, pinned action areas, bounded diagnostics, bilingual text, and reproducible DPI renders.
+- Add Tools → Annotation Statistics: category box/image counts, charts, shares, filtering, unsaved snapshots, active-document deduplication, and skipped-image diagnostics.
+- Add Tools → Clean Annotation Files: preview unmatched/empty files, preserve negative samples by default, protect shared CreateML records and unsaved edits, reject stale scans, and support Recycle Bin recovery.
+- Add searchable All/Any category filters combining XML/YOLO/CreateML and retained unsaved edits with existing file conditions; expose editable, independently removable summaries.
+- Preserve full Canvas geometry after image processing/recovery even with downsampled display previews, and clip background annotations inside the pending rectangle throughout drawing.
+- Keep Ctrl+D duplication at the source coordinates, matching clipboard paste, including repeated and boundary multi-selection cases.
+- Reorganize the annotation panel around a Default Category selector, filtering, global controls, and a selection-dependent action bar; refresh the category chooser with up to four stable-width columns, natural sorting, live filtering, and keyboard navigation.
+- Add Settings → Label Color Algorithm: fixed full-name OKLCH colors by default or session-only maximum separation, remembering only the algorithm and retaining manual overrides.
 
 ## 2.6.0
 

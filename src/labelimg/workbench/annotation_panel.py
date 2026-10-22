@@ -150,9 +150,9 @@ def build_annotation_panel(window):
     present_panel(
         w.dock,
         theme_style("""
-        QLabel#annotationSelectionCount { color: ${accent_hover}; font-size: 11px; }
+        QLabel#annotationSelectionCount { color: ${accent_hover}; font-size: ${font_supporting}px; }
         QWidget#annotationCreationSettings { background: transparent; border: none; }
-        QLabel#annotationCreationCaption { color: ${muted}; font-size: 11px; }
+        QLabel#annotationCreationCaption { color: ${muted}; font-size: ${font_supporting}px; }
         QToolButton { border: 1px solid transparent; border-radius: 4px; padding: 0; }
         QToolButton:hover { background: ${selected}; }
         QToolButton:focus { border-color: ${accent}; }

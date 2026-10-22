@@ -9,6 +9,7 @@ from types import MappingProxyType
 from PyQt5 import sip
 from PyQt5.QtCore import QObject, pyqtSignal
 from PyQt5.QtGui import QColor, QPalette
+from labelimg.ui.typography import FONT_TOKENS
 
 _LIGHT_COLORS = {
     "surface": "#FFFFFF",
@@ -41,6 +42,8 @@ _LIGHT_COLORS = {
     "preview_border": "#68758A",
     "canvas_verified": "#DFEADF",
     "canvas_questioned": "#F0E6D4",
+    "review_verified_foreground": "#176B37",
+    "review_questioned_foreground": "#885100",
     "icon_file": "#5677A6",
     "icon_file_tint": "#DCE6F2",
     "icon_image": "#4F8582",
@@ -134,7 +137,7 @@ class ThemeStyle(str):
 
     def __new__(cls, template):
         template = template.template if isinstance(template, ThemeStyle) else template
-        instance = super().__new__(cls, Template(template).substitute(COLORS))
+        instance = super().__new__(cls, Template(template).substitute({**COLORS, **FONT_TOKENS}))
         instance.template = template
         return instance
 

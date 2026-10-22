@@ -9,11 +9,13 @@ from labelimg.localization.runtime import language_changed, tr
 
 class DefaultCategorySelector(QComboBox):
     fixedLabelChanged = pyqtSignal(object)
+    reuseLastChanged = pyqtSignal(bool)
 
     def __init__(self, choose_label, parent=None):
         super().__init__(parent)
         self._choose_label = choose_label
         self._fixed_label = None
+        self._reuse_last = False
         self._labels = ()
         self.setObjectName("defaultCategorySelector")
         self.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
@@ -31,9 +33,21 @@ class DefaultCategorySelector(QComboBox):
         label = label or None
         changed = self._fixed_label != label
         self._fixed_label = label
+        if label:
+            self.set_reuse_last(False)
         self._rebuild()
         if changed:
             self.fixedLabelChanged.emit(label)
+
+    def set_reuse_last(self, enabled):
+        enabled = bool(enabled)
+        if self._reuse_last == enabled:
+            return
+        self._reuse_last = enabled
+        if enabled:
+            self.set_fixed_label(None)
+        self._rebuild()
+        self.reuseLastChanged.emit(enabled)
 
     def set_candidate_labels(self, labels):
         labels = tuple(sorted(set(labels), key=natural_label_key))
@@ -52,7 +66,8 @@ class DefaultCategorySelector(QComboBox):
         with QSignalBlocker(self):
             self.clear()
             self.addItem(tr("annotationPanel.chooseEachTime"), ("each", None))
-            selected = 0
+            self.addItem(tr("singleClsMode"), ("last", None))
+            selected = 1 if self._reuse_last else 0
             for label in sorted(choices, key=natural_label_key):
                 self.addItem(tr("annotationPanel.fixedCategory", label=label), ("fixed", label))
                 if label == self._fixed_label:
@@ -68,4 +83,5 @@ class DefaultCategorySelector(QComboBox):
             if label is None:
                 self._rebuild()
                 return
+        self.set_reuse_last(kind == "last")
         self.set_fixed_label(label)

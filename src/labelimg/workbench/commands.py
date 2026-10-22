@@ -164,6 +164,7 @@ class FormatSelector(MenuButton):
         for value, title, icon_name in self.FORMATS:
             action = self.menu.addAction(new_icon(icon_name), title)
             action.setCheckable(True)
+            action.setIconVisibleInMenu(False)
             action.triggered.connect(
                 lambda checked=False, fmt=value:
                 self.formatRequested.emit(fmt) if checked else None
@@ -264,11 +265,20 @@ class TopCommandBar(QToolBar):
         self.auto_save_button = _tool_button(auto_save_action)
         self.auto_save_button.setObjectName("autoSaveButton")
         self.addWidget(self.auto_save_button)
+        auto_save_action.changed.connect(self._sync_auto_save)
         self.save_button = _tool_button(save_action)
         self.save_button.setObjectName("saveButton")
         self.addWidget(self.save_button)
         language_changed.connect(self.retranslate_ui)
         self.retranslate_ui()
+
+    def _sync_auto_save(self):
+        button = self.auto_save_button
+        text = tr('autosave.on' if button.defaultAction().isChecked() else 'autosave.off')
+        button.setText(text)
+        button.setAccessibleName(text)
+        _set_text_button_compact(button, False)
+        self.layout().invalidate()
 
     def retranslate_ui(self, _language=None):
         for button in (
@@ -282,6 +292,7 @@ class TopCommandBar(QToolBar):
         ):
             _sync_button_accessibility(button)
         title = tr("image.quickActions")
+        self._sync_auto_save()
         self.image_quick_button.setToolTip(title)
         self.image_quick_button.setAccessibleName(title)
         self.image_quick_button.setAccessibleDescription(title)

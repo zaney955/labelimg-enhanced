@@ -184,10 +184,13 @@ class LabelGroupListWidget(QAbstractScrollArea):
             self.set_scene(self._scene_shapes, self._visible_shapes)
 
     def set_shape_visible(self, shape, visible):
+        self.set_shapes_visible((shape,), visible)
+
+    def set_shapes_visible(self, shapes, visible):
         if visible:
-            self._visible_shapes.add(shape)
+            self._visible_shapes.update(shapes)
         else:
-            self._visible_shapes.discard(shape)
+            self._visible_shapes.difference_update(shapes)
         self._emit_summary()
         self.viewport().update()
 

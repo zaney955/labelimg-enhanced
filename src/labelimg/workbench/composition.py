@@ -694,6 +694,11 @@ class WorkbenchComposer:
             tip=tr('quality.actionTip'),
             enabled=False,
         )
+        self.image_quality_panel.checkRequested.connect(check_image_quality.trigger)
+        check_image_quality.changed.connect(
+            lambda: self.image_quality_panel.start_button.setEnabled(check_image_quality.isEnabled())
+        )
+        self.image_quality_panel.start_button.setEnabled(check_image_quality.isEnabled())
         rotate_toolbar_menu = QMenu(self)
         add_actions(
             rotate_toolbar_menu,
@@ -977,6 +982,7 @@ class WorkbenchComposer:
                 else 'language-english'
             ))
             language_action.setCheckable(True)
+            language_action.setIconVisibleInMenu(False)
             language_action.setData(language)
             language_action.setChecked(current_language() == language)
             language_action.triggered.connect(
@@ -1004,6 +1010,9 @@ class WorkbenchComposer:
         self.single_class_mode.setIcon(new_icon('single-class'))
         self.single_class_mode.setCheckable(True)
         self.single_class_mode.setChecked(settings.get(SETTING_SINGLE_CLASS, False))
+        self.single_class_mode.toggled.connect(self.default_category_selector.set_reuse_last)
+        self.default_category_selector.reuseLastChanged.connect(self.single_class_mode.setChecked)
+        self.default_category_selector.set_reuse_last(self.single_class_mode.isChecked())
         self.lastLabel = None
         self.auto_update_check = QAction(tr('updates.autoCheck'), self)
         self.auto_update_check.setIcon(new_icon('auto-update'))
@@ -1095,7 +1104,15 @@ class WorkbenchComposer:
         appearance_action = action(tr("appearance.title"), lambda: show_appearance(self.appearance, self),
                                    icon="appearance", tip=tr("appearance.tip"))
         self.actions.appearance = appearance_action
+        from labelimg.workbench.preferences import show_preferences, restore_default_layout
+        preferences_action = action(tr('preferences.title'), lambda: show_preferences(self),
+                                    icon='preferences', tip=tr('preferences.detail'))
+        restore_layout_action = action(tr('preferences.restoreLayout'), lambda: restore_default_layout(self),
+                                       icon='restore-layout', tip=tr('preferences.restoreLayoutDetail'))
+        self.actions.preferences = preferences_action
+        self.actions.restoreLayout = restore_layout_action
         add_actions(self.menus.settings, (
+            preferences_action, None,
             appearance_action,
             self.menus.language,
             self.menus.labelColorAlgorithm,
@@ -1121,7 +1138,7 @@ class WorkbenchComposer:
             self.magnifier_option,
             self.annotation_display_action, None,
             zoom_in, zoom_out, zoom_org, None,
-            fit_window, fit_width))
+            fit_window, fit_width, None, restore_layout_action))
 
         self.menus.file.aboutToShow.connect(self.update_file_menu)
         self.menus.image.aboutToShow.connect(self.update_image_menu)
@@ -1244,6 +1261,8 @@ class WorkbenchComposer:
                 'imageTools.action.undoCommittedTip',
             ),
             reset_all: ('resetAll', 'resetAllDetail'),
+            preferences_action: ('preferences.title', 'preferences.detail'),
+            restore_layout_action: ('preferences.restoreLayout', 'preferences.restoreLayoutDetail'),
             create: ('crtBox', 'crtBoxDetail'),
             select_tool: ('tool.select', 'tool.selectTip'),
             pan_tool: ('tool.pan', 'tool.panTip'),
@@ -1323,6 +1342,7 @@ class WorkbenchComposer:
         self._sync_annotation_directory_ui()
 
         saved_window_state = settings.get(SETTING_WIN_STATE, QByteArray())
+        self._default_layout_state = self.saveState()
         self.restoreState(saved_window_state)
         self.canvas.set_drawing_color(DEFAULT_LINE_COLOR)
         # Add chris

@@ -4,40 +4,17 @@ Status: implemented. This document owns the detailed history, persistence, synch
 
 ## Outcome
 
-LabelImg Enhanced has two recovery systems:
+LabelImg Enhanced separates per-image annotation Undo/Redo from session-only recovery of committed file operations. Recent File Operations includes deletion, annotation clearing/cleanup, synchronized rename, batch label replacement, batch review, and committed image processing. [Image tools](image-tools.md#recovery) own image-processing recovery and its explicit subset semantics; the file-operation rules below apply to the other entries.
 
-1. Per-image annotation Undo and Redo for current-image document edits.
-2. A session-only recent file operations center for cross-file deletion, annotation clearing, synchronized rename, batch label replacement, and batch review-state recovery.
-
-`Ctrl+Z`, `Ctrl+Y`, and `Ctrl+Shift+Z` operate only on the current image's annotation history. They never restore deleted files, reverse file-list selection, or undo a batch file operation. File operation recovery is explicit from the File menu and always confirms before changing the filesystem.
+`Ctrl+Z`, `Ctrl+Y`, and `Ctrl+Shift+Z` route to the current image's annotation history in annotation contexts. Active Crop and native text inputs retain their own transient history, as detailed [below](#shortcut-and-menu-routing) and in [Crop](image-tools.md#crop-current-image). These shortcuts never restore deleted files, reverse file-list selection, or undo a committed batch file operation. File operation recovery is explicit from the File menu and always confirms before changing the filesystem.
 
 The [glossary](../../CONTEXT.md) defines the vocabulary. Decisions and rejected alternatives are recorded in [ADR 0007](../adr/0007-make-file-list-batch-operations-annotation-aware-and-recoverable.md), [0008](../adr/0008-use-bounded-document-snapshots-for-annotation-history.md), [0009](../adr/0009-coordinate-annotation-saves-by-physical-resource.md), [0010](../adr/0010-preserve-review-state-in-every-active-format.md), [0011](../adr/0011-close-edit-and-filesystem-transactions-at-explicit-boundaries.md), [0012](../adr/0012-copy-windows-recycle-identities-as-pidls.md), and [0025](../adr/0025-synchronize-only-the-current-annotation-document.md).
 
 ## Scope
 
-Annotation history includes:
+Annotation history records complete box creation, deletion, duplication, paste and previous-image copy; geometry changes and nudges; label/difficult edits; and current-image review changes.
 
-- create a labeled box;
-- delete one or many selected boxes;
-- duplicate selected boxes;
-- paste boxes;
-- copy the previous image's boxes;
-- move, resize, edge drag, vertex drag, and arrow-key nudge;
-- edit a box label or difficult flag;
-- change the current image review state.
-
-Annotation history excludes:
-
-- Canvas and label-list selection;
-- box visibility;
-- zoom, pan, filters, hover, and editing mode;
-- the session label color palette and other view preferences;
-- copying without pasting;
-- image navigation and file-list selection;
-- output format and destination path;
-- global candidate-label and YOLO vocabulary maintenance;
-- load-time clamping of out-of-bounds coordinates;
-- every cross-file operation.
+Selection, visibility, view controls, display colors, copying without pasting, navigation, storage targets/formats, candidate/YOLO vocabulary maintenance, and load-time geometry normalization do not enter that history. Cross-file operations use explicit recovery instead.
 
 ## Architecture
 
@@ -57,7 +34,7 @@ The domain and application owners are Qt-free; Canvas and workbench adapters pro
 | [FileRecoveryCenter](../../src/labelimg/files/application/recovery.py) | Bounded session log and recovery status transitions, without UI callbacks or inverse file logic. |
 | [SystemTrashAdapter](../../src/labelimg/files/application/operations.py) | Opaque recovery identities or an explicit manual-trash result; the [Qt adapter](../../src/labelimg/files/infrastructure/qt_trash.py) supplies portable trash operations. |
 
-`MainWindow` composes these owners and presents outcomes; it does not own inverse edits or move history cursors directly. At rest, the controller's immutable revision is the canonical annotation document and Canvas shapes are its projection. During a gesture, Canvas is a transient working copy: commit captures a revision, cancel restores the source. `SelectionSet` owns only transient selection. Saves build adapter documents from immutable revisions, never a timer-fired Canvas capture.
+The bootstrap/composer wires these owners; `MainWindow` presents outcomes and coordinates their calls without implementing inverse edits or moving history cursors directly. At rest, the controller's immutable revision is the canonical annotation document and Canvas shapes are its projection. During a gesture, Canvas is a transient working copy: commit captures a revision, cancel restores the source. `SelectionSet` owns only transient selection. Saves build adapter documents from immutable revisions, never a timer-fired Canvas capture.
 
 ## Workspace label replacement
 
@@ -315,7 +292,7 @@ Degraded state:
 
 ## Shortcut and menu routing
 
-The Edit menu starts with Undo …, Redo …, a separator, then existing edit actions.
+The Edit menu begins with image search and Draw Box, followed by Undo … and Redo …, then the remaining annotation commands. Command order is built by [workbench composition](../../src/labelimg/workbench/composition.py).
 
 Routing:
 
@@ -372,7 +349,9 @@ Supported entries:
 - image deletion: original image/annotation paths plus trash identities;
 - annotation clearing: prior annotation resources plus post-clear fingerprints;
 - synchronized rename: complete forward/inverse mapping;
-- batch review change: prior and resulting review fields.
+- batch review change: prior and resulting review fields;
+- annotation-file cleanup: selected annotation paths and trash identities, with [cleanup-specific guards](annotation-cleanup.md#execution-and-recovery);
+- batch label replacement: original resources and retained snapshots, as specified [above](#workspace-label-replacement).
 
 Recovery always performs whole-entry preflight. It never overwrites, invents suffixes, or silently restores a subset.
 
@@ -463,13 +442,4 @@ Every failure result is structured. UI code does not infer success from an absen
 
 ## Non-goals
 
-- persistent Undo/Redo across application restarts;
-- a visual annotation history panel;
-- arbitrary history-position jumping or preview;
-- global `Ctrl+Z` for filesystem operations;
-- automatic annotation or external-file merge;
-- persistent recovery log across workspaces;
-- recovering recycle-bin items after the application session ends;
-- writing session annotation identities into annotation formats;
-- silently choosing among multiple annotation formats;
-- automatically deleting an old format after conversion.
+Histories and recovery logs do not persist across workspace changes or application restarts. There is no history panel, arbitrary history jumping, filesystem `Ctrl+Z`, or automatic annotation merge. Session annotation identities are never serialized, ambiguous formats are never silently chosen, and format conversion never automatically deletes the previous representation.

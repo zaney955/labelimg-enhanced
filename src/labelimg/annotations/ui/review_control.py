@@ -78,6 +78,16 @@ class ReviewControl(QFrame):
             self.actions[state] = action
             self.buttons[state] = button
         self.ribbon = _ReviewRibbon(self, viewport)
+        # Native measurement uses the selected weight even for inactive labels.
+        # The invisible probe never participates in layout or receives input.
+        self._size_probe = QToolButton(self)
+        self._size_probe.setIconSize(QSize(17, 17))
+        self._size_probe.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self._size_probe.setFocusPolicy(Qt.NoFocus)
+        apply_theme_style(self._size_probe, theme_style("""
+            QToolButton { border: 1px solid transparent; padding: 0; font-weight: 700; }
+        """))
+        self._size_probe.hide()
         self.destroyed.connect(self.ribbon.deleteLater)
         viewport.installEventFilter(self)
         language_changed.connect(self.retranslate_ui)
@@ -138,9 +148,11 @@ class ReviewControl(QFrame):
             blend(tint.name(), blend(surface, base, 246 / 255), tint.alphaF())
             for base in ("#000000", "#FFFFFF")
         )
-        active = readable(
-            tint.name() if tint.alpha() else COLORS["text"], backgrounds, 4.6
-        )
+        role = {
+            "verified": "review_verified_foreground",
+            "questioned": "review_questioned_foreground",
+        }.get(self._state, "text")
+        active = readable(COLORS[role], backgrounds, 4.6)
         return active, readable(COLORS["muted"], backgrounds, 4.6)
 
     def _refresh(self, _identifier=None):
@@ -161,12 +173,12 @@ class ReviewControl(QFrame):
                     QToolButton, QToolButton:checked {
                         background: transparent; border: 1px solid transparent;
                         border-radius: 3px; padding: 0; color: %s;
-                        font-weight: 600;
+                        font-weight: %s;
                     }
                     QToolButton:hover { background: ${selected}; }
                     QToolButton:pressed { background: ${divider}; }
                     QToolButton:focus { border-color: %s; }
-                """ % (color, muted)))
+                """ % (color, "700" if selected else "400", muted)))
             self._position()
             self.ribbon.update()
         finally:
@@ -176,7 +188,11 @@ class ReviewControl(QFrame):
         viewport = self.parentWidget()
         # All labels remain present. Their measured widths depend only on
         # language/font/available space, never on the selected review state.
-        hints = [button.sizeHint() for button in self.buttons.values()]
+        self._size_probe.setIcon(self.actions["unreviewed"].icon())
+        hints = []
+        for action in self.actions.values():
+            self._size_probe.setText(action.text())
+            hints.append(self._size_probe.sizeHint())
         widths = [max(74, hint.width()) for hint in hints]
         available = max(102, viewport.width() - 10)
         if sum(widths) > available:

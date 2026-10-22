@@ -137,7 +137,7 @@ class FilePanelTest(unittest.TestCase):
 
     def test_path_and_count_are_rendered_with_the_panel_metadata_style(self):
         label = self.window.annotation_target_label
-        self.assertEqual(label.font().pixelSize(), 11)
+        self.assertEqual(label.font().pixelSize(), 12)
         self.assertEqual(label.palette().windowText().color(), QColor(COLORS["muted"]))
         badge = self.window.file_summary_label
         self.assertEqual(badge.grab().toImage().pixelColor(2, badge.height() // 2), QColor(COLORS["surface"]))

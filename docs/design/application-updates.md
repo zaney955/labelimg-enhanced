@@ -29,3 +29,11 @@ Progress continues while the update center is hidden. Failure, cancellation, and
 Rollback covers the Inno installation transaction before completion. A successfully installed application is not monitored for post-launch health and is not automatically downgraded or restored to a prior session.
 
 Implementation is under [updates](../../src/labelimg/updates); checks live in [update tests](../../tests/updates) and [release-contract tests](../../tests/packaging/test_release_contract.py).
+
+## Release builds
+
+The [release workflow](../../.github/workflows/release.yml) accepts an annotated `vMAJOR.MINOR.PATCH` tag matching [`labelimg.__version__`](../../src/labelimg/__init__.py), either on tag push or through manual dispatch with an existing tag. Lightweight tags and mismatched package versions fail validation.
+
+On Windows/Python 3.14, it runs the source test suite, builds and validates a wheel, builds the PyInstaller onedir application, smoke-tests frozen workbench imports, and packages the application in a current-user Inno Setup installer. Uploaded assets are the wheel, versioned Windows x64 setup EXE, and `SHA256SUMS`; the onedir folder is an intermediate build. The workflow attests staged assets and creates a draft GitHub Release for manual publication; it does not publish to PyPI.
+
+The installer is unsigned. Build inputs and dependency notices live under [packaging](../../packaging/) and [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md). Local source/wheel validation commands are maintained in the [development guide](../development.md).

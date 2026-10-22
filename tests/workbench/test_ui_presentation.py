@@ -155,9 +155,11 @@ class PresentationTest(unittest.TestCase):
         picker = ColorDialog(show_alpha=True)
         self.widgets.append(picker)
         picker.setCurrentColor(QColor(12, 34, 56, 78))
+        advanced = picker.create_advanced_picker()
+        self.widgets.append(advanced)
         texts = lambda: {
             widget.text()
-            for widget in picker.findChildren(QLabel) + picker.findChildren(QPushButton)
+            for widget in advanced.findChildren(QLabel) + advanced.findChildren(QPushButton)
         }
         self.assertIn("基本颜色(&B)", texts())
         self.assertIn("拾取屏幕颜色(&P)", texts())

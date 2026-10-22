@@ -1043,7 +1043,10 @@ class MainWindow(
         )
         settings[SETTING_LANGUAGE] = current_language()
         self.update_ui.close()
-        settings.save()
+        if getattr(self, '_reset_settings_on_close', False):
+            settings.reset()
+        else:
+            settings.save()
 
     def _resolve_conflicts_for_close(self):
         dialog = QDialog(self)
@@ -2102,8 +2105,15 @@ class MainWindow(
             self.delete_file_paths([self.file_path])
 
     def reset_all(self):
-        self.settings.reset()
-        self.close()
+        if localized_question(
+            self, tr('resetAll'), tr('preferences.resetConfirm'),
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        ) != QMessageBox.Yes:
+            return
+        self._reset_settings_on_close = True
+        if not self.close():
+            self._reset_settings_on_close = False
+            return
         QProcess.startDetached(
             sys.executable,
             ['-m', 'labelimg'] + sys.argv[1:],

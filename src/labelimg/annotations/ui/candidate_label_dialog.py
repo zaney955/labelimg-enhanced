@@ -1,8 +1,8 @@
 """Compact category picker with stable geometry and live candidate filtering."""
 
-from labelimg.ui.presentation import present_surface
+from labelimg.ui.presentation import present_surface, role
 
-from labelimg.ui.theme import theme_changed, theme_style
+from labelimg.ui.theme import COLORS, theme_changed, theme_style
 
 from PyQt5.QtCore import QEvent, QRectF, QSize, Qt, QSignalBlocker
 from PyQt5.QtGui import QColor, QCursor, QFontMetrics, QPainter, QPainterPath, QPalette, QPen
@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import (
 )
 
 from labelimg.annotations.ui.style import (
-    LABEL_INDICATOR_FILL_ALPHA, label_display_color, label_validator,
+    label_display_color, label_validator,
     natural_label_key, trimmed,
 )
 from labelimg.localization.runtime import language_changed, localize_dialog_buttons, tr
@@ -69,7 +69,7 @@ class CandidateLabelDelegate(QStyledItemDelegate):
     horizontal_padding = 6
     horizontal_inset = 3
     vertical_inset = 3
-    stripe_width = 8
+    stripe_width = 4
     outline_width = 1.4
     radius = 4
 
@@ -94,18 +94,19 @@ class CandidateLabelDelegate(QStyledItemDelegate):
         path.addRoundedRect(box, self.radius, self.radius)
         painter.save()
         painter.setRenderHint(QPainter.Antialiasing)
-        fill = QColor(color)
-        fill.setAlpha(LABEL_INDICATOR_FILL_ALPHA)
+        fill = QColor(COLORS['selection_background'] if selected else
+                      COLORS['background'] if hovered else COLORS['surface'])
         painter.fillPath(path, fill)
         painter.save()
         painter.setClipPath(path)
         painter.fillRect(QRectF(box.left(), box.top(), self.stripe_width, box.height()), color)
         painter.restore()
         painter.setBrush(Qt.NoBrush)
-        painter.setPen(QPen(color, 2.2 if selected else 1.8 if hovered else self.outline_width))
+        painter.setPen(QPen(QColor(COLORS['selection_border'] if selected else
+                                  COLORS['border'] if hovered else COLORS['divider']), 1))
         painter.drawPath(path)
         painter.setFont(option.font)
-        painter.setPen(option.palette.color(QPalette.Text))
+        painter.setPen(QColor(COLORS['selection_foreground'] if selected else COLORS['text']))
         text_box = box.adjusted(
             self.stripe_width + self.horizontal_padding + self.outline_width / 2, 0,
             -self.horizontal_padding - self.outline_width / 2, 0,
@@ -195,9 +196,9 @@ class CandidateLabelDialog(QDialog):
         stylesheet = theme_style("""
             QDialog#candidateLabelDialog { background: ${surface}; }
             QLabel { color: ${text}; background: transparent; }
-            QLabel#candidateTitle { font-size: 16px; font-weight: 600; }
+            QLabel#candidateTitle { font-size: ${font_heading}px; font-weight: 600; }
             QLabel#candidateCount, QLabel#candidateEmpty { color: ${muted}; }
-            QLabel#candidateCount { font-size: 11px; }
+            QLabel#candidateCount { font-size: ${font_supporting}px; }
             QLineEdit { min-height: 32px; padding: 0 8px 0 0; border: 1px solid ${border};
                 border-radius: 5px; color: ${text}; background: ${surface}; }
             QLineEdit:focus { border-color: ${accent}; }
@@ -249,9 +250,8 @@ class CandidateLabelDialog(QDialog):
         self.divider.setObjectName("candidateDivider")
         layout.addWidget(self.divider)
         self.button_box = BB(BB.Ok | BB.Cancel, Qt.Horizontal, self)
-        self.button_box.setLayoutDirection(Qt.RightToLeft)
-        self.button_box.setCenterButtons(True)
         self.button_box.button(BB.Ok).setObjectName("candidateConfirm")
+        role(self.button_box.button(BB.Ok), 'primary')
         self.button_box.button(BB.Ok).setDefault(True)
         self.button_box.accepted.connect(self.validate)
         self.button_box.rejected.connect(self.reject)
@@ -260,8 +260,8 @@ class CandidateLabelDialog(QDialog):
         footer.addWidget(self.button_box)
         layout.addLayout(footer)
         self.setTabOrder(self.edit, self.list_widget)
-        self.setTabOrder(self.list_widget, self.button_box.button(BB.Cancel))
-        self.setTabOrder(self.button_box.button(BB.Cancel), self.button_box.button(BB.Ok))
+        self.setTabOrder(self.list_widget, self.button_box.button(BB.Ok))
+        self.setTabOrder(self.button_box.button(BB.Ok), self.button_box.button(BB.Cancel))
         self.edit.textChanged.connect(self._filter_candidates)
         language_changed.connect(self.retranslate_ui)
         theme_changed.connect(self._theme_changed)

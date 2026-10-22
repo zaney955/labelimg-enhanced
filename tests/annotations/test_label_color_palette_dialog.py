@@ -75,7 +75,7 @@ class LabelColorPaletteDialogTest(unittest.TestCase):
         self.assertEqual(self.palette.override("unused"), QColor("red"))
 
         set_language(SIMPLIFIED_CHINESE)
-        self.assertEqual(self.dialog.windowTitle(), "管理标签颜色")
+        self.assertEqual(self.dialog.windowTitle(), "管理类别颜色")
         self.assertEqual(self.dialog.choose_button.text(), "修改颜色")
 
     def test_restore_all_is_confirmed_and_staged(self):

@@ -188,6 +188,12 @@ def capture(name, widget, hide=True):
         "19-update-center",
         "53-update-managed",
         "59-update-ready",
+        "03-candidate-reference",
+        "21-color-picker",
+        "70-quality-custom",
+        "71-preferences",
+        "73-settings-on",
+        "74-settings-off",
     }:
         if hide:
             widget.hide()
@@ -240,6 +246,9 @@ def capture(name, widget, hide=True):
             if any(area.isAncestorOf(box) for area in widget.findChildren(QScrollArea)):
                 problems.append("footer scrolls with body")
     if name in PANEL_CAPTURES:
+        start_button = window.image_quality_panel.start_button
+        if start_button.isVisible() and not start_button.parentWidget().rect().contains(start_button.geometry()):
+            problems.append('quality start button is clipped')
         if widget is window and (
             window.width() > virtual_screen.width()
             or window.height() > virtual_screen.height()
@@ -357,9 +366,21 @@ try:
         window,
     )
     capture("07-color-palette", palette)
-    capture(
-        "08-quality-settings", ImageQualityDialog(paths[0], paths[:2], paths, window)
-    )
+    quality_settings = ImageQualityDialog(paths[0], paths[:2], paths, window)
+    capture('08-quality-settings', quality_settings)
+    quality_settings.custom_toggle.setChecked(True)
+    capture('70-quality-custom', quality_settings)
+    from labelimg.workbench.preferences import PreferencesDialog
+    preferences = PreferencesDialog(window)
+    capture('71-preferences', preferences)
+    preferences.search.setText(tr('autoSaveMode'))
+    capture('72-preferences-search', preferences)
+    for enabled in (False, True):
+        for action in (window.auto_saving, window.single_class_mode, window.auto_update_check):
+            action.setChecked(enabled)
+        window.menus.settings.popup(window.mapToGlobal(QPoint(200, 60)))
+        capture('73-settings-on' if enabled else '74-settings-off', window.menus.settings)
+    window.single_class_mode.setChecked(False)
     geometry = GeometryTransformDialog(
         paths[0], paths[:2], workspace_paths=paths, parent=window
     )
@@ -473,6 +494,15 @@ try:
     results = ImageQualityPanel(window)
     results.resize(720, 340)
     capture("24-quality-results", results)
+    from labelimg.image_tools.domain.quality import ImageQualityFinding
+    results.set_results([SimpleNamespace(path=paths[0], findings=())])
+    capture('75-quality-passed', results)
+    results.set_results([SimpleNamespace(path=paths[0], findings=(ImageQualityFinding(
+        'unreadable', 'error', None, None, 'fixture: file could not be decoded'),))])
+    capture('76-quality-unreadable', results)
+    results.clear()
+    results.set_failure('fixture: scan interrupted')
+    capture('77-quality-failed', results)
     frame.advanced_toggle.setChecked(True)
     capture("25-colored-frame-advanced", frame)
     for index, action in enumerate(window.menuBar().actions(), 26):

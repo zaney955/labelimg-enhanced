@@ -2,29 +2,24 @@
 
 [简体中文](README.md) | [English](README.en.md)
 
-LabelImg Enhanced is an independently maintained bounding-box annotation tool derived from LabelImg `v1.8.6`. It keeps the familiar `LabelImg` application name and `labelImg` command while improving professional annotation, review, and image-processing workflows.
-
-> This is not an official HumanSignal project.
+An independently maintained bounding-box annotation tool derived from LabelImg `v1.8.6`. It retains the `LabelImg` application name and `labelImg` command while extending annotation, review, and image preparation. This is not an official HumanSignal project.
 
 ## Highlights
 
-- Supports Pascal VOC, YOLO, and CreateML with an explicit save-format selector.
-- Provides complete Simplified Chinese and English interfaces with instant, persisted switching.
-- [Appearance settings](docs/design/themes.md): System, Light or Dark with eight independent accent presets, immediate application, saved preferences and cancel rollback.
-- [A consistent modern interface](docs/design/ui-presentation.md), with rules beside batch previews, image previews beside settings, and clear layouts for statistics, cleanup, recovery and dialogs.
-- Supports multi-selection, deterministic overlap targeting, and direct single-box label editing by double-clicking a box or its label text.
-- Flags likely duplicate boxes and overlapping category conflicts for focused inspection, editing, visibility changes, deletion, or session-only dismissal.
-- Searches the current image directory live by file name or relative path, and tracks `Unreviewed / Needs Review / Verified` states with annotation, review, and save-state filtering or sorting.
-- Use the filter button beside image search to search and check one or more annotation categories, then choose Include All Selected Categories or Include Any Selected Category. XML, YOLO, and CreateML categories combine with filename and state filters; click the category summary to edit it or clear it independently. Previous/Next follows the filtered images.
-- Provides per-image Undo/Redo, real-time autosave, external-conflict handling, and recoverable file operations.
-- Tools → Clean Annotation Files previews unmatched or empty annotation files, offers category and per-file selection, and moves selected files to the Recycle Bin with recovery under File → Recent File Operations. Empty annotations are unchecked by default to preserve intentional negative samples.
-- Tools → Annotation Statistics charts category box counts and distinct-image counts, with a numeric details/share table, category filtering, and refresh. It covers the entire workspace and identifies unsaved edits, empty/missing annotations, and skipped images.
-- Includes rotation, flipping, cropping, native-pixel-relative zoom, and image adjustments; a dedicated strip below the Canvas shows in-image pixel coordinates and actual annotation dimensions on the left and a nominal `1%–600%` zoom slider on the right, safely expanding for exact fit scales and wrapping when space is limited. `Ctrl+=`/`Ctrl+-` apply reciprocal 10% increments, `Ctrl+1` restores actual size, Ctrl-wheel zooms around the pointer, Shift-wheel moves horizontally, and non-destructive quality checks find corruption, blur, darkness, overexposure, and more.
+- Pascal VOC, YOLO, and CreateML reading/writing with an explicit save-format selector.
+- Instant Simplified Chinese/English switching; Light, Dark, System, and eight accent presets, with saved preferences and cancel rollback.
+- A single-image Canvas workbench with box/category multi-selection, deterministic overlap targeting, double-click label editing, and near-duplicate/category-conflict feedback.
+- Filename/relative-path search, All/Any category matching, and annotation, review, persistence, and image-quality filters; Previous/Next follows the filtered results.
+- Per-image Undo/Redo, autosave, external annotation synchronization and conflict handling, and recoverable file operations.
+- Read-only annotation statistics and annotation-file cleanup under Tools; empty annotations are unchecked by default to preserve negative samples.
+- Rotation, flipping, cropping, resizing, pixel adjustment, and colored-frame repair; separate non-destructive display adjustment, quality checks, and a drawing magnifier.
+
+See the [documentation index](docs/README.md) for complete behavior and command locations.
 
 ## Requirements and installation
 
-- Python 3.14
-- Windows is the primary supported platform; Linux is verified through headless tests.
+- Python 3.14 (`>=3.14,<3.15`); installation installs the runtime dependencies.
+- Windows is the primary supported platform; Linux has headless CI coverage. There is no maintained macOS validation workflow.
 
 Install and launch from the repository root:
 
@@ -33,38 +28,32 @@ python -m pip install .
 labelImg
 ```
 
-You can also run `python -m labelimg`. Use the interface to open an image directory, choose an annotation directory, and select the save format.
+You can also run `python -m labelimg`; use `python -m labelimg --help` for command-line arguments.
 
-The file panel shows the current annotation's actual save target, with the complete path on hover. Existing documents are updated in place; new documents preserve relative subdirectories. When a standalone image has no known mapping to a separate annotation directory, choose its destination with `Ctrl+S` before autosave writes anything. Cancelling keeps edits unsaved. Converting into an existing destination also requires explicit selection.
+## Start annotating
 
-The file panel shows the current annotation's actual save target, with the complete path on hover. Existing documents are updated in place; new documents preserve relative subdirectories. When a standalone image has no known mapping to a separate annotation directory, choose its destination with `Ctrl+S` before autosave writes anything. Cancelling keeps edits unsaved. Converting into an existing destination also requires explicit selection.
+1. Open an image directory, optionally choose a separate annotation directory, and confirm the save format.
+2. Create boxes with the left tool rail and choose their categories; set `Unreviewed / Needs Review / Verified` at the Canvas's upper-right corner.
+3. Search or filter the file list and continue with Previous/Next. Autosave starts enabled for each workspace and can be disabled under Settings; `Ctrl+S` saves manually.
 
-For split YOLO datasets, select `images` as the image directory and `labels` as the annotation directory. Relative paths match `images/train/a.jpg` to `labels/train/a.txt`, with support for flat annotation directories. When both locations contain annotations, choose the active document. Class names come from the annotation directory's `classes.txt`, then the `labels` root's `classes.txt`, then `names` in the dataset root's `data.yaml`. Missing or empty mappings fall back to other ancestor locations within that dataset only. Non-recommended locations require confirmation showing the configuration path and ordered class IDs before use in the workspace. Cancelling preserves current annotations; changed configuration content requires confirmation again. Saving preserves all existing class IDs and appends new classes.
+The file panel shows the actual annotation save target, with its full path on hover. Existing documents update in place; new documents preserve relative subdirectories. A standalone image with no known mapping to a separate annotation directory requires a destination chosen with `Ctrl+S`; autosave pauses until then, and canceling preserves unsaved edits. Format conversion keeps the original file and requires explicit selection to overwrite an existing target. See the [save-target policy](docs/design/workspace-file-list.md#annotation-save-targets).
 
-YOLO saves maintain a shared `classes.txt` at the workspace annotation root (the `labels` root in a conventional dataset) alongside the current subdirectory's mapping. Existing mappings must be compatible prefixes of one class-ID order. Conflicting definitions identify both configurations and stop saving instead of silently renumbering annotations. The TXT and mappings commit together with rollback on failure; existing `data.yaml` files remain read-only.
-
-YOLO saves maintain a shared `classes.txt` at the workspace annotation root (the `labels` root in a conventional dataset) alongside the current subdirectory's mapping. Existing mappings must be compatible prefixes of one class-ID order. Conflicting definitions identify both configurations and stop saving instead of silently renumbering annotations. The TXT and mappings commit together with rollback on failure; existing `data.yaml` files remain read-only.
+For split YOLO datasets, select `images` and `labels`, mapping `images/train/a.jpg` to `labels/train/a.txt`. Class resolution prefers annotation-local and `labels`-root `classes.txt`, then dataset-root `data.yaml`. Other locations inside the dataset require confirmation; outside configurations are excluded. Saving preserves existing IDs and appends new classes, updating the TXT and local/shared mappings transactionally. Conflicting IDs block saving; original YAML remains read-only. See [workspace rules](docs/design/workspace-file-list.md#workspace-and-current-image) for ambiguous paths, mapping approvals, and shared-vocabulary constraints.
 
 ## Updates
 
-By default, the application checks asynchronously for the latest stable release after launch, at most once every 24 hours. Disable this under Settings → Automatically Check for Updates, or check immediately with Help → Check for Updates. Python environments can copy an upgrade command, managed Windows installations can explicitly download and verify an update installer, and portable builds can only open the Release. The application never runs `pip`, installs silently, or bypasses unsaved-work guards.
-
-Maintainers trigger the release workflow with an annotated tag that exactly matches `src/labelimg/__init__.py` (for example, `v2.1.0`). CI validates the version on Windows, runs tests, builds the wheel, PyInstaller onedir bundle, and current-user Inno Setup EXE, then generates a SHA-256 manifest and provenance attestation before creating a draft GitHub Release. The installer is currently unsigned and therefore produces an unknown-publisher warning; SHA-256 verifies integrity relative to the Release manifest, not publisher identity.
+Automatic stable-release checks run asynchronously after launch, at most once every 24 hours. Disable them under Settings → Automatically Check for Updates, or check immediately under Help → Check for Updates. Python installations provide a copyable upgrade command, managed Windows installations offer explicit download/verification/installation, and portable builds open the release page. Installers are unsigned; SHA-256 verifies integrity only. See [Application Updates](docs/design/application-updates.md) for distribution actions, unsaved-work guards, and release builds.
 
 ## Development and validation
 
-Before adding or changing an interface, read the [UI design guidelines](docs/design/ui-guidelines.md) and follow the shared patterns, components, and acceptance criteria.
+Read the [UI design guidelines](docs/design/ui-guidelines.md) before adding or changing an interface. Run the complete source suite with:
 
 ```powershell
-$env:QT_QPA_PLATFORM = "offscreen"
-$env:PYTHONPATH = "src"
 python tools/run_tests.py
-python -m pip wheel . --no-deps --no-build-isolation
-python tools/run_tests.py --installed
 ```
 
-The source uses a feature-first modular-monolith structure. See the [documentation index](docs/README.md) for terminology, current designs, and decisions.
+The runner selects repository source, offscreen Qt, and isolated test configuration automatically. Wheel builds, isolated validation, installed-package checks, focused tests, and rendering commands are maintained in the [development guide](docs/development.md). Building a wheel does not update an installed application.
 
 ## Origin and license
 
-This project is derived from [HumanSignal/labelImg](https://github.com/HumanSignal/labelImg) `v1.8.6` (commit `1ab8241`) and is licensed under the MIT License. See [LICENSE](LICENSE) and [NOTICE.md](NOTICE.md).
+Derived from [HumanSignal/labelImg](https://github.com/HumanSignal/labelImg) `v1.8.6` (commit `1ab8241`). Project source is [MIT-licensed](LICENSE); see [NOTICE.md](NOTICE.md) for provenance and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for bundled Windows dependencies.

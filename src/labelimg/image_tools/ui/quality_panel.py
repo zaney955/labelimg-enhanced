@@ -16,9 +16,10 @@ from dataclasses import dataclass
 import os
 import threading
 
-from PyQt5.QtCore import QEvent, QObject, QSize, Qt, pyqtSignal, pyqtSlot
+from PyQt5.QtCore import QEvent, QObject, QSize, Qt, QTimer, pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import (
     QComboBox,
+    QCheckBox,
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
@@ -29,6 +30,8 @@ from PyQt5.QtWidgets import (
     QPushButton,
     QToolButton,
     QSpinBox,
+    QScrollArea,
+    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -103,10 +106,35 @@ class ImageQualityDialog(QDialog):
         thresholds.addRow(tr("quality.darkThreshold"), self.dark)
         thresholds.addRow(tr("quality.overexposedThreshold"), self.overexposed)
         layout.addLayout(form)
-        parameters = QHBoxLayout()
+        self.custom_toggle = QCheckBox(tr("quality.customize"))
+        layout.addWidget(self.custom_toggle)
+        self.parameter_box = QWidget()
+        parameters = QVBoxLayout(self.parameter_box)
+        parameters.setContentsMargins(0, 0, 0, 0)
         parameters.addWidget(section("ui.section.resolution", dimensions), 1)
         parameters.addWidget(section("ui.section.thresholds", thresholds), 1)
-        layout.addLayout(parameters)
+        layout.addWidget(self.parameter_box)
+        self.parameter_box.hide()
+        self.custom_toggle.toggled.connect(self.parameter_box.setVisible)
+        for field, key in ((self.min_width, 'quality.minWidth'),
+                           (self.min_height, 'quality.minHeight'),
+                           (self.max_aspect, 'quality.maxAspect'),
+                           (self.blur, 'quality.blurThreshold'),
+                           (self.dark, 'quality.darkThreshold'),
+                           (self.overexposed, 'quality.overexposedThreshold')):
+            field.setAccessibleName(tr(key))
+            field.valueChanged.connect(lambda _value: self.custom_toggle.setChecked(True))
+        for field in (self.min_width, self.min_height):
+            field.setSuffix(' px')
+        explanation = QLabel(tr('quality.thresholdHelp'))
+        explanation.setWordWrap(True)
+        role(explanation, 'supporting')
+        parameters.addWidget(explanation)
+        self.policy_summary = QLabel(tr('quality.standardSummary'))
+        self.policy_summary.setWordWrap(True)
+        role(self.policy_summary, 'supporting')
+        layout.addWidget(self.policy_summary)
+        self.custom_toggle.toggled.connect(self._toggle_custom)
         self.note = QLabel(tr("ui.quality.analysis"))
         self.note.setToolTip(tr("quality.analysisOnly"))
         self.note.setWordWrap(True)
@@ -114,6 +142,7 @@ class ImageQualityDialog(QDialog):
         layout.addWidget(self.note)
         self.buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         localize_dialog_buttons(self.buttons)
+        self.buttons.button(QDialogButtonBox.Ok).setText(tr('quality.start'))
         self.buttons.accepted.connect(self.accept)
         self.buttons.rejected.connect(self.reject)
         layout.addWidget(self.buttons)
@@ -124,6 +153,26 @@ class ImageQualityDialog(QDialog):
             scroll=True,
             icon="image-quality",
         )
+        field_labels = [form.labelForField(field) for form, fields in (
+            (dimensions, (self.min_width, self.min_height, self.max_aspect)),
+            (thresholds, (self.blur, self.dark, self.overexposed)),
+        ) for field in fields]
+        label_width = max(label.sizeHint().width() for label in field_labels)
+        for label in field_labels:
+            label.setMinimumWidth(label_width)
+
+    def _toggle_custom(self, enabled):
+        self.policy_summary.setVisible(not enabled)
+        QTimer.singleShot(0, self._fit_policy)
+
+    def _fit_policy(self):
+        for area in self.findChildren(QScrollArea):
+            area.widget().layout().activate()
+            area.updateGeometry()
+        self.layout().invalidate()
+        self.layout().activate()
+        available = self.screen().availableGeometry().adjusted(12, 12, -12, -12)
+        self.resize(self.width(), min(self.layout().totalSizeHint().height(), available.height()))
 
     def accept(self):
         scope = self.scope_combo.currentData()
@@ -142,12 +191,13 @@ class ImageQualityDialog(QDialog):
                 blur_variance=self.blur.value(),
                 dark_mean=self.dark.value(),
                 overexposed_mean=self.overexposed.value(),
-            ),
+            ) if self.custom_toggle.isChecked() else standard,
         )
         super().accept()
 
 
 class ImageQualityPanel(QWidget):
+    checkRequested = pyqtSignal()
     refreshRequested = pyqtSignal()
     clearRequested = pyqtSignal()
     openRequested = pyqtSignal(str)
@@ -156,11 +206,13 @@ class ImageQualityPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._results = ()
+        self._failure = None
         self.setProperty("uiRole", "panelBody")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(1, 0, 1, 1)
         layout.setSpacing(0)
         context, context_layout = panel_context()
+        self.context = context
         self.summary = QLabel()
         self.table = QTableWidget(0, 2)
         self.table.setHorizontalHeaderLabels(
@@ -184,9 +236,20 @@ class ImageQualityPanel(QWidget):
         controls.addWidget(self.clear_button)
         controls.insertWidget(0, self.summary, 1)
         context_layout.addLayout(controls)
+        self.start_button = QPushButton()
+        self.start_button.clicked.connect(self.checkRequested)
         layout.addWidget(context)
-        layout.addWidget(panel_list(self.table), 1)
+        result_area = panel_list(self.table)
+        result_area.setMinimumHeight(70)
+        layout.addWidget(result_area, 1)
         self.empty_hint = empty_table_hint(self.table, "ui.quality.empty")
+        empty_layout = self.table.viewport().layout()
+        empty_layout.setContentsMargins(0, 0, 0, 0)
+        empty_layout.setSpacing(4)
+        self.empty_hint.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        empty_layout.insertStretch(0, 1)
+        empty_layout.addWidget(self.start_button, 0, Qt.AlignHCenter)
+        empty_layout.addStretch(1)
         language_changed.connect(self.retranslate_ui)
         self.retranslate_ui()
         present_surface(
@@ -205,16 +268,25 @@ class ImageQualityPanel(QWidget):
         super().changeEvent(event)
         if event.type() == QEvent.EnabledChange and hasattr(self, "refresh_button"):
             for button in (self.refresh_button, self.clear_button):
-                button.setEnabled(self.isEnabled())
+                button.setEnabled(self.isEnabled() and bool(self._results))
 
     @property
     def result_paths(self):
         return tuple(result.path for result in self._results)
 
     def set_results(self, results):
+        self._failure = None
+        self.summary.setToolTip('')
         self._results = tuple(results)
         self.table.setRowCount(len(self._results))
         self.empty_hint.setVisible(not self._results)
+        self.empty_hint.setText(tr('ui.quality.empty'))
+        self.empty_hint.setToolTip('')
+        self.context.setVisible(bool(self._results))
+        self.table.horizontalHeader().setVisible(bool(self._results))
+        self.start_button.setVisible(not self._results)
+        self.refresh_button.setEnabled(self.isEnabled() and bool(self._results))
+        self.clear_button.setEnabled(self.isEnabled() and bool(self._results))
         issue_count = 0
         for row, result in enumerate(self._results):
             codes = tuple(item.code for item in result.findings)
@@ -232,10 +304,27 @@ class ImageQualityPanel(QWidget):
             )
             self.table.setItem(row, 0, file_item)
             self.table.setItem(row, 1, finding_item)
-        self.summary.setText(
-            tr("quality.summary", total=len(self._results), issues=issue_count)
-        )
+        failed = sum(any(item.code == 'unreadable' for item in result.findings) for result in self._results)
+        if not self._results:
+            text = tr('quality.notChecked')
+        elif failed:
+            text = tr('quality.failedCount', total=len(self._results), issues=issue_count, failed=failed)
+        elif not issue_count:
+            text = tr('quality.allPassed', total=len(self._results))
+        else:
+            text = tr('quality.summary', total=len(self._results), issues=issue_count)
+        self.summary.setText(text)
+        self.summary.setWordWrap(True)
         self.summaryChanged.emit(len(self._results), issue_count)
+
+    def set_failure(self, error):
+        self._failure = str(error)
+        self.summary.setText(tr('quality.failedTitle'))
+        self.summary.setToolTip(tr('quality.failed', error=self._failure))
+        if not self._results:
+            self.empty_hint.setText(tr('quality.failedTitle'))
+            self.empty_hint.setToolTip(tr('quality.failed', error=self._failure))
+        self.start_button.setVisible(not self._results)
 
     def retranslate_ui(self, _language=None):
         self.table.setHorizontalHeaderLabels(
@@ -243,10 +332,14 @@ class ImageQualityPanel(QWidget):
         )
         self.refresh_button.setText(tr("quality.refresh"))
         self.clear_button.setText(tr("quality.clear"))
+        self.start_button.setText(tr('quality.start'))
         for button in (self.refresh_button, self.clear_button):
             button.setToolTip(button.text())
             button.setAccessibleName(button.text())
+        failure = self._failure
         self.set_results(self._results)
+        if failure is not None:
+            self.set_failure(failure)
 
     def clear(self):
         self.set_results(())

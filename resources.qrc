@@ -132,5 +132,7 @@
 <file alias="mode-dark">resources/icons/mode-dark.svg</file>
 <file alias="refresh">resources/icons/refresh.svg</file>
 <file alias="clear-results">resources/icons/clear-results.svg</file>
+<file alias="preferences">resources/icons/preferences.svg</file>
+<file alias="restore-layout">resources/icons/restore-layout.svg</file>
 </qresource>
 </RCC>

@@ -768,8 +768,8 @@ class FileListSelectionTest(unittest.TestCase):
             ],
             [
                 "图像文件",
-                "标签文件",
-                "图像文件和标签文件",
+                "标注文件",
+                "图像文件和标注文件",
                 "文件名",
                 "相对路径",
                 "完整路径",
@@ -823,7 +823,7 @@ class FileListSelectionTest(unittest.TestCase):
         )
         self.assertEqual(
             self.window.statusBar().currentMessage(),
-            "已复制 2 个图像文件和 1 个标签文件；1 个图像没有标签文件",
+            "已复制 2 个图像文件和 1 个标注文件；1 个图像没有标注文件",
         )
 
     def test_copy_label_files_omits_images_and_reports_missing_labels(self):
@@ -841,7 +841,7 @@ class FileListSelectionTest(unittest.TestCase):
         )
         self.assertEqual(
             self.window.statusBar().currentMessage(),
-            "已复制 1 个标签文件；1 个图像没有标签文件",
+            "已复制 1 个标注文件；1 个图像没有标注文件",
         )
 
     def test_copy_label_files_with_no_resources_preserves_clipboard(self):
@@ -857,7 +857,7 @@ class FileListSelectionTest(unittest.TestCase):
         )
         self.assertEqual(
             self.window.statusBar().currentMessage(),
-            "所选图像没有可复制的标签文件",
+            "所选图像没有可复制的标注文件",
         )
 
     def test_copy_saved_annotations_keeps_current_dirty_state(self):

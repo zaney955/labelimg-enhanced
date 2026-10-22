@@ -2,7 +2,7 @@
 
 ## Scope
 
-The operation icon set contains the 118 SVG files used by actions, buttons, and
+The operation icon set contains the SVG files used by actions, buttons, and
 query-field decorations, including the [Canvas rail and top command surface](design/canvas-tool-rail.md).
 The application identity asset, `app.svg`, is outside this system.
 
@@ -82,9 +82,11 @@ not a visual reference.
 | Destructive | `#A65F5F` | `#F1DEDE` | Delete, close, quit |
 | Language and preferences | `#7B6F94` | `#E8E2EE` | Language and settings |
 
-Colors are restrained accents for a light application theme. Destructive,
-warning, and success roles may override a feature family's usual color, but
-shape always carries the same meaning.
+This table defines the source artwork's light-theme palette. At runtime,
+[`labelimg.ui.icons`](../src/labelimg/ui/icons.py) maps these colors through the
+active [semantic theme](design/themes.md), including dark mode and the selected
+accent; `app.svg` retains its identity colors. Destructive, warning, and success
+roles may override a feature family's usual color; shape retains its meaning.
 
 ## Implementation
 

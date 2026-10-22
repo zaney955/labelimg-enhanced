@@ -239,7 +239,10 @@ class AppearanceDialog(QDialog):
             accents.addWidget(button, index // 8, index % 8)
         root.addLayout(accents)
         root.addStretch(1)
-        self.buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        self.buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel | QDialogButtonBox.RestoreDefaults)
+        self.buttons.button(QDialogButtonBox.RestoreDefaults).clicked.connect(
+            lambda: self.controller.apply_preferences('light', 'plum')
+        )
         self.buttons.accepted.connect(self.accept)
         self.buttons.rejected.connect(self.reject)
         root.addWidget(self.buttons)

@@ -9,7 +9,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt5.QtCore import QEvent, QPoint, QPointF, Qt
-from PyQt5.QtGui import QColor, QImage, QMouseEvent
+from PyQt5.QtGui import QColor, QImage, QMouseEvent, QPalette
 from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication
 
@@ -106,6 +106,26 @@ class ReviewOverlayTest(unittest.TestCase):
                     self.assertGreaterEqual(button.width(), button.sizeHint().width())
                 self.assert_anchored()
             self.assertTrue(all(geometry == geometries[0] for geometry in geometries))
+
+    def test_selected_text_is_bolder_and_visibly_distinct_without_the_ribbon(self):
+        self.load_image()
+        for mode in ('light', 'dark'):
+            for accent in available_accents():
+                set_theme(appearance_theme(mode, accent.identifier).identifier)
+                for state in self.controls.actions:
+                    with self.subTest(mode=mode, accent=accent.identifier, state=state):
+                        self.controls.set_state(state)
+                        self.app.processEvents()
+                        active = self.controls.buttons[state]
+                        others = [button for key, button in self.controls.buttons.items() if key != state]
+                        self.assertTrue(all(active.font().weight() > button.font().weight() for button in others))
+                        if state != 'unreviewed':
+                            selected = active.palette().color(QPalette.ButtonText)
+                            self.assertGreaterEqual(selected.saturationF(), .45)
+                            for other in others:
+                                muted = other.palette().color(QPalette.ButtonText)
+                                distance = sum((a-b)**2 for a, b in zip(selected.getRgb()[:3], muted.getRgb()[:3])) ** .5
+                                self.assertGreaterEqual(distance, 75)
 
     def test_button_click_shortcut_and_undo_project_the_same_state(self):
         self.load_image()

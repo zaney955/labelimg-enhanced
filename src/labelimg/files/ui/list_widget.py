@@ -13,6 +13,7 @@ import re
 from PyQt5.QtCore import (
     QAbstractListModel,
     QEvent,
+    QItemSelection,
     QItemSelectionModel,
     QModelIndex,
     QPointF,
@@ -500,10 +501,10 @@ class FileListFilterPanel(QFrame):
         self.clear_button.clicked.connect(self.clearRequested)
         present_surface(self, theme_style("""
             QFrame#fileListFilterPanel { background: ${surface}; border: 1px solid ${border}; border-radius: 8px; }
-            QLabel#fileFilterTitle { font-size: 15px; font-weight: 600; }
+            QLabel#fileFilterTitle { font-size: ${font_heading}px; font-weight: 600; }
             QFrame#fileFilterSection { background: ${surface}; border: 1px solid ${divider}; border-radius: 6px; }
             QLabel#fileFilterSectionTitle { font-weight: 600; }
-            QLabel#fileFilterMuted { color: ${muted}; font-size: 11px; }
+            QLabel#fileFilterMuted { color: ${muted}; font-size: ${font_supporting}px; }
             QLineEdit { min-height: 28px; padding: 0 6px 0 0; background: ${surface};
                 border: 1px solid ${border}; border-radius: 4px; }
             QLineEdit:focus { border-color: ${accent}; }
@@ -1430,11 +1431,48 @@ class FileListWidget(QListView):
 
     def _restore_selection_paths(self, paths):
         selected_paths = set(paths)
-        self.clearSelection()
-        for row in range(self.count()):
-            item = self.item(row)
-            if item.data(Qt.UserRole) in selected_paths:
-                item.setSelected(True)
+        self.set_selected_items(
+            item for item in self._source_model.items
+            if item.data(Qt.UserRole) in selected_paths
+        )
+
+    def set_visible_items(self, items):
+        """Publish one filter change, retaining hidden rows' selection."""
+        visible = set(items)
+        selected = self.selectedItems()
+        blocker = QSignalBlocker(self.selectionModel())
+        changed = False
+        for item in self._source_model.items:
+            hidden = item not in visible
+            changed |= item._hidden != hidden
+            item._hidden = hidden
+        if changed:
+            self._proxy_model.invalidateFilter()
+        del blocker
+        self.set_selected_items(selected)
+
+    def set_selected_items(self, items):
+        """Replace selection atomically, using contiguous proxy ranges."""
+        selected = set(items)
+        for item in self._source_model.items:
+            item._selected = item in selected
+        selection = QItemSelection()
+        start = None
+        count = self._proxy_model.rowCount()
+        for row in range(count + 1):
+            included = row < count and self.itemFromIndex(
+                self._proxy_model.index(row, 0)
+            ) in selected
+            if included and start is None:
+                start = row
+            elif not included and start is not None:
+                selection.select(self._proxy_model.index(start, 0),
+                                 self._proxy_model.index(row - 1, 0))
+                start = None
+        blocker = QSignalBlocker(self.selectionModel())
+        self.selectionModel().select(selection, QItemSelectionModel.ClearAndSelect)
+        del blocker
+        self.itemSelectionChanged.emit()
         self.viewport().update()
 
     def _clear_left_release_suppression(self):
@@ -1448,20 +1486,12 @@ class FileListWidget(QListView):
         ]
 
     def select_all_visible(self):
-        self.clearSelection()
-        for item in self.visible_items():
-            item.setSelected(True)
-        self.viewport().update()
+        self.set_selected_items(self.visible_items())
 
     def invert_visible_selection(self):
-        selected_visible = [
-            item for item in self.visible_items() if item.isSelected()
-        ]
-        self.clearSelection()
-        for item in self.visible_items():
-            if item not in selected_visible:
-                item.setSelected(True)
-        self.viewport().update()
+        self.set_selected_items(
+            item for item in self.visible_items() if not item.isSelected()
+        )
 
     def event(self, event):
         if event.type() == QEvent.ShortcutOverride:
@@ -1612,14 +1642,11 @@ class FileListWidget(QListView):
                         else row
                     )
                 )
-                self.clearSelection()
-                for selected_row in range(
-                    min(anchor, row),
-                    max(anchor, row) + 1,
-                ):
-                    selected_item = self.item(selected_row)
-                    if not selected_item.isHidden():
-                        selected_item.setSelected(True)
+                self.set_selected_items(
+                    self.item(selected_row)
+                    for selected_row in range(min(anchor, row), max(anchor, row) + 1)
+                    if not self.item(selected_row).isHidden()
+                )
                 self.selectionModel().setCurrentIndex(
                     self.indexFromItem(item),
                     QItemSelectionModel.NoUpdate,

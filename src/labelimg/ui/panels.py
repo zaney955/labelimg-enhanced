@@ -18,8 +18,8 @@ PANEL_STYLE = theme_style("""
 QDockWidget { background: transparent; border: none; }
 QFrame[uiRole="panelHeader"] { background: ${panel_header}; border: 1px solid ${panel_border};
     border-bottom-color: ${divider}; border-top-left-radius: 5px; border-top-right-radius: 5px; }
-QLabel[uiRole="panelTitle"] { color: ${text}; font-size: 12px; font-weight: 600; background: transparent; border: none; }
-QLabel[uiRole="panelCount"] { color: ${muted}; font-size: 10px; background: ${surface};
+QLabel[uiRole="panelTitle"] { color: ${text}; font-size: ${font_section}px; font-weight: 600; background: transparent; border: none; }
+QLabel[uiRole="panelCount"] { color: ${muted}; font-size: ${font_supporting}px; background: ${surface};
     border: none; border-radius: 4px; padding: 2px 5px; }
 QFrame[uiRole="panelBody"], QWidget[uiRole="panelBody"] { background: ${surface};
     border: 1px solid ${panel_border}; border-top: none; border-bottom-left-radius: 5px; border-bottom-right-radius: 5px; }

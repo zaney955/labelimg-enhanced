@@ -142,6 +142,7 @@ class LabelColorPaletteDialog(QDialog):
         self.restore_button.setText(tr("ui.palette.restore"))
         self.restore_all_button.setText(tr("ui.palette.restoreAll"))
         localize_dialog_buttons(self.button_box)
+        self.button_box.button(QDialogButtonBox.Save).setText(tr('standard.apply'))
         self._rebuild_rows()
 
     def _filter_rows(self, *_args):

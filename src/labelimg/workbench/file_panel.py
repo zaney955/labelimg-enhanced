@@ -204,7 +204,7 @@ def build_file_panel(w, settings):
     present_panel(
         w.file_dock,
         theme_style("""
-        QLabel#fileSelectionCount { color: ${accent_hover}; font-size: 11px; }
+        QLabel#fileSelectionCount { color: ${accent_hover}; font-size: ${font_supporting}px; }
         QToolButton { border: 1px solid transparent; border-radius: 4px; padding: 2px 4px; }
         QToolButton:hover { background: ${selected}; }
         QToolButton:focus { border-color: ${accent}; }
@@ -212,11 +212,11 @@ def build_file_panel(w, settings):
         QFrame#annotationLocationCard { background: transparent; border: none; }
         QToolButton#annotationDirectoryBar { background: transparent; padding: 0; color: ${text}; }
         QToolButton#annotationDirectoryBar:hover { background: ${selected}; }
-        QLabel#annotationSaveTarget { color: ${muted}; font-size: 11px; padding: 0; }
+        QLabel#annotationSaveTarget { color: ${muted}; font-size: ${font_supporting}px; padding: 0; }
         QLineEdit { min-height: 28px; padding: 0 6px 0 0; border: 1px solid ${divider};
             border-radius: 4px; background: ${surface}; color: ${text}; }
         QLineEdit:focus { border-color: ${accent}; }
-        QToolButton#fileFilterChip { background: ${selected}; color: ${accent_hover}; padding: 3px 7px; font-size: 11px; }
+        QToolButton#fileFilterChip { background: ${selected}; color: ${accent_hover}; padding: 3px 7px; font-size: ${font_supporting}px; }
         QListView { border: none; background: ${surface}; outline: none; padding: 0; }
     """),
     )

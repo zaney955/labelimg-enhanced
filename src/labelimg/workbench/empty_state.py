@@ -37,8 +37,8 @@ class WorkbenchEmptyState(QFrame):
         layout.addWidget(self.open_button, 0, Qt.AlignHCenter)
         apply_theme_style(self, theme_style("""
             QFrame#workbenchEmptyState { background: ${background}; border: 1px solid ${border}; border-radius: 12px; }
-            QLabel#workbenchEmptyTitle { color: ${text}; font-size: 15px; font-weight: 600; }
-            QLabel#workbenchEmptyFormats { color: ${muted}; font-size: 11px; }
+            QLabel#workbenchEmptyTitle { color: ${text}; font-size: ${font_heading}px; font-weight: 600; }
+            QLabel#workbenchEmptyFormats { color: ${muted}; font-size: ${font_supporting}px; }
         """))
         viewport.installEventFilter(self)
         canvas.imageSizeChanged.connect(self.project)

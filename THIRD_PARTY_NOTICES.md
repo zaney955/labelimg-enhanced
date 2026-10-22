@@ -17,7 +17,7 @@ under other licenses. In particular:
   license metadata supplied by each direct runtime wheel is bundled under
   `third_party_licenses`.
 
-The exact dependency versions used for a release are recorded by the tagged
-source tree and GitHub Actions build log. No code-signing certificate is used;
-the installer therefore appears in Windows as published by an unknown
-publisher.
+Dependency version ranges are declared in the tagged `pyproject.toml`; resolved
+build versions are recorded in the GitHub Actions build log. No code-signing
+certificate is used; the installer therefore appears in Windows as published
+by an unknown publisher.

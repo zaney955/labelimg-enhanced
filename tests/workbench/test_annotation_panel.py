@@ -71,7 +71,7 @@ class AnnotationPanelTest(unittest.TestCase):
 
     def test_dock_content_and_custom_count_receive_the_designed_surface(self):
         w = self.window
-        self.assertEqual(w.default_category_caption.font().pixelSize(), 11)
+        self.assertEqual(w.default_category_caption.font().pixelSize(), 12)
         self.assertEqual(w.default_category_caption.palette().windowText().color(), QColor(COLORS["muted"]))
         badge = w.label_summary_label
         rendered = badge.grab().toImage()
@@ -159,7 +159,7 @@ class AnnotationPanelTest(unittest.TestCase):
         self.assertEqual(selector.fixed_label, "Custom_2")
         self.assertEqual(selector.currentData(), ("fixed", "Custom_2"))
 
-    def test_default_dropdown_drives_new_boxes_and_keeps_single_class_precedence(self):
+    def test_default_dropdown_drives_the_visible_category_strategy(self):
         selector = self.window.default_category_selector
         self.window.single_class_mode.setChecked(True)
         self.window.lastLabel = "single-class-last"
@@ -171,14 +171,16 @@ class AnnotationPanelTest(unittest.TestCase):
             self.window.canvas.handle_drawing(QPointF(x + 10, 70))
 
         with patch.object(self.window.candidate_label_dialog, "choose") as choose:
-            selector.activated[int].emit(1)
+            selector.activated[int].emit(next(i for i in range(selector.count())
+                                             if selector.itemData(i) == ('fixed', 'P_LSBM')))
             draw(10)
             self.assertEqual(self.window.canvas.shapes[-1].label, "P_LSBM")
-            selector.activated[int].emit(0)
+            selector.activated[int].emit(1)
             draw(30)
             self.assertEqual(self.window.canvas.shapes[-1].label, "single-class-last")
             choose.assert_not_called()
-        self.window.single_class_mode.setChecked(False)
+        selector.activated[int].emit(0)
+        self.assertFalse(self.window.single_class_mode.isChecked())
         with patch.object(self.window.candidate_label_dialog, "choose", return_value="chosen") as choose:
             draw(50)
             choose.assert_called_once()

@@ -2275,17 +2275,21 @@ class Canvas(QWidget):
         self.repaint()
 
     def set_shape_visible(self, shape, value):
-        self.visible[shape] = value
+        self.set_shapes_visible((shape,), value)
+
+    def set_shapes_visible(self, shapes, value):
+        shapes = set(shapes)
+        self.visible.update((shape, value) for shape in shapes)
         self._near_duplicate_marker_hits = tuple()
         if not value:
-            if self.interaction_snapshot.hover.shape is shape:
+            if self.interaction_snapshot.hover.shape in shapes:
                 self.un_highlight()
-            if shape in self._external_hover_shapes:
+            if shapes.intersection(self._external_hover_shapes):
                 self.set_external_hover_shapes(
                     item for item in self._external_hover_shapes
-                    if item is not shape
+                    if item not in shapes
                 )
-        self.repaint()
+        self.update()
 
     def current_cursor(self):
         cursor = QApplication.overrideCursor()

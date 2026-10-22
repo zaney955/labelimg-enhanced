@@ -134,6 +134,12 @@ def appearance_colors(base, mode, accent_id):
     )
     colors["danger"] = readable("#F08D9C" if dark else "#A33F55", bodies)
     colors["warning"] = readable("#E7B871" if dark else "#8C641F", bodies)
+    colors["review_verified_foreground"] = readable(
+        "#6FE6A0" if dark else "#176B37", bodies
+    )
+    colors["review_questioned_foreground"] = readable(
+        "#FFD078" if dark else "#885100", bodies
+    )
     for role, initial in (
         ("icon_file", "#87ADDF" if dark else "#5677A6"),
         ("icon_image", "#78BEB7" if dark else "#4F8582"),

@@ -12,6 +12,21 @@ from ctypes import (
 import os
 from functools import lru_cache
 import uuid
+from contextlib import contextmanager
+from contextvars import ContextVar
+
+
+_batch_probes = ContextVar('labelimg_recycle_batch_probes', default=None)
+
+
+@contextmanager
+def recycle_batch():
+    """Reuse successful location probes only for this synchronous operation."""
+    token = _batch_probes.set(set())
+    try:
+        yield
+    finally:
+        _batch_probes.reset(token)
 
 
 CLSID_FILE_OPERATION = "{3AD05575-8857-4850-9277-11B85BDB8E09}"
@@ -313,7 +328,14 @@ def delete_to_recycle_bin(path):
         raise WindowsTrashError(
             "Only regular files can be moved to the Recycle Bin."
         )
-    probe_recycle_support(path)
+    probes = _batch_probes.get()
+    directory = os.path.normcase(os.path.realpath(os.path.dirname(path)))
+    stat = os.stat(directory)
+    location = (directory, stat.st_dev, stat.st_ino)
+    if probes is None or location not in probes:
+        probe_recycle_support(path)
+        if probes is not None:
+            probes.add(location)
     return _delete_to_recycle_bin_raw(path)
 
 

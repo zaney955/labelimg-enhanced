@@ -285,7 +285,7 @@ The stage of a pending drawing whose box geometry is complete but whose first an
 _Avoid_: Committed annotation, existing-label edit, completed creation
 
 **Automatic overlap hiding**:
-Temporary Canvas suppression of boxes and labels containing the drawing crosshair center, or portions covered by pending label-confirmation geometry and visible selected or manipulated annotations, without changing explicit visibility choices.
+Temporary Canvas suppression of boxes and labels containing the drawing crosshair center, or portions covered by the pending rectangle during drawing/initial label confirmation and by visible selected or manipulated annotations, without changing explicit visibility choices.
 _Avoid_: Hide all background boxes, manual visibility toggle, annotation deletion
 
 **Pending annotation gesture**:
@@ -425,7 +425,7 @@ A command explicitly targeting the complete annotation selection, such as copyin
 _Avoid_: Batch edit, group transform
 
 **In-image duplication**:
-A copy operation creating slightly offset boxes in the current image and selecting the duplicates.
+A copy operation preserving the source boxes' coordinates in the current image and selecting the duplicates.
 _Avoid_: Clipboard copy, paste
 
 **Clipboard selection**:
@@ -613,7 +613,7 @@ The stable workspace image sequence governing rows, visible navigation, and orde
 _Avoid_: Base-name-first order, visual-only sort
 
 **File-list filter**:
-A conjunctive view by annotation, review, persistence, and quality state, combined with any active search query.
+A conjunctive view by annotation categories, annotation presence, review, persistence, and quality state, combined with any active search query.
 _Avoid_: Image search query, file selection
 
 **Image search command**:

@@ -1,6 +1,6 @@
 # Large-directory loading
 
-Status: implemented. The benchmark below records the implementation measurement in the `DL` environment; it is not a fresh measurement of every checkout.
+Current progressive-loading contract; timing targets are verified separately from deterministic correctness tests.
 
 ## Outcome
 
@@ -60,24 +60,32 @@ The index avoids repeated work:
 - Load quality-cache summaries once without full-image hashing. A startup directory follows one import transition.
 - Publish stable file order, then bounded immutable state batches. The virtualized list preserves selection, range selection, context menus, keyboard navigation, drag behavior, and file-operation semantics.
 
-## Performance budget and recorded measurement
+## Performance budget
 
-The opt-in [benchmark](../../tools/benchmark_directory_loading.py) uses the real `MainWindow.import_dir_images()` and `MainWindow._switch_annotation_directory()` entry points. The recorded run used `DL` Conda, Python 3.14.2, and small local PNG/Pascal VOC fixtures; fixture creation was excluded.
+The opt-in [benchmark](../../tools/benchmark_directory_loading.py) exercises real image- and annotation-directory transitions with local PNG/Pascal VOC fixtures, excluding fixture creation. Run it in the target environment and report the checkout, interpreter, workload and measured timings; past results are not current performance guarantees.
 
-| 10,000-file measurement | Recorded result | Target |
-| --- | ---: | ---: |
-| Directory ready state | 0.214 s | < 0.500 s |
-| Workspace index completion | 3.853 s | < 5.000 s |
-| Longest measured UI publication batch | 0.039 s | <= 0.050 s |
-| Synchronous image-directory compatibility path | 1.747 s | Report only |
-| Synchronous annotation-directory compatibility path | 3.366 s | Report only |
+| 10,000-file milestone | Target |
+| --- | ---: |
+| Directory ready state | < 0.500 s |
+| Workspace index completion | < 5.000 s |
+| Longest UI publication batch | <= 0.050 s |
 
-Publication uses 64-row batches. The responsiveness contract is broader than the measured batch: no uninterrupted UI-thread task may exceed 50 ms, and the interface remains interactive throughout indexing. Discovery, annotation resolution, status lookup, and row lookup must have no quadratic call-count growth.
+Publication uses 64-row batches. No uninterrupted UI-thread task should exceed 50 ms; discovery, annotation resolution, status lookup, and row lookup must avoid quadratic call-count growth. Synchronous compatibility-path timings are diagnostic only. CI checks resource reads, bounded growth, generation cancellation, atomic transitions, and correctness rather than machine-dependent timing.
 
-Wall-clock budgets are measured in `DL` separately from correctness tests. CI uses deterministic resource-read counts, bounded growth, generation cancellation, atomic transitions, and result correctness rather than machine-dependent timing assertions.
+## Interactive operations
+
+Filtering publishes row visibility to the proxy once per query, then restores the final selection in contiguous ranges. Hidden selections survive filtering. Select all, invert, Shift ranges, double-click restoration, status-based selection, rename and recovery project one final selection instead of one notification per row. Changing only a filter reuses the established default-name order; state sorting computes each natural path key once per projection.
+
+Annotation group visibility updates the Canvas and group-list state once per gesture. Canvas painting is queued so hiding or showing a category does not synchronously repaint the entire image for every box.
+
+Deletion removes only successfully deleted paths from the known workspace sequence and reuses surviving row objects. Failed images remain selected; shared-document changes refresh affected survivor states. Interrupted indexing finishes the remaining states before enabling advanced filters. Deleting unannotated images does not rescan the annotation directory. Other external filesystem changes continue to appear through refresh/reopening/access, rather than implicit directory rediscovery after every deletion.
+
+Recovery identities are merged using a path index, preserving the first recoverable original and latest post-operation fingerprint for shared resources. Windows recycle-location probes are reused only within one synchronous operation and directory identity; standalone calls and subsequent operations probe again. Actual deletes still require an actionable Shell identity, and per-image locking, rollback and cancellation remain in effect.
+
+Run `python tools/benchmark_interactions.py --count 3000 --delete-count 500` for an opt-in comparison of filtering, selection, state sorting, 500-box visibility and deletion with disposable files. `--package-root` selects an extracted wheel. This benchmark includes queued Qt paint/layout work; its rename-based trash adapter measures application overhead, not Windows Shell or network throughput. Deterministic regressions assert bounded row evaluation, selection notifications and recovery bookkeeping instead of machine-specific timing thresholds.
 
 ## Regression coverage
 
 Fixtures cover 10,000 unannotated images, 2,000 Pascal VOC documents, 2,000 YOLO documents sharing one vocabulary, and one 10,000-record CreateML collection. Behavioral coverage includes portable nested-directory ordering, corrupt/removed files, refresh with dirty annotations, stop/resume, rapid directory replacement that rejects obsolete results, and quality summaries without full hashing.
 
-Use focused cases in the [existing test runner](../../tools/run_tests.py) for deterministic I/O and growth checks; use the benchmark for ready-state, index-completion, and UI-publication timings. History, save targets, conflicts, annotation formats, and file-operation recovery retain their [existing contracts](undo-redo-and-file-recovery.md).
+Use [focused unittest discovery or the full runner](../development.md#源码与定向测试) for deterministic I/O and growth checks; use the benchmark for ready-state, index-completion, and UI-publication timings. History, save targets, conflicts, annotation formats, and file-operation recovery retain their [existing contracts](undo-redo-and-file-recovery.md).

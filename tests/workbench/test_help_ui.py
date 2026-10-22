@@ -86,7 +86,7 @@ class HelpDialogTest(unittest.TestCase):
         ))
         self.assertTrue(any(
             row.keys == "Left-button double-click"
-            and row.action == "Edit box label"
+            and row.action == "Edit box category"
             for row in rows
         ))
         self.assertTrue(any(
@@ -189,7 +189,7 @@ class HelpDialogTest(unittest.TestCase):
         )
         self.assertTrue(any(
             row.keys == "双击鼠标左键"
-            and row.action == "修改标注标签"
+            and row.action == "修改标注类别"
             for row in canvas_section.rows
         ))
         self.assertTrue(any(

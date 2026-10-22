@@ -14,7 +14,7 @@ from labelimg.ui.theme import (
 
 import os
 
-from PyQt5.QtCore import QEvent, QObject, QRect, Qt
+from PyQt5.QtCore import QEvent, QObject, QRect, QSize, Qt
 from PyQt5.QtGui import QPainter
 from PyQt5.QtWidgets import (
     QDialogButtonBox,
@@ -36,16 +36,17 @@ from labelimg.ui.panels import PANEL_STYLE, PanelHeader
 
 # Keep selectors on Qt controls; Canvas paint and category swatches remain data.
 SURFACE_STYLE = theme_style("""
+QWidget { font-size: ${font_body}px; }
 QDialog { background: ${surface}; }
-QLabel[uiRole="heading"] { color: ${text}; font-size: 16px; font-weight: 600; }
-QLabel[uiRole="sectionTitle"] { color: ${text}; font-size: 12px; font-weight: 600; }
+QLabel[uiRole="heading"] { color: ${text}; font-size: ${font_heading}px; font-weight: 600; }
+QLabel[uiRole="sectionTitle"] { color: ${text}; font-size: ${font_section}px; font-weight: 600; }
 QFrame[uiRole="iconTile"] { background: ${selected}; border: none; border-radius: 8px; }
-QLabel[uiRole="metricValue"] { color: ${text}; font-size: 24px; font-weight: 600; }
-QLabel[uiRole="supporting"] { color: ${muted}; }
+QLabel[uiRole="metricValue"] { color: ${text}; font-size: ${font_metric}px; font-weight: 600; }
+QLabel[uiRole="supporting"] { color: ${muted}; font-size: ${font_supporting}px; }
 QLabel[uiRole="summary"] { background: ${background}; color: ${text}; padding: 10px;
-    border: 1px solid ${divider}; border-radius: 6px; }
-QFrame[uiRole="section"], QGroupBox { background: ${surface};
-    border: 1px solid ${divider}; border-radius: 6px; }
+    border: none; border-radius: 6px; }
+QFrame[uiRole="section"], QGroupBox { background: ${background};
+    border: none; border-radius: 6px; }
 QGroupBox { margin-top: 12px; padding: 12px 10px 8px 10px; }
 QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; color: ${text}; }
 QFrame[uiRole="divider"] { border: none; background: ${divider}; min-height: 1px; max-height: 1px; }
@@ -98,7 +99,7 @@ QTabBar::tab:selected { background: ${selected}; color: ${accent_hover}; }
 QTabBar::tab:focus { border-bottom: 2px solid ${accent}; }
 QScrollArea[uiRole="dialogBody"] { border: none; background: ${surface}; }
 QScrollArea { border: 1px solid ${divider}; background: ${surface}; }
-QWidget[uiRole="dialogBodyContent"] { background: ${background}; border-radius: 8px; }
+QWidget[uiRole="dialogBodyContent"] { background: ${surface}; }
 QProgressBar { min-height: 12px; border: 1px solid ${divider}; border-radius: 4px;
     background: ${background}; text-align: center; }
 QProgressBar::chunk { background: ${accent}; border-radius: 3px; }
@@ -342,6 +343,15 @@ class _DialogChrome(QObject):
         return False
 
 
+class _DialogScrollArea(QScrollArea):
+    """Measure the finished content, rather than Qt's capped scroll viewport."""
+
+    def sizeHint(self):
+        if self.widget() is None:
+            return super().sizeHint()
+        return self.widget().sizeHint() + QSize(2 * self.frameWidth(), 2 * self.frameWidth())
+
+
 def present_dialog(
     dialog, *, primary=None, minimum_width=380, scroll=False, title=True, icon="file"
 ):
@@ -359,7 +369,6 @@ def present_dialog(
     layout.setContentsMargins(18, 16, 18, 14)
     layout.setSpacing(12)
     dialog.ensurePolished()
-    natural_size = layout.totalSizeHint()
 
     def is_footer(item):
         if isinstance(item.widget(), QDialogButtonBox):
@@ -388,7 +397,7 @@ def present_dialog(
                 body_layout.addLayout(child_layout, stretch)
             else:
                 body_layout.addItem(item)
-        scroller = role(QScrollArea(), "dialogBody")
+        scroller = role(_DialogScrollArea(), "dialogBody")
         scroller.setWidgetResizable(True)
         scroller.setWidget(body)
         layout.addWidget(scroller, 1)
@@ -400,7 +409,6 @@ def present_dialog(
                 child.setParent(None)
                 layout.addLayout(child)
     heading = None
-    header_height = 0
     if title:
         heading = role(QLabel(dialog.windowTitle().rstrip(".…")), "heading")
         heading.setTextFormat(Qt.PlainText)
@@ -412,7 +420,6 @@ def present_dialog(
         header_layout.addWidget(icon_tile(icon))
         header_layout.addWidget(heading, 1)
         layout.insertWidget(0, header)
-        header_height = 44
     dialog._presentation_chrome = _DialogChrome(dialog, heading)
     for table in dialog.findChildren(QTableWidget) + dialog.findChildren(QTreeWidget):
         present_table(table)
@@ -430,9 +437,10 @@ def present_dialog(
     if explicit_size:
         dialog.resize(max(minimum_width, previous_size.width()), previous_size.height())
     else:
+        natural_size = layout.totalSizeHint()
         dialog.resize(
             max(minimum_width, natural_size.width()),
-            natural_size.height() + header_height,
+            natural_size.height(),
         )
 
 

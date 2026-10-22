@@ -173,10 +173,16 @@ class FileListProjection:
         by_path = {item.path: item for item in items}
         if len(by_path) != len(items):
             raise ValueError("file-list projection paths must be unique")
+        path_keys = {}
+
+        def path_key(path):
+            if path not in path_keys:
+                path_keys[path] = relative_image_sort_key(path, root or os.curdir)
+            return path_keys[path]
 
         def path_compare(left, right):
-            left_key = relative_image_sort_key(left, root or os.curdir)
-            right_key = relative_image_sort_key(right, root or os.curdir)
+            left_key = path_key(left)
+            right_key = path_key(right)
             return (left_key > right_key) - (left_key < right_key)
 
         def primary(path):

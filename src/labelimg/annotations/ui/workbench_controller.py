@@ -1220,10 +1220,12 @@ class AnnotationActionsMixin:
 
 
     def isolate_label_group(self, label):
-        for shape in self.canvas.shapes:
-            visible = shape.label == label
-            self.canvas.set_shape_visible(shape, visible)
-            self.label_list.set_shape_visible(shape, visible)
+        self.label_visibility_requested(
+            (shape for shape in self.canvas.shapes if shape.label != label), False
+        )
+        self.label_visibility_requested(
+            (shape for shape in self.canvas.shapes if shape.label == label), True
+        )
 
 
     def delete_annotation_shapes(self, shapes, description='Delete boxes'):
@@ -1838,9 +1840,9 @@ class AnnotationActionsMixin:
 
 
     def label_visibility_requested(self, shapes, visible):
-        for shape in shapes:
-            self.canvas.set_shape_visible(shape, visible)
-            self.label_list.set_shape_visible(shape, visible)
+        shapes = tuple(shapes)
+        self.canvas.set_shapes_visible(shapes, visible)
+        self.label_list.set_shapes_visible(shapes, visible)
 
 
     def update_selection_actions(self, selection=None):

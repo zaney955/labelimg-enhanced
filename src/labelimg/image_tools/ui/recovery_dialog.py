@@ -58,7 +58,7 @@ class ImageRecoverySelectionDialog(QDialog):
         layout.addWidget(self.buttons)
         self._update_restore_button()
         self.resize(520, 340)
-        present_dialog(self, primary=self.restore_button, scroll=True, icon="undo-image-processing")
+        present_dialog(self, primary=self.restore_button, icon="undo-image-processing")
 
     @property
     def selected_paths(self):

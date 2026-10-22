@@ -576,7 +576,7 @@ class LabelGroupListWidgetTest(unittest.TestCase):
         self.assertEqual(self.widget.group_labels(), ["car"])
         self.assertEqual(
             self.widget.summary_text(),
-            "显示 1/2 个标签组 · 1/2 个标注 · 另有 1 个已选标注未显示",
+            "显示 1/2 个类别组 · 1/2 个标注 · 另有 1 个已选标注未显示",
         )
         self.assertEqual(self.widget.selected_shapes(), (person,))
 

@@ -277,13 +277,10 @@ class ShortcutCatalogDialog(QDialog):
         self.resize(920, 620)
 
         layout = QVBoxLayout(self)
-        intro = QLabel(tr("shortcuts.intro"), self)
-        intro.setObjectName("shortcutCatalogIntro")
-        intro.setWordWrap(True)
         self.search = QLineEdit(self)
         self.search.setPlaceholderText(tr("ui.shortcuts.search"))
         self.search.setAccessibleName(tr("ui.shortcuts.search"))
-        self.search.setToolTip(intro.text())
+        self.search.setToolTip(tr("shortcuts.intro"))
         layout.addWidget(self.search)
 
         self.tree = QTreeWidget(self)
@@ -390,9 +387,9 @@ class AboutDialog(QDialog):
         layout.addWidget(self.repository_button)
         apply_theme_style(self, theme_style("""
             QFrame#aboutIdentity { background: ${selected}; border: 1px solid ${accent_border}; border-radius: 10px; }
-            QLabel#aboutProductName { color: ${text}; font-size: 20px; font-weight: 600; }
+            QLabel#aboutProductName { color: ${text}; font-size: ${font_product}px; font-weight: 600; }
             QLabel#aboutVersion { color: ${accent}; background: ${selected}; padding: 3px 8px;
-                border-radius: 6px; font-size: 11px; }
+                border-radius: 6px; font-size: ${font_supporting}px; }
             QFrame#aboutRuntime { background: ${background}; border: none; border-radius: 7px; }
             QPushButton#aboutRepository { min-height: 38px; text-align: left; background: ${surface};
                 border: 1px solid ${border}; border-radius: 7px; padding: 0 14px; color: ${text}; }

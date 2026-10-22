@@ -178,10 +178,7 @@ class RecoveryActionsMixin:
                     for path in selected_after
                 }
             selected_after.update(restored_images)
-            for row in range(self.file_list_widget.count()):
-                item = self.file_list_widget.item(row)
-                if item.data(Qt.UserRole) in selected_after:
-                    item.setSelected(True)
+            self.file_list_widget._restore_selection_paths(selected_after)
         self.rescan_annotation_workspace()
         self.refresh_file_list_statuses()
         self._refresh_current_image_pixels(restored_images)

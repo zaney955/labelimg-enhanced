@@ -107,7 +107,7 @@ class LabelReplaceUiTest(unittest.TestCase):
                 self.paths[:1] if scope == 'selected' else self.paths, old, new, AnnotationFormat.PASCAL_VOC,
             ),
         )
-        self.assertEqual(dialog.windowTitle(), '替换标签名…')
+        self.assertEqual(dialog.windowTitle(), '替换类别名…')
         self.assertFalse(dialog.apply_button.isEnabled())
         dialog.old_label.setEditText('apple')
         dialog.new_label.setText('apple_s')

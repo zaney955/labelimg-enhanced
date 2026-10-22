@@ -48,7 +48,7 @@ Search is a session-only, case-insensitive literal substring of the complete fil
 
 The filter button beside image search opens Advanced Filters. Its Annotation Categories section lists workspace categories with searchable checkboxes and two matching modes: Include All Selected Categories (the default) requires every selected category while allowing additional categories; Include Any Selected Category requires at least one. No selected categories means no category restriction. Category search is case-insensitive and changes only the checkbox rows; category identity and image matching use exact, case-sensitive labels. XML, YOLO, and CreateML contribute actual box labels, never unused YOLO vocabulary entries. Shared CreateML collections resolve labels separately for each image. Retained committed edits override saved labels; unresolved competing documents do not contribute a combined set of categories.
 
-The popup uses the workbench's light surfaces, purple-gray emphasis, shared SVG icons, and compact input treatment. Category selection and State Conditions occupy separate bordered sections. The category header shows the selected count and a category-only clear action; its local search shares the leading search icon used by list queries. The category list grows with its visible rows up to five, scrolls longer lists, and reduces height when screen space is limited. All/Any matching uses an exclusive two-segment control with a live explanation. State conditions use a two-column grid with labels above their controls, and complete selected values remain available on hover. A separate footer states that filters apply immediately and offers Clear All Filters. Closing the popup preserves all conditions.
+The popup uses the active theme's surfaces and accent, shared SVG icons, and compact input treatment. Category selection and State Conditions occupy separate bordered sections. The category header shows the selected count and a category-only clear action; its local search shares the leading search icon used by list queries. The category list grows with its visible rows up to five, scrolls longer lists, and reduces height when screen space is limited. All/Any matching uses an exclusive two-segment control with a live explanation. State conditions use a two-column grid with labels above their controls, and complete selected values remain available on hover. A separate footer states that filters apply immediately and offers Clear All Filters. Closing the popup preserves all conditions.
 
 A category summary below image search states the matching mode and selected labels. Clicking its text reopens the filter editor; its adjacent clear button removes only the category condition. Long summaries elide visually and remain complete in tooltips and accessibility text. Clearing advanced filters also clears category selection and its local search while retaining image search; clearing all conditions clears both. When the last occurrence of a selected category disappears, the selected condition remains visible and can produce an empty result rather than silently widening the query. Category conditions survive refreshing the current directory, clear on workspace replacement, and are not persisted. Background index completion gates category filtering just like other annotation-dependent conditions. Committed edits, Undo/Redo, saving, and refreshed annotation state update the indexed category projection without rereading files on each filter change.
 
@@ -69,7 +69,7 @@ Filtering never replaces a nonmatching current image or drops hidden selected fi
 | Right-click selected file | Preserve the complete selection |
 | Right-click unselected file | Replace with that file before opening commands |
 
-During the system double-click interval, a prior selection may retain only its blue appearance to avoid flashing. Commands and counts already use the newly clicked file. Selected rows retain a light theme-accent background without a leading block after focus returns to the Canvas. Unselected hover uses neutral gray and preserves current-image and keyboard-focus indicators. Current-image emphasis is independent of selection.
+During the system double-click interval, a prior selection may retain its selection appearance to avoid flashing; commands and counts already use the newly clicked file. The current image remains independent of selection. Selected-row styling follows the theme rules below; unselected hover preserves current-image and keyboard-focus indicators.
 
 ## Status and review
 
@@ -77,7 +77,7 @@ The dock header shows a compact total or visible/total count and the current sor
 
 Selection-dependent actions appear in the bottom bar: rename and locate for one file, batch rename and review for multiple files, and a More menu using the same command builder as the context menu. Hidden selected files remain targets. Controls retain existing transaction confirmations, format restrictions, and shortcuts.
 
-File rows have a minimum 26-pixel height and middle-elided relative paths. A narrow leading stripe and bold filename identify the current image independently of selection. The annotation-presence slot precedes the path; review and quality slots follow it. The rightmost slot is reserved for persistence, including the blue unsaved-change dot, even when the filename is long. Slots remain read-only; clicking them follows ordinary file selection/opening behavior.
+File-row height is the greater of 32 logical pixels or the font height plus ten pixels. Relative paths are middle-elided. A narrow leading stripe and bold filename identify the current image independently of selection. The annotation-presence slot precedes the path; review and quality slots follow it. The rightmost slot is reserved for persistence, including the blue unsaved-change dot, even when the filename is long. Slots remain read-only; clicking them follows ordinary file selection/opening behavior.
 
 | Dimension | States and presentation |
 | --- | --- |
@@ -91,7 +91,7 @@ A retained dirty editing snapshot supplies the live annotation and review state,
 
 Current-image shortcuts toggle their verified or questioned state back to unreviewed when repeated. The Canvas upper-right review control shows and sets one explicit state, independently of annotation-panel visibility or docking position. All segments retain their text and stable geometry when the state changes. Its continuous translucent ribbon replaces whole-Canvas background tinting; [command surfaces](canvas-tool-rail.md#top-command-surface) define appearance, mouse transparency, and live theme/language behavior. Undo and Redo refresh the same review projection. Batch commands set every selected image to one explicit state. [ADR 0010](../adr/0010-preserve-review-state-in-every-active-format.md) owns format-specific review storage.
 
-Selected rows use an opaque, softly tinted background and a thin muted outline. This remains visible when focus moves to batch commands or menus; hover does not fade it. The current image retains its separate stripe and bold filename. The theme owns `selection_background`, `selection_border`, and `selection_foreground`; the delegate never fades the already-tinted QSS Highlight again. Selected filename contrast remains at least 4.5:1, while fill and outline strength have upper bounds to keep multi-selection restrained.
+Selected rows use an opaque, softly tinted background and a thin rounded outline. This remains visible when focus moves to batch commands or menus; hover does not fade it. The current image retains its separate stripe and bold filename. The theme owns `selection_background`, `selection_border`, and `selection_foreground`; the delegate never fades the already-tinted QSS Highlight again. Selected filename contrast remains at least 4.5:1, while fill and outline strength have upper bounds to keep multi-selection restrained.
 
 ## Clipboard transfer
 
@@ -111,17 +111,6 @@ Implementation and verification start at [files](../../src/labelimg/files), [fil
 
 ## Cross-operation regression coverage
 
-[Sorted workspace operation tests](../../tests/workbench/test_sorted_workspace_operations.py) exercise all eight combinations of name, modification time, annotation state, and review state ordering with ascending and descending direction. Every operation checks current image identity, full row order and path mapping, annotation/review badges, Canvas document and source pixels, and title/navigation counters against independently read fixture files. Unsaved edits use explicit expected live state.
+[Sorted workspace operation tests](../../tests/workbench/test_sorted_workspace_operations.py) cover name, modification-time, annotation-state, and review-state sorting in both directions. They check current-image identity, row order/path mapping, status badges, Canvas geometry/pixels, and navigation counters against temporary fixture files, including expected live unsaved state.
 
-| Area | Covered workflows |
-| --- | --- |
-| Opening and navigation | Synchronous/background opening at the first sorted row; previous/next navigation after mutations |
-| File operations | Current first/middle/last deletion, other-file deletion, filtered/batch/all deletion, rename, annotation clearing, and recovery |
-| Annotation editing | Paste/duplicate/delete the last box, undo/redo, manual save, autosave, and saving retained documents |
-| Review | All three batch review states and recovery, single-image review, hidden selected targets and preserved filters |
-| Image processing | Five rotation/flip commands, batch resize and pixel adjustment, crop that removes annotations, colored-frame removal, full/partial recovery, and non-destructive display adjustment/reset |
-| Interrupted workflows | Canceled review/processing/crop, crop undo/redo, failed batch rollback, quality scan/clear, and edits/saves/review/crop/recovery while an old index is paused |
-
-The matrix contains 45 operation variants per ordering mode, for 360 combinations in 28 test methods. It is also run against the installed DL package to verify the runtime copy.
-
-All destructive operations run against temporary images and annotations. Dedicated directory-loading tests also retain worker ownership until thread completion and reject obsolete publication callbacks.
+The suite spans navigation, file mutation/recovery, annotation edits and saving, individual/batch review, image processing/recovery, hidden selections, cancellation/rollback, quality checks, and races with paused indexes. Dedicated loading tests retain worker ownership until completion and reject obsolete callbacks. The test modules define the current variants; use the [development guide](../development.md) to validate a specific source or installed package.

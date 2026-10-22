@@ -192,6 +192,7 @@ class PanelChromeTest(unittest.TestCase):
         menu.deleteLater()
 
     def test_quality_header_actions_retain_signals_and_disabled_state(self):
+        from types import SimpleNamespace
         panel = self.window.image_quality_panel
         header = self.window.image_quality_dock.panel_header
         calls = []
@@ -201,6 +202,8 @@ class PanelChromeTest(unittest.TestCase):
         self.app.processEvents()
         for button in (panel.refresh_button, panel.clear_button):
             self.assertIs(button.parentWidget(), header)
+            self.assertFalse(button.isEnabled())
+        panel.set_results([SimpleNamespace(path='sample.png', findings=())])
         # Disconnect application operations; exercise the same visible controls.
         panel.refreshRequested.disconnect(self.window.refresh_image_quality)
         panel.clearRequested.disconnect(self.window.clear_image_quality_results)

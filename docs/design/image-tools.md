@@ -1,7 +1,5 @@
 # Image Tools Workspace
 
-All image-pixel replacements, including current geometry commits and recovery refreshes, pass the full decoded image size to Canvas independently of the display-adjustment preview bitmap size. Downsampled preview pixels never change annotation coordinates, the image bounds used by drawing, or the dimensions retained in annotation history. Drawing after processing must satisfy the same complete snapshot invariant as drawing immediately after loading an image.
-
 Current image-tool contract. [ADR 0013](../adr/0013-commit-image-processing-as-recoverable-atomic-replacement.md) records atomic replacement and recovery, [ADR 0014](../adr/0014-ship-image-tools-with-the-core-runtime.md) records core-runtime ownership, and [ADR 0015](../adr/0015-commit-geometry-changing-image-tools-with-annotations.md) records joint image/annotation geometry commits.
 
 ## Outcome
@@ -92,13 +90,15 @@ Navigation prepares a coalesced display-sized destination before changing the cu
 
 ## Image quality checking
 
+The dialog starts with the standard policy summary and an explicit **Start Check** action. **Customize thresholds** expands one aligned column of fields, with pixel units and guidance for blur and brightness. Returning to the standard policy ignores staged custom values. The result panel offers a start action when empty, distinguishes all-passed counts and unreadable files, and retains a visible failure state with diagnostic detail. Empty-result refresh/clear controls are disabled. Inputs and the fixed footer remain reachable at supported display scales.
+
 Image → Check Image Quality… explicitly offers the current image, selected images, or All images in the current annotation workspace; the all-images scope is the default. Checking runs in the background, is cancellable, and reports findings by problem type and severity without changing images or annotations.
 
 Findings are cached under the application configuration directory and keyed by file path, content fingerprint, and the check policy that produced them. A changed file or changed check policy invalidates the affected cached result. The file list displays and filters those derived findings without conflating them with annotation review state, and no cache or sidecar is written into image or annotation directories.
 
-One image may retain multiple findings. Unreadable or corrupt content is an error; low resolution, aspect-ratio anomalies, blur, excessive darkness, and overexposure are severity-ranked warnings. Findings never change the separate Unreviewed, Review Required, or Verified annotation review state. An unreadable image cannot enter the normal Canvas, while warnings do not block annotation.
+One image may retain multiple findings. Unreadable or corrupt content is an error; low resolution, aspect-ratio anomalies, blur, excessive darkness, and overexposure are severity-ranked warnings. Findings never change the separate Unreviewed, Needs Review, or Verified annotation review state. An unreadable image cannot enter the normal Canvas, while warnings do not block annotation.
 
-Every check starts with a visible Standard policy. Advanced controls may override its thresholds for that scan, and the exact effective policy is stored with the results; an override does not silently become the next scan's default. Named policies are outside the first release.
+Every check starts with a visible Standard policy. Advanced controls may override its thresholds for that scan, and the exact effective policy is stored with the results; an override does not silently become the next scan's default. Named policies are not currently exposed.
 
 The file list shows quality badges and supports finding and severity filters. An on-demand non-modal Image Quality panel summarizes counts, lists details, and navigates to affected images without permanently occupying the single-image annotation workbench.
 
@@ -110,7 +110,7 @@ The Image menu and Image Quality panel can recheck the current image, selected i
 
 A geometry-changing image-processing commit or recovery is not complete when its file replacements alone succeed. Before LabelImg reports success or re-enables drawing, annotation editing, saving, Undo/Redo, or navigation, it synchronously projects the resulting or restored dimensions into the decoded current image and Canvas bounds, annotation shapes and label-list rows, the active in-memory annotation document and clean baseline, annotation-history snapshots or their replacement baseline, and every retained per-image workspace cache and resource fingerprint. The candidate-label vocabulary contains class names rather than geometry and is therefore outside this size synchronization.
 
-Every one of those projections must describe the same image-annotation coordinate space. For a non-current image, processing or recovery must rebase or discard any retained geometry-dependent in-memory state before that state can be reused. LabelImg must never expose an editable mixture of old and new dimensions or defer correction until a later save, reload, or navigation. If synchronous projection cannot be completed, the operation remains unsuccessful and must roll back or keep editing blocked while reporting the failure.
+Every one of those projections must describe the same image-annotation coordinate space. Canvas bounds and history retain the full decoded dimensions even when display-adjustment previews are downsampled; drawing after processing or recovery obeys the same snapshot invariant as drawing after load. For a non-current image, processing or recovery must rebase or discard any retained geometry-dependent in-memory state before that state can be reused. LabelImg must never expose an editable mixture of old and new dimensions or defer correction until a later save, reload, or navigation. If synchronous projection cannot be completed, the operation remains unsuccessful and must roll back or keep editing blocked while reporting the failure.
 
 ## Crop current image
 
@@ -138,7 +138,7 @@ The default controls select red and yellow, use standard detection strength, and
 
 The numbered rings are non-pixel UI overlays: they are painted after the preview image and never enter the preview base pixmap, committed image, or annotations. A candidate can be toggled only through its ring or its candidate-list row; the rest of its detected rectangle is not an invisible click target. Hovering a ring shows its number, detected color, current inclusion state, and click action without changing selection. Badges remain 22 screen pixels across while zooming or resizing, stay inside image edges, and move deterministically when their preferred positions collide. Excluding a candidate retains its number for the current analysis; changing detection options may re-run analysis and renumber candidates in top-to-bottom, left-to-right order.
 
-Each detected frame is separately selectable so a false positive can be excluded without excluding the whole image. The first release does not include a brush, freehand mask, or manual missed-frame creation.
+Each detected frame is separately selectable so a false positive can be excluded without excluding the whole image. The tool does not provide a brush, freehand mask, or manual missed-frame creation.
 
 Repair uses Telea inpainting with a default radius of 3. Advanced controls expose the inpaint radius, bounded halo dilation, and whole-image near-grayscale normalization. Halo dilation defaults to zero. Whole-image grayscale normalization is explicit and defaults off; otherwise only the frame repair region may change color.
 
@@ -207,4 +207,4 @@ preview failed disables Apply and leaves source files unchanged.
 
 Validation must exercise the behavioral contracts above through pixel preparation/commit/recovery, crop geometry and joint annotation projection in all three formats, and display-adjustment state/rendering. Failure coverage includes cancellation, rollback, external changes, stale work, allocation/codec failures, and preservation of the active Canvas and annotation state. No-op repair must retain exact source bytes; color/metadata checks include negative objects, alpha, and explicit grayscale normalization.
 
-The three JPEG files under `C:\Users\GW-LIYU\Downloads\red_box` are the initial real-data acceptance set for red-frame detection and repair. Yellow, mixed-color, and negative-object evidence is synthetic until representative real files are supplied; validation reports must preserve that distinction.
+The [frame-removal tests](../../tests/image_tools/test_colored_frame_removal.py) include synthetic fixtures and optional local red-frame samples selected by `LABELIMG_RED_FRAME_SAMPLES` (with a historical local-directory fallback). Those samples are not repository fixtures: report real-sample checks and skips separately, and do not generalize synthetic yellow, mixed-color, or negative-object evidence into real-data acceptance.

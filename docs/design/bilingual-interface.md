@@ -41,4 +41,4 @@ Help → Keyboard Shortcuts provides the complete bilingual catalog of keyboard 
 
 ## Validation
 
-Localization validation checks catalog/format-field parity, static references, fallback and locale mapping, live retranslation, persistence, and explicit Qt button labels. Existing behavior suites exercise annotation, file, history, recovery, and persistence workflows under the localized interface; [the architecture guide](modular-architecture-refactor.md) owns repository validation instructions.
+Localization validation checks catalog/format-field parity, static references, fallback and locale mapping, live retranslation, persistence, and explicit Qt button labels. Existing behavior suites exercise annotation, file, history, recovery, and persistence workflows under the localized interface; [the development guide](../development.md) owns repository validation commands.

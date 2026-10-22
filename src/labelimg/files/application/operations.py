@@ -68,6 +68,13 @@ class FileOperationResult:
     failures: list[OperationFailure] = field(default_factory=list)
     trashed_resources: list[TrashedResource] = field(default_factory=list)
     canceled: bool = False
+    _trash_index: dict = field(default_factory=dict, init=False, repr=False, compare=False)
+
+    def __post_init__(self):
+        self._trash_index = {
+            os.path.normcase(os.path.abspath(resource.original_path)): index
+            for index, resource in enumerate(self.trashed_resources)
+        }
 
     def add_failure(self, image_path, path, error):
         if image_path not in self.failed_images:
@@ -86,19 +93,9 @@ class FileOperationResult:
             key = os.path.normcase(
                 os.path.abspath(resource.original_path)
             )
-            existing_index = next(
-                (
-                    index
-                    for index, existing in enumerate(
-                        self.trashed_resources
-                    )
-                    if os.path.normcase(
-                        os.path.abspath(existing.original_path)
-                    ) == key
-                ),
-                None,
-            )
+            existing_index = self._trash_index.get(key)
             if existing_index is None:
+                self._trash_index[key] = len(self.trashed_resources)
                 self.trashed_resources.append(resource)
             else:
                 existing = self.trashed_resources[existing_index]
@@ -176,6 +173,15 @@ def _windows_restore_recycle_identity(token, destination):
 
 
 class SystemTrashAdapter:
+    @contextmanager
+    def batch(self):
+        if platform.system() == "Windows":
+            from labelimg.platform.trash import recycle_batch
+            with recycle_batch():
+                yield
+        else:
+            yield
+
     def move(self, path):
         return move_to_recycle_bin(path)
 
@@ -309,6 +315,15 @@ class AnnotationFileService:
         self.storage_coordinator = storage_coordinator
 
     def clear_annotations(self, image_paths, should_continue=None):
+        with self._trash_batch():
+            return self._clear_annotations(image_paths, should_continue)
+
+    def _trash_batch(self):
+        owner = getattr(self.trash, '__self__', None) or self.trash
+        batch = getattr(owner, 'batch', None)
+        return batch() if batch is not None else _NullLease()
+
+    def _clear_annotations(self, image_paths, should_continue=None):
         image_paths = tuple(
             os.path.abspath(os.fspath(path)) for path in image_paths
         )
@@ -349,6 +364,10 @@ class AnnotationFileService:
         return result
 
     def delete_images(self, image_paths, should_continue=None):
+        with self._trash_batch():
+            return self._delete_images(image_paths, should_continue)
+
+    def _delete_images(self, image_paths, should_continue=None):
         image_paths = tuple(
             os.path.abspath(os.fspath(path)) for path in image_paths
         )

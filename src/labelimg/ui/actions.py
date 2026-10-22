@@ -83,6 +83,9 @@ def new_action(
         action.triggered.connect(slot)
     if checkable:
         action.setCheckable(True)
+        # Qt uses the menu icon slot for its check indicator. Keep action icons
+        # on toolbars, but reserve that slot for state in menus.
+        action.setIconVisibleInMenu(False)
     action.setEnabled(enabled)
     return action
 
@@ -94,6 +97,8 @@ def add_actions(widget, actions):
         elif isinstance(action, QMenu):
             widget.addMenu(action)
         else:
+            if action.isCheckable():
+                action.setIconVisibleInMenu(False)
             widget.addAction(action)
 
 

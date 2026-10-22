@@ -8,10 +8,6 @@ LabelImg Enhanced uses a single-image annotation workbench with one stable comma
 
 Beginner and advanced layouts are removed. Routine commands never move or disappear because of an interface mode, and the application does not restore a different command layout at the next launch.
 
-## Current-state audit
-
-The former text-under-icon toolbar mixed unrelated commands, changed with beginner/advanced mode, and could consume 411 logical pixels of width while overflowing vertically at ordinary window sizes. The fixed rail and contextual controls below replace that layout; the audit describes the retired UI, not the current runtime.
-
 ## Left Canvas tool rail
 
 The rail is fixed to the left edge and is not movable, floatable, closable, or rotatable. It is 52 logical pixels wide and uses 44-by-44 icon-only targets with 24-by-24 icons.
@@ -45,9 +41,11 @@ The top command surface has four task groups in reading order:
 1. Workspace entry: Open Image Directory as the primary split command, with Open File in its menu.
 2. Current-image navigation: Previous, image position and count, Next.
 3. Image quick actions: separate Rotate and Flip split commands. Their default clicks remain Rotate Clockwise 90 Degrees and Flip Horizontally; their menus expose the approved alternatives.
-4. Saving context: explicit annotation-format selector, automatic-save state, and Save.
+4. Saving context: explicit annotation-format selector, a labeled **Autosave: On/Off** toggle, and the separate Save action. The autosave state keeps its text when the toolbar collapses other groups.
 
 Current-image review belongs to the Canvas viewport rather than the top toolbar. A compact three-state control stays flush with the viewport's upper-right corner, independently of dock placement, zoom, and pan. All three buttons retain their icons and state names; inactive states use neutral outlines and text, with bilingual accessible names and shortcut tooltips. Button widths depend on language, font and viewport width, never on the selected state, so neither the group nor its segments jump during switching. Extremely narrow viewports proportionally constrain widths while retaining complete names in tooltips. No image means both the controls and their ribbon are hidden.
+
+Selected review text uses bold weight and a stronger semantic foreground, independently of the ribbon tint. Inactive text uses regular weight and a readable neutral foreground. Unreviewed retains neutral colors and distinguishes selection by weight. Measure every label at the bold weight before reserving button widths so the difference in emphasis never moves the controls.
 
 The controls have no separate card, border, or persistent selected-button fill. They occupy the right end of one continuous full-width ribbon over the image, without reserving layout space. The ribbon uses a translucent amber or green tint for questioned or verified state, with approximately 26% opacity in light mode and 22% in dark mode; unreviewed has no state tint or accent. A neutral readability scrim gradually strengthens towards the commands, and foregrounds adapt to both light and dark themes over arbitrary image pixels. Keyboard focus and transient hover/press feedback remain visible. Only button hit areas accept input; the remaining ribbon is mouse-transparent so drawing, selection, pan, zoom, and Canvas context commands continue underneath. Review requests retain the existing guarded editing and persistence paths, shortcuts, and undo/redo projection.
 
@@ -67,7 +65,7 @@ The 1024-by-720 layout is a required supported baseline. The same logical hierar
 
 ## Annotation commands and visibility
 
-Copy and Delete remain available through explicit buttons in the annotation panel, the Canvas context menu, and `Ctrl+D` and `Delete`. They are enabled from selection capabilities and never styled as active Canvas tools.
+Clipboard Copy (`Ctrl+C`), in-image Duplicate (`Ctrl+D`), and Delete (`Delete`) remain in Edit and the Canvas context menu. The annotation panel's selection bar exposes Duplicate and Delete, plus label editing and Difficult for a single box. These actions follow selection capabilities and are never styled as active Canvas tools.
 
 ### Canvas context command surface
 
@@ -76,8 +74,6 @@ Copy and Delete remain available through explicit buttons in the annotation pane
 Hide All and Show All become one all-annotations-visible state button in the annotation-panel header. The icon and accessible state change with the result, while the View menu retains separate explicit Hide All and Show All commands and their shortcuts.
 
 ## Bottom Canvas status
-
-Coordinate and zoom placement revision approved and implemented on 2026-09-03.
 
 A dedicated status strip sits immediately below the Canvas, aligned with its width rather than extending beneath the annotation and file panels. Image pointer coordinates and annotation size appear on the left, with zoom on the right as `minus | slider | plus | percentage menu`. The percentage menu offers Actual Size, Fit to Window, and Fit to Width. Existing zoom shortcuts, range behavior, and cursor anchoring remain unchanged. Application-wide status messages and directory-loading controls remain separate from this strip.
 
