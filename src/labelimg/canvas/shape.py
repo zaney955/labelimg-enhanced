@@ -5,7 +5,7 @@ from math import ceil, floor
 
 
 from PyQt5.QtCore import QPointF, QRectF, Qt
-from PyQt5.QtGui import QColor, QFont, QFontMetrics, QPainterPath, QPen
+from PyQt5.QtGui import QColor, QFont, QFontMetrics, QGuiApplication, QPainterPath, QPen, QPolygonF
 
 from labelimg.canvas.geometry import distance
 
@@ -159,7 +159,14 @@ class Shape(object):
             painter.setBrush(self.selected_label_background_color)
             painter.drawRoundedRect(background_rect, radius, radius)
             painter.setPen(self.selected_label_text_color)
-        painter.drawText(text_x, text_y, self.label)
+        if scale != 1.0:
+            # Glyph size is a screen-space property. Rendering huge scene-space
+            # fonts and shrinking them makes each zoom step rebuild large glyphs.
+            painter.translate(text_x, text_y)
+            painter.scale(1.0 / scale, 1.0 / scale)
+            painter.drawText(0, 0, self.label)
+        else:
+            painter.drawText(text_x, text_y, self.label)
         painter.restore()
 
     def _label_text_geometry(self, scale=None, font_size=None):
@@ -173,14 +180,20 @@ class Shape(object):
         # Labels must render identically on the transparent Draw-mode cache
         # and the opaque Canvas; LCD subpixel AA depends on the background.
         font.setStyleStrategy(QFont.NoSubpixelAntialias)
-        font.setPointSizeF(
-            self.label_font_size if font_size is None else font_size
-        )
-        font.setBold(True)
         scale = max(float(self.scale if scale is None else scale), 0.01)
-        metrics_rect = QRectF(
-            QFontMetrics(font).tightBoundingRect(self.label)
-        )
+        font.setPointSizeF(round(
+            (self.label_font_size if font_size is None else font_size) * scale, 6))
+        font.setBold(True)
+        screen = QGuiApplication.primaryScreen()
+        metrics_key = (self.label, font.key(),
+                       screen.logicalDotsPerInch() if screen else None)
+        cached = getattr(self, '_label_metrics_cache', None)
+        if cached is None or cached[0] != metrics_key:
+            cached = (metrics_key, QRectF(QFontMetrics(font).tightBoundingRect(self.label)))
+            self._label_metrics_cache = cached
+        screen_rect = cached[1]
+        metrics_rect = QRectF(screen_rect.x() / scale, screen_rect.y() / scale,
+                             screen_rect.width() / scale, screen_rect.height() / scale)
         gap = self.label_outline_gap / scale
         padding = self.selected_label_padding / scale
         text_x = int(round(min_x))
@@ -256,7 +269,7 @@ class Shape(object):
         return path
 
     def bounding_rect(self):
-        return self.make_path().boundingRect()
+        return QPolygonF(self.points).boundingRect()
 
     def move_by(self, offset):
         self.points = [p + offset for p in self.points]

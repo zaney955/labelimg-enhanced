@@ -3,6 +3,7 @@ import tempfile
 import time
 import unittest
 import threading
+from concurrent.futures import Future
 from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -39,6 +40,18 @@ class DecodedImageCacheTest(unittest.TestCase):
         self.assertTrue(replacement.save(path))
 
         self.assertIsNone(self.cache.get(path))
+
+    def test_default_budget_supports_large_neighbors_and_respects_available_memory(self):
+        for available, expected in ((16 * 1024**3, 1024 * 1024**2),
+                                    (1024**3, 128 * 1024**2),
+                                    (None, 256 * 1024**2)):
+            with patch('labelimg.files.ui.image_decode_cache._available_memory_bytes',
+                       return_value=available):
+                cache = DecodedImageCache()
+                try:
+                    self.assertEqual(cache._max_bytes, expected)
+                finally:
+                    cache.shutdown()
 
     def test_prefetch_decodes_without_ui_thread_projection(self):
         path, _image = self._image("prefetched.png", "green")
@@ -87,6 +100,35 @@ class DecodedImageCacheTest(unittest.TestCase):
             self.assertEqual(loaded.size(), image.size())
             self.assertEqual(loaded.pixelColor(0, 0), image.pixelColor(0, 0))
             self.assertEqual(calls.call_count, 1)
+
+    def test_prefetch_cancelled_during_demand_handoff_retries_decode(self):
+        class CancelOnResult(Future):
+            def result(self, timeout=None):
+                self.cancel()
+                return super().result(timeout)
+        path, image = self._image('cancel-handoff.png', 'green')
+        from labelimg.files.ui.image_decode_cache import _path_key
+        self.cache._jobs[_path_key(path)] = CancelOnResult()
+        loaded = self.cache.load(path)
+        self.assertEqual(loaded.pixelColor(0, 0), image.pixelColor(0, 0))
+
+    def test_obsolete_prefetch_does_not_displace_current_neighbors(self):
+        path, _image = self._image('obsolete.png', 'blue')
+        started, release = threading.Event(), threading.Event()
+        from labelimg.files.ui.image_decode_cache import _decode_image
+        def decode(*args):
+            started.set()
+            release.wait(1)
+            return _decode_image(*args)
+        with patch('labelimg.files.ui.image_decode_cache._decode_image', side_effect=decode):
+            try:
+                self.cache.prefetch((path,))
+                self.assertTrue(started.wait(1))
+                self.cache.prefetch(())
+            finally:
+                release.set()
+            self.cache._executor.shutdown(wait=True)
+        self.assertIsNone(self.cache.get(path))
 
 
 if __name__ == "__main__":

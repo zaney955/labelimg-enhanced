@@ -33,6 +33,29 @@ class ImageRenderPerformanceTest(unittest.TestCase):
         canvas.deleteLater()
         QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
+    def test_pointer_does_not_test_distant_edges_or_change_target_priority(self):
+        canvas = Canvas()
+        canvas.load_pixmap(QPixmap(4000, 2000))
+        shapes = []
+        for index in range(200):
+            shape = Shape(label='box')
+            x, y = (index % 20) * 150, (index // 20) * 150
+            for point in ((x, y), (x + 60, y), (x + 60, y + 60), (x, y + 60)):
+                shape.add_point(QPointF(*point))
+            shape.close()
+            shapes.append(shape)
+        canvas.load_shapes(shapes)
+        canvas.set_editing(True)
+        for point in (QPointF(30, 30), QPointF(60, 30), QPointF(-2, -2), QPointF(90, 90)):
+            reference = canvas._interaction.resolve_target(
+                shapes, point, canvas.nearest_vertex_hit, canvas.nearest_edge_hit,
+                .5 / max(canvas.scale, .01))
+            with patch.object(canvas, 'nearest_vertex_hit', wraps=canvas.nearest_vertex_hit) as hit:
+                self.assertEqual(canvas.resolve_pointer_target(point), reference)
+                self.assertLessEqual(hit.call_count, 1)
+        canvas.deleteLater()
+        QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
     def test_cached_background_matches_direct_render_across_transforms_and_dpr(self):
         from labelimg.canvas.image_layer import ImageLayerCache
         source = QImage(320, 180, QImage.Format_ARGB32_Premultiplied)
@@ -76,6 +99,19 @@ class ImageRenderPerformanceTest(unittest.TestCase):
                 canvas.move_one_pixel('Right')
             repaint.assert_not_called()
         self.assertEqual(shape.points[0], QPointF(30, 10))
+        canvas.deleteLater()
+        QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+    def test_image_projection_coalesces_shapes_and_mode_into_one_queued_paint(self):
+        canvas = Canvas()
+        canvas.load_pixmap(QPixmap(1000, 700))
+        canvas.show()
+        self.app.processEvents()
+        with patch.object(canvas, 'repaint') as repaint:
+            canvas.load_shapes([])
+            canvas.set_mode(Canvas.CREATE)
+            canvas.set_mode(Canvas.EDIT)
+            repaint.assert_not_called()
         canvas.deleteLater()
         QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 

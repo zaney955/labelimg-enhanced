@@ -8,8 +8,8 @@ import unittest
 from unittest.mock import patch
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-from PyQt5.QtCore import QEvent, QPointF, Qt
-from PyQt5.QtGui import QColor, QImage, QMouseEvent
+from PyQt5.QtCore import QEvent, QPointF, Qt, QTimer
+from PyQt5.QtGui import QColor, QImage, QMouseEvent, QKeyEvent
 from PyQt5.QtWidgets import QApplication
 from labelimg.workbench.bootstrap import WorkbenchLaunchOptions, create_workbench
 
@@ -51,6 +51,53 @@ class NavigationLatencyTest(unittest.TestCase):
             time.sleep(.005)
         self.assertTrue(condition())
 
+    def test_held_d_displays_consecutive_images_before_release_without_backlog(self):
+        # Decode is slower than OS auto-repeat: this must throttle navigation,
+        # not continually invalidate the result that is about to be displayed.
+        self.window.show()
+        self.window.activateWindow()
+        self.window.canvas.setFocus()
+        self.app.processEvents()
+        cache = self.window._ensure_image_decode_cache()
+        displayed = []
+        original = self.window._load_indexed_image
+
+        def display(path, **kwargs):
+            result = original(path, **kwargs)
+            displayed.append(path)
+            return result
+
+        def decode(path):
+            time.sleep(.08)
+            return QImage(path)
+
+        repeat = QTimer()
+        repeat.setInterval(15)
+        repeat.timeout.connect(lambda: QApplication.sendEvent(
+            self.window.canvas, QKeyEvent(
+                QEvent.KeyPress, Qt.Key_D, Qt.NoModifier, 'd', True)))
+        with patch.object(self.window, '_requires_async_image_load', return_value=True), \
+             patch.object(cache, 'get', return_value=None), \
+             patch.object(cache, 'load', side_effect=decode), \
+             patch.object(self.window, '_load_indexed_image', side_effect=display):
+            QApplication.sendEvent(self.window.canvas, QKeyEvent(
+                QEvent.KeyPress, Qt.Key_D, Qt.NoModifier, 'd'))
+            repeat.start()
+            deadline = time.monotonic() + 2
+            while len(displayed) < 3 and time.monotonic() < deadline:
+                self.app.processEvents()
+                time.sleep(.002)
+            repeat.stop()
+            before_release = list(displayed)
+            QApplication.sendEvent(self.window.canvas, QKeyEvent(
+                QEvent.KeyRelease, Qt.Key_D, Qt.NoModifier, 'd'))
+            self.wait_until(lambda: not self.window._navigation_load_path)
+        self.assertGreaterEqual(len(before_release), 3,
+                                'held D starves completed image decodes')
+        self.assertEqual(displayed, self.paths[1:1 + len(displayed)],
+                         'key repeats skipped images that were never displayed')
+        self.assertLessEqual(len(displayed) - len(before_release), 1)
+
     def test_uncached_large_navigation_returns_before_decode_and_latest_target_wins(self):
         started, release = threading.Event(), threading.Event()
         cache = self.window._ensure_image_decode_cache()
@@ -70,9 +117,9 @@ class NavigationLatencyTest(unittest.TestCase):
                 self.assertTrue(started.wait(.5))
                 self.assertFalse(release.is_set())
                 self.assertEqual(self.window.file_path, self.paths[0])
-                self.window.open_next_image()
-                self.window.open_next_image()
-                self.window.open_prev_image()
+                self.window._request_indexed_image(self.paths[3])
+                self.window._request_indexed_image(self.paths[4])
+                self.window._request_indexed_image(self.paths[2])
                 self.assertEqual(self.window._navigation_load_path, self.paths[2])
             finally:
                 release.set()
@@ -94,6 +141,52 @@ class NavigationLatencyTest(unittest.TestCase):
             self.wait_until(lambda: not self.window._navigation_loader.busy)
             self.app.processEvents()
         self.assertEqual(self.window.file_path, self.paths[4])
+
+    def test_direct_open_of_uncached_large_image_decodes_outside_gui(self):
+        ui_thread = threading.get_ident()
+        cache = self.window._ensure_image_decode_cache()
+        heartbeat = threading.Event()
+        def decode(path):
+            self.assertNotEqual(threading.get_ident(), ui_thread)
+            self.assertTrue(heartbeat.wait(.5))
+            return QImage(path)
+        QTimer.singleShot(20, heartbeat.set)
+        with patch.object(self.window, '_requires_async_image_load', return_value=True), \
+             patch.object(cache, 'get', return_value=None), \
+             patch.object(cache, 'load', side_effect=decode) as load:
+            self.assertTrue(self.window.load_file(self.paths[3]))
+            load.assert_called_once_with(self.paths[3])
+        self.assertEqual(self.window.file_path, self.paths[3])
+
+    def test_reversing_pending_step_at_boundary_cancels_it(self):
+        release = threading.Event()
+        cache = self.window._ensure_image_decode_cache()
+        with patch.object(self.window, '_requires_async_image_load', return_value=True), \
+             patch.object(cache, 'get', return_value=None), \
+             patch.object(cache, 'load', side_effect=lambda path: (release.wait(1), QImage(path))[1]):
+            try:
+                self.window.open_next_image()
+                for _ in range(20):
+                    self.window.open_next_image()
+                self.assertEqual(self.window._navigation_load_path, self.paths[1])
+                self.assertTrue(self.window.actions.openPrev.isEnabled())
+                self.window.open_prev_image()
+                self.assertIsNone(self.window._navigation_load_path)
+            finally:
+                release.set()
+            self.wait_until(lambda: not self.window._navigation_loader.busy)
+            self.app.processEvents()
+        self.assertEqual(self.window.file_path, self.paths[0])
+
+    def test_direct_large_decode_error_preserves_the_visible_image(self):
+        cache = self.window._ensure_image_decode_cache()
+        with patch.object(self.window, '_requires_async_image_load', return_value=True), \
+             patch.object(cache, 'get', return_value=None), \
+             patch.object(cache, 'load', side_effect=OSError('source changed')), \
+             patch.object(self.window, 'error_message') as error:
+            self.assertFalse(self.window.load_file(self.paths[3]))
+            error.assert_called_once()
+        self.assertEqual(self.window.file_path, self.paths[0])
 
     def test_failed_decode_keeps_current_image_and_counter(self):
         with patch.object(self.window, '_requires_async_image_load', return_value=True), \

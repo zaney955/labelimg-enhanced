@@ -350,7 +350,8 @@ class ImageAdjustmentDialog(QDialog):
         self._update_apply_button()
 
     def _schedule_preview(self):
-        self._preview_timer.start()
+        if not self._preview_timer.isActive():
+            self._preview_timer.start()
 
     def _update_apply_button(self):
         self.auto_adjust_button.setEnabled(not self._preview_failed)

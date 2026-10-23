@@ -10,6 +10,7 @@ import shutil
 import webbrowser as wb
 
 from dataclasses import replace
+from concurrent.futures import CancelledError
 from functools import cmp_to_key, partial
 from html import escape
 from types import SimpleNamespace
@@ -740,7 +741,16 @@ class MainWindow(
                 unicode_file_path
             )
             if prepared_image_data is None:
-                prepared_image_data = read(unicode_file_path, None)
+                if self._requires_async_image_load(unicode_file_path):
+                    try:
+                        prepared_image_data = self._run_image_preparation(
+                            lambda _cancelled: self._ensure_image_decode_cache().load(unicode_file_path))
+                    except CancelledError:
+                        return False
+                    except OSError:
+                        prepared_image_data = QImage()
+                else:
+                    prepared_image_data = read(unicode_file_path, None)
         prepared_image = (
             prepared_image_data
             if isinstance(prepared_image_data, QImage)

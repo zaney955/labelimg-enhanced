@@ -1,7 +1,8 @@
 """Qt-free file-list state, queries, and projections."""
 
 from dataclasses import dataclass
-from functools import cmp_to_key
+from functools import cached_property, cmp_to_key
+from bisect import bisect_left, bisect_right
 import os
 import re
 
@@ -246,20 +247,23 @@ class FileListProjection:
         current_path = (
             os.path.abspath(os.fspath(current_path)) if current_path else None
         )
-        if current_path not in self.ordered_paths:
+        start = self._ordered_positions.get(current_path)
+        if start is None:
             return self.visible_paths[0] if direction > 0 else None
-        start = self.ordered_paths.index(current_path)
-        indexes = (
-            range(start + 1, len(self.ordered_paths))
-            if direction > 0
-            else range(start - 1, -1, -1)
-        )
-        visible = set(self.visible_paths)
-        return next(
-            (self.ordered_paths[index] for index in indexes
-             if self.ordered_paths[index] in visible),
-            None,
-        )
+        positions = self._visible_positions
+        index = (bisect_right(positions, start) if direction > 0
+                 else bisect_left(positions, start) - 1)
+        return (self.ordered_paths[positions[index]]
+                if 0 <= index < len(positions) else None)
+
+    @cached_property
+    def _ordered_positions(self):
+        return {path: index for index, path in enumerate(self.ordered_paths)}
+
+    @cached_property
+    def _visible_positions(self):
+        # A projection is immutable; sorting/filtering creates a new one.
+        return tuple(sorted(self._ordered_positions[path] for path in self.visible_paths))
 
     @staticmethod
     def _matches(item, root, query):

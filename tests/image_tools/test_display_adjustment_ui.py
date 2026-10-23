@@ -3,6 +3,7 @@ from pathlib import Path
 import tempfile
 import time
 import unittest
+from concurrent.futures import CancelledError
 from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -45,6 +46,13 @@ class DisplayAdjustmentRenderingTest(unittest.TestCase):
         self.assertGreater(pixel.blue(), 140)
         self.assertEqual(image.pixelColor(0, 0), QColor(100, 120, 140, 77))
 
+    def test_native_opaque_display_path_preserves_channel_order_and_source(self):
+        image = QImage(2001, 531, QImage.Format_RGB32)
+        image.fill(QColor(100, 120, 140))
+        adjusted = render_adjusted_image(image, DisplayAdjustmentValues(20, 0))
+        self.assertEqual(adjusted.pixelColor(2000, 530), QColor(151, 171, 191))
+        self.assertEqual(image.pixelColor(2000, 530), QColor(100, 120, 140))
+
     def test_preview_render_stays_bounded_instead_of_expanding_to_source(self):
         image = QImage(400, 200, QImage.Format_RGBA8888)
         image.fill(QColor(100, 120, 140, 255))
@@ -58,6 +66,36 @@ class DisplayAdjustmentRenderingTest(unittest.TestCase):
         self.assertLessEqual(adjusted.width() * adjusted.height(), 10_000)
         self.assertLess(adjusted.width(), image.width())
         self.assertLess(adjusted.height(), image.height())
+
+    def test_superseded_large_render_stops_between_bounded_tiles(self):
+        image = QImage(2001, 1301, QImage.Format_RGBA8888)
+        image.fill(QColor(100, 120, 140, 77))
+        from labelimg.image_tools.ui import display_adjustment as rendering
+        calls = []
+        original = rendering.apply_adjustments
+        def adjust(pixels, options):
+            calls.append(pixels.shape[0] * pixels.shape[1])
+            return original(pixels, options)
+        with patch.object(rendering, 'apply_adjustments', side_effect=adjust):
+            with self.assertRaises(CancelledError):
+                render_adjusted_image(image, DisplayAdjustmentValues(20, 15),
+                                      cancelled=lambda: bool(calls))
+        self.assertEqual(len(calls), 1)
+        self.assertLessEqual(calls[0] * 4, 4 * 1024 * 1024)
+
+    def test_tiled_adjustment_matches_full_pixel_reference_with_alpha_and_padding(self):
+        import numpy as np
+        from labelimg.image_tools.application.adjustment import ImageAdjustmentOptions, apply_adjustments
+        from labelimg.image_tools.application.display_adjustment import contrast_factor
+        pixels = np.random.default_rng(42).integers(0, 256, (531, 2001, 4), dtype=np.uint8)
+        source = QImage(pixels.data, 2001, 531, pixels.strides[0], QImage.Format_RGBA8888).copy()
+        expected = apply_adjustments(pixels, ImageAdjustmentOptions(
+            brightness=20, contrast=contrast_factor(15)))
+        reference = QImage(expected.data, 2001, 531, expected.strides[0], QImage.Format_RGBA8888)
+        actual = render_adjusted_image(source, DisplayAdjustmentValues(20, 15))
+        self.assertEqual(actual.convertToFormat(QImage.Format_ARGB32_Premultiplied),
+                         reference.convertToFormat(QImage.Format_ARGB32_Premultiplied))
+        self.assertEqual(source.pixelColor(1999, 530), QColor(*map(int, pixels[530, 1999])))
 
 
 class DisplayAdjustmentWorkbenchTest(unittest.TestCase):

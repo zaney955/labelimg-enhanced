@@ -7,7 +7,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt5.QtCore import QEvent, QPointF, Qt
-from PyQt5.QtGui import QColor, QImage, QMouseEvent, QPixmap
+from PyQt5.QtGui import QColor, QFont, QFontDatabase, QImage, QMouseEvent, QPixmap
 from PyQt5.QtWidgets import QApplication, QWidget
 
 from labelimg.canvas.shape import Shape
@@ -18,6 +18,12 @@ class DrawingSceneTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
+        font_path = os.path.join(os.environ.get('WINDIR', 'C:/Windows'), 'Fonts', 'msyh.ttc')
+        if os.path.isfile(font_path):
+            font_id = QFontDatabase.addApplicationFont(font_path)
+            families = QFontDatabase.applicationFontFamilies(font_id)
+            if families:
+                cls.app.setFont(QFont(families[0], 9))
 
     def setUp(self):
         self.canvas = Canvas()
@@ -66,14 +72,35 @@ class DrawingSceneTest(unittest.TestCase):
         self.assertEqual(cached.size(), reference.size())
         a = cached.bits().asstring(cached.byteCount())
         b = reference.bits().asstring(reference.byteCount())
-        # Premultiplied-alpha composition may round a covered channel by one.
-        self.assertLessEqual(max(abs(x-y) for x, y in zip(a, b)), 1)
+        # Compositing overlapping antialiased edges onto one retained layer
+        # adds up to two 8-bit rounding levels at fractional screen densities.
+        self.assertLessEqual(max(abs(x-y) for x, y in zip(a, b)), 2)
 
     def test_crossing_overlapping_boxes_and_restoring_leaves_no_old_pixels(self):
         for point in ((10, 20), (40, 60), (80, 90), (140, 145), (205, 65), (10, 20)):
             with self.subTest(point=point):
                 self.move(point)
                 self.assert_matches_reference()
+
+    def test_edit_hover_selection_and_drag_reuse_unchanged_shapes(self):
+        self.canvas.resize(640, 220)
+        self.other.move_by(QPointF(300, 0))
+        self.canvas.set_mode(Canvas.EDIT)
+        self.move((10, 20))
+        self.assert_matches_reference()
+        with patch.object(self.other, 'paint', wraps=self.other.paint) as paint:
+            for point in ((35, 55), (80, 90), (140, 145), (10, 20)):
+                self.move(point)
+                self.canvas.grab()
+            self.assertEqual(paint.call_count, 0,
+                             'hovering unrelated boxes repaints the whole scene')
+        for point in ((35, 55), (80, 90), (140, 145), (10, 20)):
+            self.move(point)
+            self.assert_matches_reference()
+        self.canvas.set_selected_shapes([self.first])
+        self.assert_matches_reference()
+        self.first.move_by(QPointF(16, 10))
+        self.assert_matches_reference()
 
     def test_mutations_refresh_geometry_text_color_selection_and_visibility(self):
         self.move((10, 20))

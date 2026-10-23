@@ -8,12 +8,13 @@ import os
 from pathlib import Path
 import statistics
 import tempfile
+import threading
 import time
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt5.QtCore import QEvent, QPointF, Qt, QTimer
-from PyQt5.QtGui import QColor, QImage, QMouseEvent, QPixmap
+from PyQt5.QtGui import QColor, QFont, QFontDatabase, QImage, QMouseEvent, QPixmap
 from PyQt5.QtWidgets import QApplication
 
 from labelimg.canvas.widget import Canvas
@@ -21,6 +22,8 @@ from labelimg.canvas.shape import Shape
 from labelimg.image_tools.application.session import GeometryTransformChange
 from labelimg.image_tools.ui.geometry_dialog import GeometryTransformDialog
 from labelimg.image_tools.ui.adjustment_dialog import ImageAdjustmentDialog
+from labelimg.image_tools.ui.display_adjustment import render_adjusted_image
+from labelimg.image_tools.application.display_adjustment import DisplayAdjustmentValues
 from labelimg.workbench.bootstrap import WorkbenchLaunchOptions, create_workbench
 
 
@@ -41,6 +44,14 @@ def main():
     parser.add_argument("--assert-budget", action="store_true")
     args = parser.parse_args()
     app = QApplication.instance() or QApplication([])
+    # Windows offscreen may resolve the default font to empty glyphs. Include
+    # real text rasterization in the benchmark, just like the UI gallery.
+    font_path = Path(os.environ.get('WINDIR', 'C:/Windows')) / 'Fonts' / 'msyh.ttc'
+    if font_path.is_file():
+        font_id = QFontDatabase.addApplicationFont(str(font_path))
+        families = QFontDatabase.applicationFontFamilies(font_id)
+        if families:
+            app.setFont(QFont(families[0], 9))
     with tempfile.TemporaryDirectory() as temporary:
         os.environ["LABELIMG_CONFIG_DIR"] = temporary
         classes = Path(temporary, "classes.txt")
@@ -51,6 +62,7 @@ def main():
         canvas.resize(1400, 980)
         canvas.load_pixmap(QPixmap.fromImage(image))
         canvas.scale = .14
+        canvas.label_font_size = canvas.annotation_font_size / canvas.scale
         canvas.set_editing(False)
         canvas.show()
         app.processEvents()
@@ -64,6 +76,15 @@ def main():
         move(0)
         report = {"image_size": [image.width(), image.height()],
                   "crosshair": measure(move, 40)}
+        def zoom(index):
+            canvas.scale = .10 + (index % 10) * .01
+            canvas.label_font_size = canvas.annotation_font_size / canvas.scale
+            canvas.update()
+            app.processEvents()
+
+        report['zoom_empty'] = measure(zoom, 20)
+        canvas.scale = .14
+        canvas.label_font_size = canvas.annotation_font_size / canvas.scale
         shapes = []
         for index in range(500):
             shape = Shape(label=f'box {index}', paint_label=True)
@@ -81,6 +102,17 @@ def main():
             Qt.LeftButton, Qt.LeftButton, Qt.NoModifier))
         move(0)
         report['drawing_500_boxes'] = measure(move, 40)
+        canvas.cancel_current_drawing(force=True)
+        canvas.set_editing(True)
+        move(0)
+        report['editing_500_boxes'] = measure(move, 40)
+        canvas.set_editing(False)
+        canvas.magnifier_enabled = True
+        move(0)
+        report['magnifier_500_boxes'] = measure(move, 40)
+        canvas.magnifier_enabled = False
+
+        report['zoom_500_boxes'] = measure(zoom, 20)
         canvas.hide()
         canvas.deleteLater()
         paths = []
@@ -98,6 +130,8 @@ def main():
             app.processEvents()
 
         report["load_cold_and_warm"] = measure(load, 6)
+        report['load_warm'] = measure(load, 3)
+        report['decoded_cache_budget_mib'] = window._ensure_image_decode_cache()._max_bytes // (1024 * 1024)
         window.import_dir_images(temporary)
         app.processEvents()
         request_times = []
@@ -131,6 +165,33 @@ def main():
             'max_gui_heartbeat_gap_ms': round(max(gaps, default=0), 2),
             'settled_ms': round((time.perf_counter() - start) * 1000, 2),
             'latest_target_reached': window.file_path == paths[0],
+        }
+        gaps.clear()
+        last_tick = time.perf_counter()
+        timer.start()
+        start = time.perf_counter()
+        finished = threading.Event()
+        errors = []
+        def adjust_display():
+            try:
+                render_adjusted_image(image, DisplayAdjustmentValues(20, 15))
+            except Exception as error:
+                errors.append(error)
+            finally:
+                finished.set()
+        worker = threading.Thread(target=adjust_display)
+        worker.start()
+        while not finished.is_set():
+            app.processEvents()
+            time.sleep(.001)
+        worker.join()
+        app.processEvents()
+        timer.stop()
+        if errors:
+            raise errors[0]
+        report['display_adjustment_full'] = {
+            'total_ms': round((time.perf_counter() - start) * 1000, 2),
+            'max_gui_heartbeat_gap_ms': round(max(gaps, default=0), 2),
         }
         def preview(dialog_type):
             options = {'parent': window}
@@ -169,7 +230,8 @@ def main():
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(output + "\n", encoding="utf-8")
     if args.assert_budget:
-        for name in ('crosshair', 'crosshair_500_boxes', 'drawing_500_boxes'):
+        for name in ('crosshair', 'crosshair_500_boxes', 'drawing_500_boxes',
+                     'editing_500_boxes', 'magnifier_500_boxes'):
             assert report[name]['p95_ms'] < 1000 / 60, f'{name} misses 60 Hz frame budget'
         assert report['rapid_navigation']['request_p95_ms'] < 25, 'navigation blocks input'
         assert report['rapid_navigation']['latest_target_reached'], 'stale navigation result'

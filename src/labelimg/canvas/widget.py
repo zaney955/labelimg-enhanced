@@ -375,7 +375,7 @@ class Canvas(QWidget):
         self.setCursor(QCursor(self._cursor))
         if self.underMouse():
             self.override_cursor(self._cursor)
-        self.repaint()
+        self.update()
 
     @property
     def near_duplicate_clusters(self):
@@ -611,8 +611,11 @@ class Canvas(QWidget):
     def resolve_pointer_target(self, point):
         if not self.editing():
             return HoverTarget()
+        tolerance = max(self.epsilon, self.edge_epsilon) / max(self.scale, 0.01)
         visible_shapes = [
             shape for shape in self.shapes if self.isVisible(shape)
+            and shape.bounding_rect().adjusted(
+                -tolerance, -tolerance, tolerance, tolerance).contains(point)
         ]
         return self._interaction.resolve_target(
             visible_shapes,
@@ -1052,7 +1055,7 @@ class Canvas(QWidget):
             # Only hide other shapes if there is a current selection.
             # Otherwise the user will not be able to select a shape.
             self.set_hiding(True)
-            self.repaint()
+            self.update()
 
     def handle_drawing(self, pos):
         if self.current and self.current.reach_max_points() is False:
@@ -1427,7 +1430,7 @@ class Canvas(QWidget):
         protected_shapes = set(self._overlap_protected_shapes())
         drawing_point = self._drawing_crosshair_position() if self.hide_at_crosshair else None
         overlap_clip = self._overlap_clip_region(p, protected_shapes)
-        if self.drawing() and self._near_duplicate_focus is None:
+        if self._near_duplicate_focus is None:
             shapes = [
                 shape for shape in self.shapes
                 if shape is not self._pending_label_shape and shape not in protected_shapes
@@ -1436,12 +1439,13 @@ class Canvas(QWidget):
                 p, shapes, self.visibleRegion().boundingRect().united(event.rect()),
                 lambda shape, bounds: (
                     self.isVisible(shape)
-                    and (shape.selected or not self._hide_background)
+                    and (shape.selected or not self._hide_background or shape in hover_shapes)
                 ),
                 clip_region=overlap_clip,
                 presentation=lambda shape, bounds: self._drawing_shape_presentation(
                     shape, drawing_point, bounds,
                 ),
+                hovered=hover_shapes,
             )
             if cached:
                 paint_shapes = [shape for shape in self.shapes if shape in protected_shapes]
@@ -2272,7 +2276,7 @@ class Canvas(QWidget):
         self._project_selection(before, after)
         self.visible.clear()
         self.set_near_duplicate_clusters(())
-        self.repaint()
+        self.update()
 
     def set_shape_visible(self, shape, value):
         self.set_shapes_visible((shape,), value)

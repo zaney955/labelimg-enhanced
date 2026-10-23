@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from PyQt5.QtCore import QPointF, QRectF, Qt
 from PyQt5.QtGui import (
@@ -46,6 +46,35 @@ class ShapeRenderingStyleTest(unittest.TestCase):
         bounds = vertex_path.boundingRect()
         self.assertEqual(bounds.width(), 4)
         self.assertEqual(bounds.height(), 4)
+
+    def test_repeated_label_layout_reuses_metrics_and_tracks_text_and_font(self):
+        from labelimg.canvas import shape as module
+        shape = self.make_rectangle()
+        shape.label = 'metric regression label'
+        with patch.object(module, 'QFontMetrics', wraps=QFontMetrics) as metrics:
+            original = shape.label_text_rect()
+            for _ in range(20):
+                self.assertEqual(shape.label_text_rect(), original)
+            self.assertEqual(metrics.call_count, 1)
+            shape.label = 'a different wider metric regression label'
+            self.assertNotEqual(shape.label_text_rect(), original)
+            self.assertEqual(metrics.call_count, 2)
+            shape.label_font_size = 17
+            shape.label_text_rect()
+            self.assertEqual(metrics.call_count, 3)
+
+    def test_zoom_keeps_label_font_at_screen_size_and_stable_hit_width(self):
+        shape = self.make_rectangle()
+        shape.paint_label = True
+        widths = []
+        for scale in (.1, .25, .5, 1., 2.):
+            shape.scale = scale
+            shape.label_font_size = 12 / scale
+            painter = Mock()
+            shape.paint_label_text(painter)
+            self.assertAlmostEqual(painter.setFont.call_args.args[0].pointSizeF(), 12)
+            widths.append(shape.label_text_rect().width() * scale)
+        self.assertLess(max(widths) - min(widths), .001)
 
     def test_outline_is_one_and_half_pixels_wide(self):
         class RecordingPainter:

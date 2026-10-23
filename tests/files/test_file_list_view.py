@@ -188,6 +188,28 @@ class FileListViewStateTest(unittest.TestCase):
 
 
 class FileListProjectionTest(unittest.TestCase):
+    def test_repeated_navigation_does_not_rescan_the_directory_projection(self):
+        class ObservedPaths(tuple):
+            scans = 0
+            def __iter__(self):
+                self.scans += 1
+                return super().__iter__()
+            def __contains__(self, value):
+                self.scans += 1
+                return super().__contains__(value)
+            def index(self, value):
+                self.scans += 1
+                return super().index(value)
+        paths = ObservedPaths(os.path.abspath(f'image-{i}.png') for i in range(10000))
+        visible = ObservedPaths(paths[::2])
+        projection = FileListProjection(None, FileListQuery(), (), paths, visible)
+        self.assertEqual(projection.adjacent_visible(paths[5001], 1), paths[5002])
+        before = paths.scans + visible.scans
+        for _ in range(30):
+            self.assertEqual(projection.adjacent_visible(paths[5001], 1), paths[5002])
+            self.assertEqual(projection.adjacent_visible(paths[5001], -1), paths[5000])
+        self.assertEqual(paths.scans + visible.scans, before)
+
     def test_one_projection_owns_order_filter_and_visible_navigation(self):
         root = os.path.abspath("workspace")
         first = FileListItemState(

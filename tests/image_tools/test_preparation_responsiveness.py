@@ -7,8 +7,9 @@ import unittest
 from unittest.mock import patch
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-from PyQt5.QtCore import QEvent, QTimer
+from PyQt5.QtCore import QEvent, QTimer, Qt
 from PyQt5.QtGui import QImage
+from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication, QProgressDialog
 from labelimg.workbench.bootstrap import WorkbenchLaunchOptions, create_workbench
 from labelimg.image_tools.application.geometry_transform import ImageGeometryProcessor
@@ -60,6 +61,33 @@ class PreparationResponsivenessTest(unittest.TestCase):
             commit.assert_called_once()
         self.assertTrue(observed)
         self.assertTrue(all(thread != ui_thread for thread in observed))
+
+    def test_committed_pixel_refresh_decodes_away_from_gui_without_cancel(self):
+        ui_thread = threading.get_ident()
+        heartbeat = threading.Event()
+        from labelimg.image_tools.ui import controller
+        original = controller.read
+        def decode(*args):
+            self.assertNotEqual(threading.get_ident(), ui_thread)
+            self.assertTrue(heartbeat.wait(.5))
+            return original(*args)
+        QTimer.singleShot(20, heartbeat.set)
+        with patch.object(controller, 'read', side_effect=decode):
+            self.assertTrue(self.window._refresh_current_image_pixels((self.path,)))
+
+    def test_committed_projection_ignores_escape_until_worker_finishes(self):
+        from labelimg.image_tools.ui.preparation import run_preparation
+        completed = threading.Event()
+        def reject_progress():
+            for widget in QApplication.topLevelWidgets():
+                if isinstance(widget, QProgressDialog):
+                    QTest.keyClick(widget, Qt.Key_Escape)
+                    widget.close()
+            completed.set()
+        QTimer.singleShot(20, reject_progress)
+        result = run_preparation(lambda cancelled: (completed.wait(.5), 42)[1],
+                                 self.window, cancellable=False)
+        self.assertEqual(result, 42)
 
     def test_cancel_does_not_commit_or_change_source(self):
         release = threading.Event()

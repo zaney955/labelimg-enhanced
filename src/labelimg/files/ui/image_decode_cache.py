@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import CancelledError, ThreadPoolExecutor
 import os
 import threading
 
@@ -11,17 +11,46 @@ from PyQt5.QtGui import QImage, QImageReader
 
 
 DEFAULT_DECODE_CACHE_BYTES = 256 * 1024 * 1024
+MAX_DECODE_CACHE_BYTES = 1024 * 1024 * 1024
+
+
+def _available_memory_bytes():
+    try:
+        if os.name == 'nt':
+            import ctypes
+            class MemoryStatus(ctypes.Structure):
+                _fields_ = [('length', ctypes.c_ulong), ('load', ctypes.c_ulong)] + [
+                    (name, ctypes.c_ulonglong) for name in (
+                        'total_physical', 'available_physical', 'total_page',
+                        'available_page', 'total_virtual', 'available_virtual', 'extended')]
+            status = MemoryStatus()
+            status.length = ctypes.sizeof(status)
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+                return status.available_physical
+        else:
+            return os.sysconf('SC_AVPHYS_PAGES') * os.sysconf('SC_PAGE_SIZE')
+    except (AttributeError, OSError, ValueError):
+        pass
+    return None
+
+
+def _default_cache_budget():
+    available = _available_memory_bytes()
+    if available is None or available <= 0:
+        return DEFAULT_DECODE_CACHE_BYTES
+    return min(MAX_DECODE_CACHE_BYTES, max(32 * 1024 * 1024, available // 8))
 
 
 class DecodedImageCache:
     """Hide source-token validation, memory bounds, and decode concurrency."""
 
-    def __init__(self, max_bytes=DEFAULT_DECODE_CACHE_BYTES, workers=2):
-        self._max_bytes = max(1, int(max_bytes))
+    def __init__(self, max_bytes=None, workers=2):
+        self._max_bytes = max(1, int(_default_cache_budget() if max_bytes is None else max_bytes))
         self._lock = threading.RLock()
         self._entries = OrderedDict()
         self._entry_bytes = 0
         self._jobs = {}
+        self._wanted = set()
         self._executor = ThreadPoolExecutor(
             max_workers=max(1, int(workers)),
             thread_name_prefix="labelimg-prefetch",
@@ -61,9 +90,12 @@ class DecodedImageCache:
         with self._lock:
             future = self._jobs.get(key)
         if future is not None and not future.cancelled():
-            _key, job_token, image = future.result()
-            if job_token == token and _source_token(path) == token:
-                return QImage(image)
+            try:
+                _key, job_token, image = future.result()
+                if job_token == token and _source_token(path) == token:
+                    return QImage(image)
+            except CancelledError:
+                pass  # Prefetch priority changed while demand was taking over.
         _key, decoded_token, image = _decode_image(path, token)
         if _source_token(path) != decoded_token:
             raise OSError('image changed while it was being decoded')
@@ -78,6 +110,7 @@ class DecodedImageCache:
         ))
         wanted = {_path_key(path) for path in paths}
         with self._lock:
+            self._wanted = wanted
             for key, future in tuple(self._jobs.items()):
                 if key not in wanted:
                     future.cancel()
@@ -139,7 +172,10 @@ class DecodedImageCache:
                     self._jobs.pop(matching, None)
         if image.isNull() or _source_token(key) != token:
             return
-        self._store(key, token, image)
+        with self._lock:
+            if key not in self._wanted:
+                return
+            self._store(key, token, image)
 
     def _store(self, key, token, image):
         stored = QImage(image)

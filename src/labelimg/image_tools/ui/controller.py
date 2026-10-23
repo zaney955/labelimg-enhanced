@@ -66,6 +66,12 @@ class ImageToolsActionsMixin:
 
         return run_preparation(work, self)
 
+    def _run_image_projection(self, work):
+        # Files are already committed. Finish decoding before editing resumes;
+        # cancelling here would leave old pixels paired with new on-disk data.
+        from labelimg.image_tools.ui.preparation import run_preparation
+        return run_preparation(lambda _cancelled: work(), self, cancellable=False)
+
     def update_image_menu(self):
         image_available = (
             bool(self.file_path)
@@ -125,7 +131,8 @@ class ImageToolsActionsMixin:
                 )
 
                 self.image_data = prepared.replacement.content
-                self.image = _array_qimage(prepared.result_pixels)
+                self.image = self._run_image_projection(
+                    lambda: _array_qimage(prepared.result_pixels))
                 self.canvas.replace_pixmap(
                     self._activate_display_adjustment_source(
                         self.image, self.file_path
@@ -154,7 +161,8 @@ class ImageToolsActionsMixin:
             self.image = (
                 QImage(target.display_image)
                 if isinstance(target.display_image, QImage)
-                else QImage.fromData(self.image_data)
+                else self._run_image_projection(
+                    lambda: self._decode_prepared_image(self.image_data))
             )
             self.canvas.replace_pixmap(
                 self._activate_display_adjustment_source(
@@ -220,7 +228,13 @@ class ImageToolsActionsMixin:
                 for path in request.paths
             }
             if current_key in changed:
-                if not self.load_file(self.file_path):
+                target = request.current_target
+                prepared_image = (
+                    target.display_image if target is not None else None)
+                if prepared_image is None:
+                    path = self.file_path
+                    prepared_image = self._run_image_projection(lambda: read(path, None))
+                if not self.load_file(self.file_path, prepared_image_data=prepared_image):
                     raise RuntimeError(
                         "the transformed current image could not reload"
                     )
@@ -272,7 +286,9 @@ class ImageToolsActionsMixin:
                 for path in geometry_images
             }
             if current_key in geometry_keys:
-                self.load_file(self.file_path)
+                path = self.file_path
+                prepared_image = self._run_image_projection(lambda: read(path, None))
+                self.load_file(path, prepared_image_data=prepared_image)
             else:
                 self._refresh_current_image_pixels(restored_images)
             if self.file_path is None and restored_images:
@@ -971,7 +987,8 @@ class ImageToolsActionsMixin:
         if current not in changed:
             return False
 
-        image_data = read(self.file_path, None)
+        path = self.file_path
+        image_data = self._run_image_projection(lambda: read(path, None))
         image = (
             image_data
             if isinstance(image_data, QImage)

@@ -181,8 +181,11 @@ Specialized-repair preparation remains full-resolution for candidate accuracy,
 but runs on a single owned background queue so large images cannot multiply
 memory pressure.
 
-Normal image navigation uses a source-token-validated decoded-image LRU capped
-at 256 MiB. Two background workers prefetch the adjacent visible images after a
+Normal image navigation uses a source-token-validated decoded-image LRU. Its
+budget is one eighth of available physical memory when the cache is created,
+clamped to 32 MiB–1 GiB (256 MiB when memory information is unavailable). This
+allows large decoded neighbors to be reused on machines with sufficient RAM
+without allocating the maximum on small-memory machines. Two background workers prefetch the adjacent visible images after a
 successful load; a cache entry is ignored automatically when file size or
 nanosecond modification time changes. Shutdown cancels queued prefetches and
 releases the cache. Brightness, contrast, and Gamma share cached 8-bit lookup
@@ -190,16 +193,25 @@ tables, and the common RGBA path adjusts all color channels while preserving
 alpha in one OpenCV pass.
 
 Cold navigation to images above four million pixels decodes away from the GUI
-thread. The previous image remains current until the latest requested destination
-is ready; successive Previous/Next commands advance from the pending destination.
+thread. Direct opening of a cold large image also decodes in a cancellable modal
+worker. The previous image remains current until a destination is ready.
+Previous/Next steps start from the displayed image. Repeating the same step while
+it is decoding does not invalidate it or accumulate unseen steps; reversing that
+step cancels it, including at the first/last image. Explicit file-list destinations
+remain latest-request-wins. Thus holding A/D shows consecutive completed images
+during the hold, with at most one outstanding step after release.
 There is one active demand decode and one replaceable pending destination, so key
-repeat cannot build an unbounded decode queue. Direct loads, workspace resets,
+repeat cannot build an unbounded decode queue. Immutable file-list projections
+retain navigation indexes instead of rebuilding visible-path sets on each key
+event. Direct loads, workspace resets,
 image-tool commands, and starting a new annotation gesture cancel pending
 navigation. Completion rechecks the source token, workspace membership, and
 annotation navigation guard before publishing pixels. Failure retains the prior
 image and counter. Demand loading reuses an in-flight adjacent prefetch. Images
 too large to share the LRU with another neighbor are not speculatively decoded;
-inserting an uncacheable image does not evict useful cached neighbors.
+inserting an uncacheable image does not evict useful cached neighbors. Obsolete
+prefetch results do not displace the current neighbors, and a cancelled prefetch
+can safely fall back to demand decoding.
 
 Canvas retains a separate image raster for the visible viewport, capped at
 16 million device pixels. It is rebuilt only when source pixels, logical image
@@ -208,6 +220,22 @@ reverse-screen drawing feedback, and magnifier sampling continue to use original
 image coordinates and the current display pixmap. Pointer motion, box dragging,
 and repeated keyboard nudges queue repaint requests so Qt can coalesce a burst.
 The cache is cleared when pixels are replaced or the image session resets.
+The retained annotation layer also serves Edit mode, damaging only changed
+geometry, selection, or hover regions while preserving drawing order. Pointer
+targeting first rejects distant bounds before exact edge/vertex tests. Label
+metrics are reused until text, font, or logical DPI changes. Labels are rendered
+at their screen font size rather than rasterizing a huge scene-space font and
+shrinking it on every zoom step; their hit bounds use the same metrics. Image/shape/mode
+projection queues paints rather than synchronously repainting intermediate states.
+
+Slider preview timers throttle continuous input instead of restarting until the
+gesture ends. Full display brightness/contrast rendering uses at most 4 MiB
+conversion tiles, checks for superseding work between tiles, and produces the
+native pixmap format to avoid another GUI-thread conversion. Opaque RGB32 images
+are read directly in tiles, without redundant copies or channel conversion. It retains original
+source pixels and does not change exported images or annotation coordinates.
+Geometry dialogs retain the transformed preview when only scope or window size
+changes and coalesce resize notifications.
 
 Committed 90/180-degree rotations, flips, and crops use the codec's native
 Pillow geometry operations so pixels do not make an intermediate full-image
@@ -232,6 +260,12 @@ decoded image per batch member. Current-image geometry and adjustment dialogs
 both reuse bounded preview pixels from the workbench image; full-resolution
 encoding is reserved for Apply.
 
+Post-commit pixel refresh and recovery decoding also run off the GUI thread.
+Their modal projection phase cannot be cancelled: editing resumes only after
+the committed pixels and annotation state agree. The original preparation phase
+remains cancellable and write-free; filesystem commit and recovery retain their
+atomic transaction and rollback boundaries.
+
 Failures identify the affected image and phase under the [bilingual interface contract](bilingual-interface.md#translation-boundary).
 
 Every Image-menu command and every signal-driven preview callback is an
@@ -251,8 +285,9 @@ python tools/benchmark_interaction.py --assert-budget --output .test-state/laten
 ```
 
 This runs a disposable 10000 × 7000 image through
-crosshair motion, drawing with 500 boxes, cold/warm direct loads, rapid alternating
-navigation, preview opening, and geometry preparation. It reports input-handler
+crosshair motion, drawing/editing/magnification/zoom with 500 boxes, cold and warm
+direct loads, rapid alternating navigation, full display adjustment, preview
+opening, and geometry preparation. It reports input-handler
 latency, paint latency, final destination correctness, and GUI heartbeat gaps
 separately from total decode/processing time. The frame/request budget assertions
 are a local diagnostic, while deterministic regressions verify work coalescing,

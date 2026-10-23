@@ -57,6 +57,18 @@ class ImageAdjustmentDialogTest(unittest.TestCase):
         self.assertIsNone(dialog.request)
         dialog.deleteLater()
 
+    def test_continuous_slider_changes_show_preview_before_release(self):
+        dialog = ImageAdjustmentDialog(self.first)
+        dialog.show()
+        self.app.processEvents()
+        QTest.qWait(80)
+        before = dialog.preview_label.pixmap().toImage()
+        for value in range(1, 21):
+            dialog.brightness_slider.setValue(value)
+            QTest.qWait(10)
+        self.assertNotEqual(dialog.preview_label.pixmap().toImage(), before)
+        dialog.deleteLater()
+
     def test_auto_adjust_updates_three_sliders_and_preserves_grayscale(self):
         dialog = ImageAdjustmentDialog(self.first, (self.first, self.second))
         self.assertFalse(dialog.apply_button.isEnabled())

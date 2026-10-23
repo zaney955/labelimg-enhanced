@@ -1,4 +1,4 @@
-"""A bounded, derived annotation layer for the otherwise static Draw-mode scene."""
+"""A bounded annotation layer with local damage for drawing and editing."""
 
 from dataclasses import dataclass
 from math import ceil
@@ -29,7 +29,8 @@ class DrawingSceneCache:
         self._entries = {}
         self._layer = QPixmap()
 
-    def paint(self, painter, shapes, viewport, is_visible, clip_region=None, presentation=None):
+    def paint(self, painter, shapes, viewport, is_visible, clip_region=None, presentation=None,
+              hovered=()):
         """Update damaged annotations, then composite the layer in widget space.
 
         is_visible receives the shape and its cached geometric bounds; clip_region
@@ -63,6 +64,7 @@ class DrawingSceneCache:
                 shape.label, shape.paint_label, shape.line_color.rgba(),
                 shape.selected, shape.is_closed(), shape.point_type, shape.point_size,
                 shape._highlight_index, shape._highlight_mode,
+                shape in hovered,
             )
             old = self._entries.get(shape)
             changed = old is None or signature != old.signature
@@ -112,6 +114,9 @@ class DrawingSceneCache:
                         options["paint_box"] = False
                     if entry.paint_label != shape.paint_label:
                         options["paint_label"] = entry.paint_label
+                    if shape in hovered:
+                        options.update(outline_style=Qt.CustomDashLine,
+                                       outline_dash_pattern=shape.hover_dash_pattern)
                     if entry.paint_box or entry.paint_label:
                         shape.paint(recorder, **options)
             recorder.end()

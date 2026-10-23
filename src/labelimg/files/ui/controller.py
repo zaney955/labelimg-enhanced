@@ -121,6 +121,12 @@ class FileActionsMixin:
 
     def _request_indexed_image(self, path):
         """Use warm/small images immediately, decode cold large images off-thread."""
+        if path == getattr(self, '_navigation_load_path', None):
+            return True  # Key repeat must not invalidate a decode in progress.
+        if path == self.file_path and getattr(self, '_navigation_load_path', None):
+            self.cancel_image_navigation()
+            self.update_file_navigation_actions()
+            return True
         cache = self._ensure_image_decode_cache()
         cached = cache.get(path)
         if not getattr(self, '_navigation_load_path', None) and (
@@ -389,14 +395,16 @@ class FileActionsMixin:
         if getattr(self, '_deferred_image_load_path', None):
             return None
         projection = getattr(self, '_file_list_projection', None)
-        return (
-            projection.adjacent_visible(
-                getattr(self, '_navigation_load_path', None) or self.file_path,
-                direction,
-            )
-            if projection is not None
-            else None
-        )
+        if projection is None:
+            return None
+        pending = getattr(self, '_navigation_load_path', None)
+        if pending and pending == projection.adjacent_visible(self.file_path, -direction):
+            # Reversing before the next frame is ready cancels that step,
+            # including at the first/last visible image.
+            return self.file_path
+        # Navigate from the displayed frame. Repeat events during a decode are
+        # coalesced into this one step instead of accumulating invisible steps.
+        return projection.adjacent_visible(self.file_path, direction)
 
 
     def update_file_selection_count(self):

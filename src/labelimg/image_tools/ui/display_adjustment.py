@@ -7,6 +7,7 @@ from labelimg.ui.presentation import present_surface
 
 
 from dataclasses import dataclass
+from concurrent.futures import CancelledError
 import math
 import os
 import threading
@@ -800,11 +801,22 @@ class _LatestRenderWorker(threading.Thread):
         self._condition = threading.Condition()
         self._pending = None
         self._stopping = False
+        self._revision = 0
 
     def submit(self, request):
         with self._condition:
+            self._revision += 1
             self._pending = request
             self._condition.notify()
+
+    def cancel(self):
+        with self._condition:
+            self._revision += 1
+            self._pending = None
+
+    def _obsolete(self, revision):
+        with self._condition:
+            return self._stopping or revision != self._revision
 
     def stop(self):
         with self._condition:
@@ -820,13 +832,17 @@ class _LatestRenderWorker(threading.Thread):
                 if self._stopping:
                     return
                 request = self._pending
+                revision = self._revision
                 self._pending = None
             try:
                 result = render_adjusted_image(
                     request.image,
                     request.values,
                     max_pixels=request.max_pixels,
+                    cancelled=lambda: self._obsolete(revision),
                 )
+            except CancelledError:
+                continue
             except Exception as error:  # Qt boundary reports localized text.
                 with self._condition:
                     if self._stopping:
@@ -834,8 +850,8 @@ class _LatestRenderWorker(threading.Thread):
                     self._bridge.failed.emit(request, error)
             else:
                 with self._condition:
-                    if self._stopping:
-                        return
+                    if self._obsolete(revision):
+                        continue
                     self._bridge.completed.emit(request, result)
 
 
@@ -916,6 +932,9 @@ class CanvasDisplayAdjustmentController(QObject):
             self._sync_active()
 
     def activate_source(self, image, path, workspace_key, source_token=None):
+        self._render_worker.cancel()
+        self._preview_timer.stop()
+        self._full_timer.stop()
         self.replace_workspace(workspace_key)
         self._path = os.path.abspath(os.fspath(path))
         self._source = QImage(image)
@@ -934,10 +953,13 @@ class CanvasDisplayAdjustmentController(QObject):
             self.panel.show_render_error(self._path, str(error))
             return QPixmap.fromImage(self._source)
         if not values.neutral:
-            self._submit_full()
+            self._full_timer.start()
         return QPixmap.fromImage(preview)
 
     def deactivate_image(self):
+        self._render_worker.cancel()
+        self._preview_timer.stop()
+        self._full_timer.stop()
         self._generation += 1
         self._path = None
         self._source = QImage()
@@ -1045,13 +1067,17 @@ class CanvasDisplayAdjustmentController(QObject):
 
     def _values_changed(self, schedule_full=False):
         self._generation += 1
+        self._render_worker.cancel()
         self.panel.clear_render_error()
         self._sync_panel()
         self._sync_active()
         self._schedule_renders(full=schedule_full)
 
     def _schedule_renders(self, full=False):
-        self._preview_timer.start()
+        # Throttle previews while a slider is moving. Restarting this timer on
+        # every value change starves all feedback until the user lets go.
+        if not self._preview_timer.isActive():
+            self._preview_timer.start()
         if full:
             self._full_timer.stop()
             self._submit_full()
@@ -1115,7 +1141,7 @@ class CanvasDisplayAdjustmentController(QObject):
         self._active_changed(self.session.has_adjustments)
 
 
-def render_adjusted_image(image, values, *, max_pixels=None):
+def render_adjusted_image(image, values, *, max_pixels=None, cancelled=lambda: False):
     """Return a detached adjusted QImage, optionally via a bounded preview."""
     if image.isNull():
         raise ValueError("cannot adjust a null image")
@@ -1137,32 +1163,48 @@ def render_adjusted_image(image, values, *, max_pixels=None):
             Qt.KeepAspectRatio,
             Qt.FastTransformation,
         )
-    rgba = working.convertToFormat(QImage.Format_RGBA8888)
-    pointer = rgba.bits()
-    pointer.setsize(rgba.byteCount())
     import numpy as np
-
-    rows = np.frombuffer(pointer, dtype=np.uint8).reshape(
-        rgba.height(), rgba.bytesPerLine()
-    )
-    pixels = rows[:, : rgba.width() * 4].reshape(
-        rgba.height(), rgba.width(), 4
-    ).copy()
-    adjusted = apply_adjustments(
-        pixels,
-        ImageAdjustmentOptions(
-            brightness=values.brightness,
-            contrast=contrast_factor(values.contrast),
-        ),
-    )
-    adjusted = np.ascontiguousarray(adjusted)
-    result = QImage(
-        adjusted.data,
-        adjusted.shape[1],
-        adjusted.shape[0],
-        adjusted.strides[0],
-        QImage.Format_RGBA8888,
-    ).copy()
+    # Qt image copies/conversions hold the Python GIL. Bound each one to 4 MiB
+    # so worker rendering cannot stall GUI Python slots for an entire 70MP frame.
+    # Use the native pixmap format to avoid another full conversion on the GUI.
+    width, height = working.width(), working.height()
+    native_rows = None
+    if working.format() == QImage.Format_RGB32:
+        # The LUT treats B/G/R identically and preserves the fourth byte. An
+        # opaque native source can be read directly without copy/conversion.
+        source_bytes = working.constBits()
+        source_bytes.setsize(working.byteCount())
+        native_rows = np.frombuffer(source_bytes, dtype=np.uint8).reshape(height, width, 4)
+    result = QImage(width, height, QImage.Format_RGB32 if native_rows is not None
+                    else QImage.Format_ARGB32_Premultiplied)
+    if result.isNull():
+        raise MemoryError('could not allocate display adjustment image')
+    output = result.bits()
+    output.setsize(result.byteCount())
+    rows = np.frombuffer(output, dtype=np.uint8).reshape(height, result.bytesPerLine())
+    tile_rows = max(1, (4 * 1024 * 1024) // (width * 4))
+    options = ImageAdjustmentOptions(
+        brightness=values.brightness, contrast=contrast_factor(values.contrast))
+    for top in range(0, height, tile_rows):
+        if cancelled():
+            raise CancelledError()
+        count = min(tile_rows, height - top)
+        if native_rows is not None:
+            adjusted = apply_adjustments(native_rows[top:top + count], options)
+            rows[top:top + count] = adjusted.reshape(count, width * 4)
+            continue
+        rgba = working.copy(0, top, width, count).convertToFormat(QImage.Format_RGBA8888)
+        pointer = rgba.constBits()
+        pointer.setsize(rgba.byteCount())
+        pixels = np.frombuffer(pointer, dtype=np.uint8).reshape(count, width, 4)
+        adjusted = apply_adjustments(pixels, options)
+        tile = QImage(adjusted.data, width, count, adjusted.strides[0],
+                      QImage.Format_RGBA8888).convertToFormat(result.format())
+        pointer = tile.constBits()
+        pointer.setsize(tile.byteCount())
+        rows[top:top + count] = np.frombuffer(pointer, dtype=np.uint8).reshape(count, tile.bytesPerLine())
+    if cancelled():
+        raise CancelledError()
     return result
 
 

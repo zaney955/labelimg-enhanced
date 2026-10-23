@@ -55,7 +55,27 @@ class _PreparationQueue:
                 self._active = None
 
 
-def run_preparation(work, parent):
+class _ProcessingProgressDialog(QProgressDialog):
+    def __init__(self, parent, cancellable):
+        super().__init__(tr('imageTools.status.processing'),
+                         tr('standard.cancel'), 0, 0, parent)
+        self._cancellable = cancellable
+        if not cancellable:
+            self.setCancelButton(None)
+            self.setWindowFlag(Qt.WindowCloseButtonHint, False)
+
+    def reject(self):
+        if self._cancellable:
+            super().reject()
+
+    def closeEvent(self, event):
+        if self._cancellable:
+            super().closeEvent(event)
+        else:
+            event.ignore()
+
+
+def run_preparation(work, parent, *, cancellable=True):
     cancelled, completed = threading.Event(), threading.Event()
     outcome = {}
 
@@ -69,8 +89,7 @@ def run_preparation(work, parent):
         finally:
             completed.set()
 
-    dialog = QProgressDialog(tr('imageTools.status.processing'),
-                             tr('standard.cancel'), 0, 0, parent)
+    dialog = _ProcessingProgressDialog(parent, cancellable)
     dialog.setWindowTitle(tr('imageTools.status.processing'))
     dialog.setWindowModality(Qt.WindowModal)
     dialog.setMinimumDuration(0)

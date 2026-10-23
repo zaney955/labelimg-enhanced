@@ -116,6 +116,24 @@ class GeometryTransformDialogTest(unittest.TestCase):
         self.assertFalse(dialog.preview_label.pixmap().isNull())
         dialog.deleteLater()
 
+    def test_resize_and_scope_changes_reuse_the_transformed_preview(self):
+        from labelimg.image_tools.ui import geometry_dialog
+        with patch.object(geometry_dialog, 'transform_pixels',
+                          wraps=geometry_dialog.transform_pixels) as transform:
+            dialog = GeometryTransformDialog(self.first, (self.first, self.second))
+            dialog.show()
+            self.app.processEvents()
+            dialog.resize(1100, 700)
+            self.app.processEvents()
+            dialog.scope_combo.setCurrentIndex(1)
+            self.app.processEvents()
+            self.assertEqual(transform.call_count, 1)
+            dialog.operation_combo.setCurrentIndex(
+                dialog.operation_combo.findData(GeometryOperation.FLIP_HORIZONTAL))
+            self.app.processEvents()
+            self.assertEqual(transform.call_count, 2)
+        dialog.deleteLater()
+
     def test_preview_allocation_failure_is_contained_in_the_dialog(self):
         dialog = GeometryTransformDialog(
             self.first,

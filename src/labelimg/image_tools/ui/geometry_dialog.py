@@ -82,6 +82,11 @@ class GeometryTransformDialog(QDialog):
         self._source_size = self._preview.size
         self._updating_size = False
         self._preview_failed = False
+        self._preview_operation = None
+        self._preview_pixmap = QPixmap()
+        self._resize_timer = QTimer(self)
+        self._resize_timer.setSingleShot(True)
+        self._resize_timer.timeout.connect(self._refresh)
         self.setWindowTitle(tr("geometry.workspace.title"))
         self.resize(980, 620)
 
@@ -184,7 +189,7 @@ class GeometryTransformDialog(QDialog):
 
     def eventFilter(self, watched, event):
         if watched is self.preview_label and event.type() == QEvent.Resize:
-            QTimer.singleShot(0, self._refresh)
+            self._resize_timer.start(0)
         return super().eventFilter(watched, event)
 
     def _paths(self):
@@ -251,14 +256,14 @@ class GeometryTransformDialog(QDialog):
         self.resize_panel.setVisible(resize)
         output_size = self._output_size() if resize else None
         try:
+            if operation != self._preview_operation:
+                pixels = (self._preview.pixels if resize else
+                          transform_pixels(self._preview.pixels, operation)[0])
+                self._preview_pixmap = _array_pixmap(pixels)
+                self._preview_operation = operation
             if resize:
-                pixels = self._preview.pixels
                 size = output_size
             else:
-                pixels, _preview_size = transform_pixels(
-                    self._preview.pixels,
-                    operation,
-                )
                 width, height = self._source_size
                 size = (
                     (height, width)
@@ -268,8 +273,7 @@ class GeometryTransformDialog(QDialog):
                     )
                     else (width, height)
                 )
-            pixmap = _array_pixmap(pixels)
-            self.preview_label.setPixmap(pixmap.scaled(
+            self.preview_label.setPixmap(self._preview_pixmap.scaled(
                 self.preview_label.size(),
                 Qt.KeepAspectRatio,
                 Qt.SmoothTransformation,
