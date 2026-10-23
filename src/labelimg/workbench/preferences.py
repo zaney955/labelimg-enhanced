@@ -43,6 +43,9 @@ class PreferencesDialog(QDialog):
         layout.addWidget(self.note)
         self._add_group(layout, 'preferences.interface', [window.actions.appearance],
                         menus=[window.menus.language])
+        from labelimg.ui.scale_control import UiScaleControl
+        self.scale_control = UiScaleControl(window.ui_scale)
+        self.groups[-1][1].layout().addWidget(self.scale_control)
         self._add_group(layout, 'preferences.annotation', [window.single_class_mode],
                         menus=[window.menus.labelColorAlgorithm], manage_colors=True)
         self._add_group(layout, 'preferences.display', [
@@ -144,6 +147,13 @@ class PreferencesDialog(QDialog):
                     content += ' ' + ' '.join(item.text() for item in menu.actions())
                 matched = not query or query in content.casefold()
                 control.setVisible(matched)
+                visible |= matched
+            if key == 'preferences.interface':
+                matched = not query or query in (
+                    tr('uiScale.label') + ' ' + tr('uiScale.description')
+                    + ' zoom scale 界面 缩放'
+                ).casefold()
+                self.scale_control.setVisible(matched)
                 visible |= matched
             frame.setVisible(visible)
             any_visible |= visible

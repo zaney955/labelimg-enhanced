@@ -13,6 +13,7 @@ from labelimg.ui.menu import Menu as QMenu
 from labelimg.localization.runtime import language_changed, tr
 from labelimg.ui.icons import IconLabel, icon
 from labelimg.ui.theme import theme_style
+from labelimg.ui.metrics import dp
 
 PANEL_STYLE = theme_style("""
 QDockWidget { background: transparent; border: none; }
@@ -26,6 +27,8 @@ QFrame[uiRole="panelBody"], QWidget[uiRole="panelBody"] { background: ${surface}
 QFrame[uiRole="panelContext"] { background: ${surface}; border: none; border-bottom: 1px solid ${divider}; }
 QFrame[uiRole="panelList"] { background: ${surface}; border: none; }
 QFrame[uiRole="panelFooter"] { background: ${panel_header}; border: none; border-top: 1px solid ${divider}; }
+QScrollArea[uiRole="panelScroll"] { background: transparent; border: none; }
+QWidget[uiRole="panelScrollContent"] { background: transparent; }
 QToolButton[panelAction="true"] { min-height: 0; border: 1px solid transparent; border-radius: 4px; padding: 0; }
 QToolButton[panelAction="true"]:hover { background: ${selected}; }
 QToolButton[panelAction="true"]:focus { border-color: ${accent}; }
@@ -33,6 +36,15 @@ QToolButton[panelAction="true"]::menu-indicator { image: none; }
 QToolButton[panelAction="true"][uiRole="menuButton"] { padding-right: 18px; }
 QFrame[uiRole="panelHeader"]:focus { border-color: ${accent}; }
 """)
+
+
+class PanelCountLabel(QLabel):
+    """Prefer the full count while permitting the documented narrow elision."""
+
+    def minimumSizeHint(self):
+        hint = super().minimumSizeHint()
+        hint.setWidth(0)
+        return hint
 
 
 class PanelHeader(QFrame):
@@ -55,7 +67,7 @@ class PanelHeader(QFrame):
         self.title.setProperty("uiRole", "panelTitle")
         self.title.setAttribute(Qt.WA_TransparentForMouseEvents)
         self.row.addWidget(self.title)
-        self.count = count or QLabel()
+        self.count = count or PanelCountLabel()
         self.count.setProperty("uiRole", "panelCount")
         self.count.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self.count.setTextFormat(Qt.PlainText)
@@ -73,11 +85,11 @@ class PanelHeader(QFrame):
 
     def sizeHint(self):
         hint = super().sizeHint()
-        return QSize(hint.width(), self.HEIGHT)
+        return QSize(hint.width(), dp(self.HEIGHT))
 
     def minimumSizeHint(self):
         hint = super().minimumSizeHint()
-        return QSize(hint.width(), self.HEIGHT)
+        return QSize(hint.width(), dp(self.HEIGHT))
 
     def add_control(self, widget, *, text=False):
         widget.setProperty("panelAction", True)

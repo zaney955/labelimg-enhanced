@@ -281,9 +281,12 @@ class AppearanceTest(unittest.TestCase):
         self.app.processEvents()
         for widget in [*window.findChildren(QToolBar), window.statusBar()]:
             image = widget.grab().toImage()
+            # The far-right status-bar position now contains the magnifier.
+            # Sample its empty left margin rather than an icon/hover surface.
+            sample_x = 2 if widget is window.statusBar() else image.width() - 25
             self.assertEqual(
-                image.pixelColor(image.width() - 25, image.height() // 2),
-                QColor(COLORS["panel_header"] if widget.objectName() == "canvasToolRail" else COLORS["surface"]),
+                image.pixelColor(sample_x, image.height() // 2),
+                QColor(COLORS["panel_header"] if widget.objectName() == "canvasToolRail" or widget is window.statusBar() else COLORS["surface"]),
             )
         window.zoom_widget.setEnabled(True)
         pixels = window.zoom_widget.slider.grab().toImage()

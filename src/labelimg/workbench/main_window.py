@@ -313,8 +313,8 @@ class MainWindow(
             keyboard=(
                 "%s / %s"
                 % (
-                    format_shortcut("Ctrl+="),
-                    format_shortcut("Ctrl+-"),
+                    format_shortcut("Ctrl+Alt+="),
+                    format_shortcut("Ctrl+Alt+-"),
                 )
             ),
             wheel=format_shortcut("Ctrl+Wheel"),
@@ -322,7 +322,7 @@ class MainWindow(
         ))
         for language, action in self.language_actions.items():
             action.setChecked(language == current_language())
-        self.canvas.setToolTip(tr('canvas.image'))
+        self.canvas.refresh_interaction_hint()
         self.update_file_selection_count()
         update_annotation_summary(self, self.label_list.summary_text())
         if hasattr(self, 'annotation_editing'):
@@ -342,6 +342,13 @@ class MainWindow(
         self._default_save_dir = value
         if hasattr(self, 'annotation_workspace'):
             self.annotation_workspace.set_save_dir(value)
+
+    def event(self, event):
+        if event.type() == QEvent.StatusTip and hasattr(self, 'canvas_status'):
+            self.canvas_status.set_hover_message(event.tip())
+            event.accept()
+            return True
+        return super().event(event)
 
     def keyReleaseEvent(self, event):
         if event.key() == Qt.Key_Control:
@@ -423,8 +430,17 @@ class MainWindow(
     def queue_event(self, function):
         QTimer.singleShot(0, function)
 
-    def status(self, message, delay=5000):
-        self.statusBar().showMessage(message, delay)
+    def status(self, message, delay=5000, *, important=False, source=None):
+        if important:
+            self.statusBar().show_important_message(message, delay, source=source)
+        else:
+            self.statusBar().showMessage(message, delay)
+
+    def status_translation(self, message_id, delay=5000, *, important=False, source=None, **values):
+        if important:
+            self.statusBar().show_important_translation(message_id, delay, source=source, **values)
+        else:
+            self.status(tr(message_id, **values), delay)
 
     def reset_state(self, preserve_session=False):
         self.cancel_image_navigation()
@@ -763,7 +779,7 @@ class MainWindow(
                     'open.invalidImage', path=unicode_file_path
                 ),
             )
-            self.status(tr('status.errorReading', detail=unicode_file_path))
+            self.status_translation('status.errorReading', detail=unicode_file_path, important=True)
             return False
         self._ensure_image_decode_cache().put(
             unicode_file_path, prepared_image
@@ -948,7 +964,7 @@ class MainWindow(
         except YoloClassMappingDeclined:
             return False
         except AnnotationDocumentError as error:
-            self.status(tr('status.errorReading', detail=annotation_error_text(error)))
+            self.status_translation('status.errorReading', detail=annotation_error_text(error), important=True)
             return False
         if loaded is None:
             return False
@@ -1582,7 +1598,7 @@ class MainWindow(
                 else self._switch_annotation_directory(dir_path)
             )
             if switched:
-                self.statusBar().showMessage(tr(
+                self.status(tr(
                     'status.saveDirectoryChanged',
                     path=self.default_save_dir,
                 ))
@@ -1597,14 +1613,14 @@ class MainWindow(
             else self._switch_annotation_directory(None)
         )
         if switched:
-            self.statusBar().showMessage(
+            self.status(
                 tr('status.annotationDirectoryUsesImage')
             )
             self.statusBar().show()
 
     def open_annotation_dialog(self, _value=False):
         if self.file_path is None:
-            self.statusBar().showMessage(tr('status.selectImage'))
+            self.status(tr('status.selectImage'))
             self.statusBar().show()
             return
         if not self.may_continue():
@@ -2073,12 +2089,12 @@ class MainWindow(
             self.update_file_list_item_status(self.file_path)
             self._watch_current_annotation_document()
             if saved.removed:
-                self.statusBar().showMessage(
+                self.status(
                     tr('status.removedEmpty', path=saved.annotation_path)
                 )
                 self.statusBar().show()
             elif saved.document is not None:
-                self.statusBar().showMessage(
+                self.status(
                     tr('status.saved', path=saved.annotation_path)
                 )
                 self.statusBar().show()

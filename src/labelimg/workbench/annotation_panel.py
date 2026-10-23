@@ -27,10 +27,10 @@ from labelimg.localization.runtime import tr
 from labelimg.ui.actions import new_icon
 from labelimg.ui.query_field import decorate_list_query_field
 from labelimg.ui.presentation import present_panel
-from labelimg.ui.panels import PanelHeader, panel_body, panel_context, panel_list
+from labelimg.ui.panels import PanelCountLabel, PanelHeader, panel_body, panel_context, panel_list
 
 
-class _SummaryLabel(QLabel):
+class _SummaryLabel(PanelCountLabel):
     def __init__(self):
         super().__init__()
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)

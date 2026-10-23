@@ -33,6 +33,7 @@ from PyQt5.QtWidgets import (
 from labelimg.localization.runtime import language_changed, tr
 from labelimg.ui.icons import IconLabel, paint_icon, icon as operation_icon
 from labelimg.ui.panels import PANEL_STYLE, PanelHeader
+from labelimg.ui.metrics import dp
 
 # Keep selectors on Qt controls; Canvas paint and category swatches remain data.
 SURFACE_STYLE = theme_style("""
@@ -163,7 +164,7 @@ class MenuButton(QToolButton):
         painter = QPainter(self)
         paint_icon(
             painter,
-            QRect(self.width() - 17, (self.height() - 12) // 2, 12, 12),
+            QRect(self.width() - dp(17), (self.height() - dp(12)) // 2, dp(12), dp(12)),
             "chevron-down",
             enabled=self.isEnabled(),
             size=12,
@@ -177,7 +178,12 @@ def _surface_palette(widget):
 def present_surface(widget, stylesheet=""):
     """Bind a standalone popup/floating surface to the shared theme."""
     apply_theme_palette(widget)
-    apply_theme_style(widget, SURFACE_STYLE + stylesheet)
+    # Embedded surfaces inherit the common controls from their region root.
+    # Copying them at every level makes each zoom repolish the same subtree.
+    if widget.isWindow():
+        widget.setProperty("labelimgSurfaceRoot", True)
+        stylesheet = SURFACE_STYLE + stylesheet
+    apply_theme_style(widget, stylesheet)
 
 
 def install_application_theme():
@@ -202,11 +208,44 @@ def install_application_theme():
 
 def present_panel(dock, stylesheet):
     """Style the actual header/content roots across the QDockWidget boundary."""
+    body = dock.widget()
+    layout = body.layout() if body is not None else None
+    if isinstance(layout, QVBoxLayout) and not getattr(body, '_panel_scroll', None):
+        content = QWidget()
+        content.setProperty('uiRole', 'panelScrollContent')
+        contents = QVBoxLayout(content)
+        contents.setContentsMargins(0, 0, 0, 0)
+        contents.setSpacing(layout.spacing())
+        footers = []
+        while layout.count():
+            stretch = layout.stretch(0)
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None and widget.property('uiRole') == 'panelFooter':
+                footers.append(widget)
+            elif widget is not None:
+                contents.addWidget(widget, stretch)
+            elif item.layout() is not None:
+                child = item.layout()
+                child.setParent(None)
+                contents.addLayout(child, stretch)
+            else:
+                contents.addItem(item)
+        scroller = QScrollArea()
+        scroller.setProperty('uiRole', 'panelScroll')
+        scroller.setWidgetResizable(True)
+        scroller.setFrameShape(QFrame.NoFrame)
+        scroller.setMinimumSize(0, 0)
+        scroller.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Ignored)
+        scroller.setWidget(content)
+        layout.addWidget(scroller, 1)
+        for footer in footers:
+            layout.addWidget(footer)
+        body._panel_scroll = scroller
     apply_theme_style(dock, PANEL_STYLE + stylesheet)
     for surface in (dock.titleBarWidget(), dock.widget()):
         if surface is not None:
             _surface_palette(surface)
-            apply_theme_style(surface, SURFACE_STYLE + PANEL_STYLE + stylesheet)
 
 
 class _PanelCloseButton(QToolButton):
@@ -358,14 +397,17 @@ class _DialogScrollArea(QScrollArea):
 
 
 def present_dialog(
-    dialog, *, primary=None, minimum_width=380, scroll=False, title=True, icon="file"
+    dialog, *, primary=None, minimum_width=380, scroll=True, title=True, icon="file"
 ):
     """Apply the common header/body/footer shell to a constructed dialog."""
     if getattr(dialog, "_presentation_chrome", None) is not None:
         return
     explicit_size = dialog.testAttribute(Qt.WA_Resized)
     previous_size = dialog.size()
+    dialog._ui_scale_minimum_width = minimum_width
+    dialog._ui_scale_preferred_size = previous_size if explicit_size else None
     _surface_palette(dialog)
+    dialog.setProperty("labelimgSurfaceRoot", True)
     dialog.setWindowFlag(Qt.WindowContextHelpButtonHint, False)
     apply_theme_style(dialog, SURFACE_STYLE + "\n" + widget_theme_style(dialog))
     layout = dialog.layout()
@@ -455,6 +497,7 @@ def present_workbench(window):
     window.setDockOptions(window.dockOptions() | QMainWindow.AllowNestedDocks)
     window.setTabPosition(Qt.AllDockWidgetAreas, QTabWidget.North)
     _surface_palette(window)
+    window.setProperty("labelimgSurfaceRoot", True)
     apply_theme_style(
         window,
         SURFACE_STYLE + theme_style("""
@@ -463,7 +506,6 @@ def present_workbench(window):
         QMainWindow::separator:hover { background: ${accent_border}; }
         QFrame#canvasWorkspace { background: ${background}; border: 1px solid ${panel_border}; border-radius: 5px; }
         QScrollArea#canvasScrollArea { border: none; background: ${background}; }
-        QFrame#canvasStatusStrip { background: ${panel_header}; border: none; border-top: 1px solid ${divider}; }
         QToolBar#canvasToolRail { background: ${panel_header}; border: none; border-right: 1px solid ${panel_border}; }
         QToolBar { background: ${surface}; border: none; border-bottom: 1px solid ${divider}; spacing: 4px; }
         QToolBar::separator { background: ${divider}; width: 1px; height: 1px; margin: 6px; }
@@ -471,7 +513,35 @@ def present_workbench(window):
         QMenuBar::item { padding: 4px 8px; border-radius: 3px; }
         QMenuBar::item:selected { background: ${selected}; }
         QMenu { background: ${surface}; border: 1px solid ${border}; padding: 5px; }
-        QStatusBar { background: ${surface}; color: ${muted}; border-top: 1px solid ${divider}; }
+        QStatusBar { background: ${panel_header}; color: ${text}; border-top: 1px solid ${divider}; }
         QStatusBar::item { border: none; }
     """),
     )
+
+
+def scope_workbench_styles(window):
+    """Give independent regions one shared sheet, without a changing ancestor."""
+    from PyQt5.QtWidgets import QDialog
+
+    if window.property("labelimgScopedStyles"):
+        return
+    base = window.property("labelimgThemeStyle")
+    # Replace the ancestor first: doing it after the regional rules can reset
+    # fonts cached by already-polished controls in a subsequent workbench.
+    window.ensurePolished()
+    apply_theme_style(window, """
+        QMainWindow { background: ${workspace_gutter}; }
+        QMainWindow::separator { background: ${workspace_gutter}; }
+        QMainWindow::separator:hover { background: ${accent_border}; }
+    """)
+    for surface in window.findChildren(QWidget, options=Qt.FindDirectChildrenOnly):
+        if isinstance(surface, QDialog):
+            continue
+        own = widget_theme_style(surface).template
+        if own.startswith(SURFACE_STYLE.template):
+            own = own[len(SURFACE_STYLE.template):]
+        apply_theme_style(surface, base + "\n" + own)
+        surface.setProperty("labelimgSurfaceRoot", True)
+    # Native dock separator metrics are scaled by IconStyle; the frame's
+    # palette-only sheet stays stable while the regional dimensions change.
+    window.setProperty("labelimgScopedStyles", True)

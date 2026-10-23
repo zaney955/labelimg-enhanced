@@ -26,6 +26,7 @@ from PyQt5.QtWidgets import (
 
 import labelimg.ui.generated_resources  # noqa: F401 - register icons for standalone widgets
 from labelimg.ui.theme import COLORS, LIGHT_THEME, current_theme, theme_changed
+from labelimg.ui.metrics import dp, sp
 
 _ICON_ROLES = (
     "accent",
@@ -174,7 +175,7 @@ theme_changed.connect(_refresh_command_icons)
 def paint_icon(painter, rect, name, *, enabled=True, size=18):
     """Center an SVG in logical pixels; QIcon handles the paint device's DPR."""
     rect = QRectF(rect)
-    side = min(float(size), rect.width(), rect.height())
+    side = min(sp(size), rect.width(), rect.height())
     target = QRectF(0, 0, side, side)
     target.moveCenter(rect.center())
     icon(name).paint(
@@ -207,6 +208,21 @@ class IconLabel(QLabel):
 
 class IconStyle(QProxyStyle):
     """Keep native control behavior while sharing the application's glyphs."""
+
+    def pixelMetric(self, metric, option=None, widget=None):
+        value = super().pixelMetric(metric, option, widget)
+        # Text/content sizes already carry their scaled font. Only native chrome
+        # lengths are adapted here; QSS and explicit icon sizes have other owners.
+        if metric in (
+            QStyle.PM_IndicatorWidth, QStyle.PM_IndicatorHeight,
+            QStyle.PM_ExclusiveIndicatorWidth, QStyle.PM_ExclusiveIndicatorHeight,
+            QStyle.PM_ScrollBarExtent, QStyle.PM_ScrollBarSliderMin,
+            QStyle.PM_SplitterWidth, QStyle.PM_DockWidgetSeparatorExtent,
+            QStyle.PM_SliderThickness, QStyle.PM_SliderLength,
+            QStyle.PM_SmallIconSize,
+        ):
+            return dp(value)
+        return value
 
     ARROWS = {
         QStyle.PE_IndicatorArrowDown: "chevron-down",
@@ -252,7 +268,7 @@ class IconStyle(QProxyStyle):
                 if option is None or option.state & QStyle.State_Enabled
                 else QIcon.Disabled
             )
-            return icon(name).pixmap(24, 24, mode)
+            return icon(name).pixmap(dp(24), dp(24), mode)
         return super().standardPixmap(standard_pixmap, option, widget)
 
     def drawPrimitive(self, element, option, painter, widget=None):
@@ -286,7 +302,7 @@ class IconStyle(QProxyStyle):
                 else "sort-descending"
             )
         if name:
-            target = QRectF(0, 0, 16, 16)
+            target = QRectF(0, 0, dp(16), dp(16))
             target.moveCenter(QRectF(option.rect).center())
             paint_icon(
                 painter,
@@ -305,7 +321,7 @@ class IconStyle(QProxyStyle):
         selected = bool(option.state & (QStyle.State_On | QStyle.State_NoChange))
         focused = bool(option.state & (QStyle.State_HasFocus | QStyle.State_MouseOver))
         rect = QRectF(
-            0, 0, min(14, option.rect.width() - 2), min(14, option.rect.height() - 2)
+            0, 0, min(dp(14), option.rect.width() - dp(2)), min(dp(14), option.rect.height() - dp(2))
         )
         rect.moveCenter(QRectF(option.rect).center())
         edge = "accent" if enabled and (selected or focused) else "border"
@@ -315,33 +331,33 @@ class IconStyle(QProxyStyle):
         ink = "on_accent" if enabled else "disabled_text"
         painter.save()
         painter.setRenderHint(QPainter.Antialiasing)
-        painter.setPen(QPen(QColor(COLORS[edge]), 1.2))
+        painter.setPen(QPen(QColor(COLORS[edge]), sp(1.2)))
         painter.setBrush(QColor(COLORS[fill]))
         if element == QStyle.PE_IndicatorRadioButton:
             painter.drawEllipse(rect)
             if selected:
                 painter.setPen(Qt.NoPen)
                 painter.setBrush(QColor(COLORS[ink]))
-                painter.drawEllipse(rect.adjusted(4, 4, -4, -4))
+                painter.drawEllipse(rect.adjusted(sp(4), sp(4), -sp(4), -sp(4)))
         else:
-            painter.drawRoundedRect(rect, 3, 3)
+            painter.drawRoundedRect(rect, sp(3), sp(3))
             painter.setPen(
-                QPen(QColor(COLORS[ink]), 1.8, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+                QPen(QColor(COLORS[ink]), sp(1.8), Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
             )
             if option.state & QStyle.State_NoChange:
                 painter.drawLine(
                     QLineF(
-                        rect.left() + 4,
+                        rect.left() + sp(4),
                         rect.center().y(),
-                        rect.right() - 4,
+                        rect.right() - sp(4),
                         rect.center().y(),
                     )
                 )
             elif selected:
                 path = QPainterPath()
-                path.moveTo(rect.left() + 3, rect.center().y())
-                path.lineTo(rect.left() + 6, rect.bottom() - 4)
-                path.lineTo(rect.right() - 3, rect.top() + 4)
+                path.moveTo(rect.left() + sp(3), rect.center().y())
+                path.lineTo(rect.left() + sp(6), rect.bottom() - sp(4))
+                path.lineTo(rect.right() - sp(3), rect.top() + sp(4))
                 painter.drawPath(path)
         painter.restore()
 

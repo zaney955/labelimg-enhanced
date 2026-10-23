@@ -96,18 +96,18 @@ class HelpDialogTest(unittest.TestCase):
             for row in rows
         ))
         self.assertTrue(any(
-            row.keys == "Ctrl+0"
+            row.keys == "Ctrl+Alt+0"
             and row.action == "Fit Window"
             for row in rows
         ))
         self.assertTrue(any(
-            row.keys == "Ctrl+="
-            and row.action == "Zoom In"
+            row.keys == "Ctrl+Alt+="
+            and row.action == "Zoom In Canvas"
             for row in rows
         ))
         self.assertTrue(any(
-            row.keys == "Ctrl+-"
-            and row.action == "Zoom Out"
+            row.keys == "Ctrl+Alt+-"
+            and row.action == "Zoom Out Canvas"
             for row in rows
         ))
         self.assertTrue(any(

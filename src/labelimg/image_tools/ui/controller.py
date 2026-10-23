@@ -8,7 +8,7 @@ import os.path
 
 
 from PyQt5.QtCore import QBuffer, QByteArray, QIODevice, QSignalBlocker, QThread, Qt
-from PyQt5.QtGui import QImage, QImageReader, QPixmap
+from PyQt5.QtGui import QCursor, QImage, QImageReader, QPixmap
 from PyQt5.QtWidgets import QApplication, QDialog, QMessageBox, QProgressDialog
 
 import labelimg.ui.generated_resources  # noqa: F401 - registers Qt resources
@@ -759,9 +759,18 @@ class ImageToolsActionsMixin:
         self.actions.cropImage.setChecked(True)
         del blocker
         image_size = (self.image.width(), self.image.height())
+        self.canvas.un_highlight()
+        self.review_control.set_suppressed(True)
+        overlay = self.display_adjustment_overlay
+        self._crop_chrome_visibility = (
+            not overlay.button.isHidden(), not overlay.panel_shell.isHidden(),
+        )
+        overlay.button.hide()
+        overlay.panel_shell.hide()
         self.crop_overlay.begin(image_size)
         self.crop_controls.begin(image_size)
         self.status(tr('crop.noRegion'))
+        self.statusBar().set_tool_hint('canvas.hintCrop')
         return True
 
 
@@ -819,6 +828,7 @@ class ImageToolsActionsMixin:
 
 
     def _finish_crop_mode(self):
+        self.statusBar().set_tool_hint(None)
         self.crop_overlay.finish()
         self.crop_controls.finish()
         self._crop_active = False
@@ -829,8 +839,14 @@ class ImageToolsActionsMixin:
             action.setEnabled(enabled)
         self._crop_action_states = {}
         self.set_edit_mode()
+        self.review_control.set_suppressed(self.canvas.drawing())
+        overlay = self.display_adjustment_overlay
+        button_visible, panel_visible = self._crop_chrome_visibility
+        overlay.button.setVisible(button_visible)
+        overlay.panel_shell.setVisible(panel_visible and overlay.button.isChecked())
         self._crop_previous_canvas_mode = None
         self.canvas.setFocus(Qt.OtherFocusReason)
+        self.canvas.refresh_pointer_coordinates(self.canvas.mapFromGlobal(QCursor.pos()))
         self.update_image_menu()
 
 

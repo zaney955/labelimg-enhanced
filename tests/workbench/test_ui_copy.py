@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import QApplication, QAction, QToolButton
 from labelimg.workbench.bootstrap import WorkbenchLaunchOptions, create_workbench
 from labelimg.localization.runtime import ENGLISH, SIMPLIFIED_CHINESE, set_language
 from labelimg.localization.catalogs import CATALOGS
-from labelimg.ui.actions import format_action_tooltip
+from labelimg.ui.actions import format_action_tooltip, format_shortcut
 
 
 class UserInterfaceCopyTest(unittest.TestCase):
@@ -50,16 +50,16 @@ class UserInterfaceCopyTest(unittest.TestCase):
                 "create": "Draw Box (W)",
                 "questioned": "Needs Review (Ctrl+Space)",
                 "verified": "Verified (Space)",
-                "zoom_in": "Zoom In (Ctrl+=)",
-                "zoom_out": "Zoom Out (Ctrl+-)",
+                "zoom_in": "Zoom In (Ctrl+Alt+=)",
+                "zoom_out": "Zoom Out (Ctrl+Alt+-)",
             },
             SIMPLIFIED_CHINESE: {
                 "rotate": "向右旋转",
                 "create": "绘制标注框（W）",
                 "questioned": "待复核（Ctrl+Space）",
                 "verified": "已验证（Space）",
-                "zoom_in": "放大（Ctrl+=）",
-                "zoom_out": "缩小（Ctrl+-）",
+                "zoom_in": "放大（Ctrl+Alt+=）",
+                "zoom_out": "缩小（Ctrl+Alt+-）",
             },
         }
 
@@ -90,6 +90,8 @@ class UserInterfaceCopyTest(unittest.TestCase):
                 self.window.zoom_widget.minus.toolTip(),
                 copy["zoom_out"],
             )
+            self.assertIn(format_shortcut("Ctrl+Alt+="), self.window.zoom_widget.whatsThis())
+            self.assertIn(format_shortcut("Ctrl+Alt+-"), self.window.zoom_widget.whatsThis())
 
             for name, action in vars(self.window.actions).items():
                 if not isinstance(action, QAction):

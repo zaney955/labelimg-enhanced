@@ -2,13 +2,14 @@
 
 from PyQt5.QtCore import QEvent, QSize, Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QLinearGradient, QPainter
-from PyQt5.QtWidgets import QAction, QActionGroup, QFrame, QHBoxLayout, QToolButton
+from PyQt5.QtWidgets import QAction, QActionGroup, QBoxLayout, QFrame, QHBoxLayout, QToolButton
 
 from labelimg.localization.runtime import language_changed, tr
 from labelimg.ui.actions import format_action_tooltip
 from labelimg.ui.icons import outline_icon
 from labelimg.ui.theme import COLORS, apply_theme_style, theme_changed, theme_style
 from labelimg.ui.theme_palettes import blend, luminance, readable
+from labelimg.ui.metrics import dp, scale_changed
 
 
 class _ReviewRibbon(QFrame):
@@ -23,14 +24,12 @@ class _ReviewRibbon(QFrame):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        # Complete the readability scrim before the first command. Its soft
-        # transition uses the same material in every review state, without a card.
-        end = max(1, self.width() - self.controls.width() - 11)
-        start = max(0, end - 275)
-        gradient = QLinearGradient(start, 0, max(start + 1, end), 0)
+        # One shared gradient starts fading immediately across the full width,
+        # including behind the transparent command buttons.
+        gradient = QLinearGradient(0, 0, 0, max(1, self.height() - 1))
         tint = self.controls.ribbon_color
         surface = QColor(blend(tint.name(), COLORS['surface'], tint.alphaF()))
-        for stop, alpha in ((0, 0), (.30, 12), (.70, 196), (1, 246)):
+        for stop, alpha in ((0, 210), (1, 0)):
             color = QColor(surface)
             color.setAlpha(alpha)
             gradient.setColorAt(stop, color)
@@ -51,6 +50,7 @@ class ReviewControl(QFrame):
         super().__init__(viewport)
         self.setObjectName("currentImageReviewControl")
         self._state = "unreviewed"
+        self._suppressed = False
         self._refreshing = False
         self.group = QActionGroup(self)
         self.group.setExclusive(True)
@@ -92,6 +92,7 @@ class ReviewControl(QFrame):
         viewport.installEventFilter(self)
         language_changed.connect(self.retranslate_ui)
         theme_changed.connect(self._refresh)
+        scale_changed.connect(self._scale_changed)
         self.retranslate_ui()
         self.set_state("unreviewed")
 
@@ -135,25 +136,33 @@ class ReviewControl(QFrame):
         super().setEnabled(enabled)
         for action in self.actions.values():
             action.setEnabled(enabled)
-        self.setVisible(enabled)
-        self.ribbon.setVisible(enabled)
+        self._sync_visibility()
         self._position()
 
+    def set_suppressed(self, suppressed):
+        """Temporarily hide both viewport layers without changing review state."""
+        self._suppressed = bool(suppressed)
+        self._sync_visibility()
+
+    def _sync_visibility(self):
+        visible = self.isEnabled() and not self._suppressed
+        self.setVisible(visible)
+        self.ribbon.setVisible(visible and self._state != "unreviewed")
+
     def _foregrounds(self):
-        # Readability must hold over arbitrary bright/dark source pixels below
-        # the translucent surface, not just over the nominal theme background.
+        # Choose semantic foregrounds against the shared gradient on the theme
+        # canvas. Source pixels remain visible; buttons add no local material.
         surface = COLORS["surface"]
         tint = self.ribbon_color
-        backgrounds = tuple(
-            blend(blend(tint.name(), surface, tint.alphaF()), base, 246 / 255)
-            for base in ("#000000", "#FFFFFF")
-        )
+        material = blend(tint.name(), surface, tint.alphaF())
+        opacity = 210 / 255 * (1 - self.height() / 2 / max(1, self.ribbon.height() - 1))
+        background = blend(material, COLORS["background"], opacity) if tint.alpha() else COLORS["background"]
         role = {
             "verified": "review_verified_foreground",
             "questioned": "review_questioned_foreground",
         }.get(self._state, "text")
-        active = readable(COLORS[role], backgrounds, 4.6)
-        return active, readable(COLORS["muted"], backgrounds, 4.6)
+        active = readable(COLORS[role], (background,), 4.6)
+        return active, readable(COLORS["muted"], (background,), 4.6)
 
     def _refresh(self, _identifier=None):
         if self._refreshing:
@@ -180,6 +189,7 @@ class ReviewControl(QFrame):
                     QToolButton:focus { border-color: %s; }
                 """ % (color, "700" if selected else "400", muted)))
             self._position()
+            self._sync_visibility()
             self.ribbon.update()
         finally:
             self._refreshing = False
@@ -193,20 +203,32 @@ class ReviewControl(QFrame):
         for action in self.actions.values():
             self._size_probe.setText(action.text())
             hints.append(self._size_probe.sizeHint())
-        widths = [max(74, hint.width()) for hint in hints]
-        available = max(102, viewport.width() - 10)
-        if sum(widths) > available:
-            total = sum(widths)
-            widths = [max(34, int(available * width / total)) for width in widths]
-        height = max(36, *(hint.height() for hint in hints))
-        self.setFixedSize(sum(widths) + 10, height)
+        self.setProperty("uiScaleDynamicGeometry", True)
+        widths = [max(dp(74), hint.width()) for hint in hints]
+        available = max(dp(102), viewport.width() - dp(10))
+        vertical = sum(widths) + dp(10) > available
+        self._row.setDirection(QBoxLayout.TopToBottom if vertical else QBoxLayout.LeftToRight)
+        height = max(dp(36), *(hint.height() for hint in hints))
+        if vertical:
+            widths = [min(max(widths), available)] * len(widths)
+            group_width = widths[0] + dp(6)
+            group_height = height * len(widths) + self._row.spacing() * (len(widths) - 1)
+        else:
+            group_width = sum(widths) + dp(10)
+            group_height = height
+        self.setFixedSize(group_width, group_height)
         for button, width in zip(self.buttons.values(), widths):
+            button.setProperty("uiScaleDynamicGeometry", True)
             button.setFixedSize(width, height)
         self._row.activate()
         self.move(max(0, viewport.width() - self.width()), 0)
-        self.ribbon.setGeometry(0, 0, viewport.width(), height)
+        self.ribbon.setProperty("uiScaleGeometryExcluded", True)
+        self.ribbon.setGeometry(0, 0, viewport.width(), group_height + dp(44))
         self.ribbon.raise_()
         self.raise_()
+
+    def _scale_changed(self, _percent):
+        self._position()
 
     def eventFilter(self, watched, event):
         if watched is self.parentWidget() and event.type() in (QEvent.Resize, QEvent.Show):

@@ -18,6 +18,7 @@ from labelimg.annotations.ui.style import (
 )
 from labelimg.localization.runtime import language_changed, localize_dialog_buttons, tr
 from labelimg.ui.query_field import decorate_list_query_field
+from labelimg.ui.metrics import Metric, dp, scale_changed
 
 
 BB = QDialogButtonBox
@@ -66,12 +67,12 @@ def contrast_text_color(background, base):
 
 
 class CandidateLabelDelegate(QStyledItemDelegate):
-    horizontal_padding = 6
-    horizontal_inset = 3
-    vertical_inset = 3
-    stripe_width = 8
-    outline_width = 1.4
-    radius = 4
+    horizontal_padding = Metric(6)
+    horizontal_inset = Metric(3)
+    vertical_inset = Metric(3)
+    stripe_width = Metric(8)
+    outline_width = Metric(1.4)
+    radius = Metric(4)
 
     def sizeHint(self, option, index):
         view = self.parent()
@@ -119,8 +120,8 @@ class CandidateLabelDelegate(QStyledItemDelegate):
 
 class CandidateLabelList(QListWidget):
     column_count = 4
-    minimum_cell_width = 52
-    cell_height = 36
+    minimum_cell_width = Metric(52)
+    cell_height = Metric(36)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -187,6 +188,8 @@ class CandidateLabelDialog(QDialog):
     def __init__(self, text="", parent=None, list_item=None, color_for_label=None):
         super().__init__(parent)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        self.setProperty("uiScaleDynamicGeometry", True)
+        scale_changed.connect(self._scale_changed)
         self.setObjectName("candidateLabelDialog")
         self._color_for_label = color_for_label or label_display_color
         self._candidate_labels = ()
@@ -232,6 +235,7 @@ class CandidateLabelDialog(QDialog):
         layout.addWidget(self.edit)
 
         self.list_widget = CandidateLabelList(self)
+        self.list_widget.setProperty("uiScaleDynamicGeometry", True)
         self.list_widget.installEventFilter(self)
         self.list_widget.itemClicked.connect(self.list_item_click)
         self.list_widget.itemDoubleClicked.connect(self.list_item_double_click)
@@ -241,6 +245,7 @@ class CandidateLabelDialog(QDialog):
         self.empty_label.setAlignment(Qt.AlignCenter)
         self.empty_label.setWordWrap(True)
         self.candidate_stack = QStackedWidget()
+        self.candidate_stack.setProperty("uiScaleDynamicGeometry", True)
         self.candidate_stack.addWidget(self.list_widget)
         self.candidate_stack.addWidget(self.empty_label)
         layout.addWidget(self.candidate_stack, 0, Qt.AlignLeft)
@@ -249,6 +254,7 @@ class CandidateLabelDialog(QDialog):
         self.divider.setObjectName("candidateDivider")
         layout.addWidget(self.divider)
         self.button_box = BB(BB.Ok | BB.Cancel, Qt.Horizontal, self)
+        self.button_box.setProperty("uiScaleDynamicGeometry", True)
         self.button_box.button(BB.Ok).setObjectName("candidateConfirm")
         role(self.button_box.button(BB.Ok), 'primary')
         self.button_box.button(BB.Ok).setDefault(True)
@@ -373,7 +379,7 @@ class CandidateLabelDialog(QDialog):
         maximum_width = int(screen.width() * self.maximum_screen_width_ratio)
         maximum_height = int(screen.height() * self.maximum_screen_height_ratio)
         self.setMaximumSize(maximum_width, maximum_height)
-        self.setMinimumWidth(min(300, maximum_width))
+        self.setMinimumWidth(min(dp(300), maximum_width))
         margins = self.dialog_layout.contentsMargins()
         chrome_height = (
             margins.top() + margins.bottom() + self.header_layout.sizeHint().height()
@@ -389,6 +395,9 @@ class CandidateLabelDialog(QDialog):
         self.dialog_layout.activate()
         self.adjustSize()
         self.resize(self.sizeHint().expandedTo(self.minimumSize()).boundedTo(self.maximumSize()))
+
+    def _scale_changed(self, _percent):
+        self.update_candidate_geometry()
 
     def validate(self):
         if trimmed(self.edit.text()):

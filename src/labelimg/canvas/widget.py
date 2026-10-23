@@ -15,7 +15,7 @@ from PyQt5.QtGui import (
 )
 from PyQt5.QtWidgets import QApplication, QWidget
 
-from labelimg.localization.runtime import tr
+from labelimg.localization.runtime import language_changed, tr
 from labelimg.ui.theme import COLORS
 from labelimg.ui.risk_glyphs import draw_not_equal_glyph
 
@@ -59,10 +59,12 @@ class Canvas(QWidget):
     annotationSizeChanged = pyqtSignal(str)
     imageSizeChanged = pyqtSignal(QSize)
     statusRequest = pyqtSignal(str)
+    interactionHintChanged = pyqtSignal(str, bool)
     newShape = pyqtSignal()
     selectionChanged = pyqtSignal(bool)
     shapeMoved = pyqtSignal()
     drawingPolygon = pyqtSignal(bool)
+    modeChanged = pyqtSignal(int)
     annotationGestureStarted = pyqtSignal(str)
     annotationGestureFinished = pyqtSignal(str)
     annotationGestureCanceled = pyqtSignal(str)
@@ -78,6 +80,7 @@ class Canvas(QWidget):
 
     def __init__(self, *args, **kwargs):
         super(Canvas, self).__init__(*args, **kwargs)
+        self.setProperty("uiScaleGeometryExcluded", True)
         # Initialise local state.
         self.mode = self.EDIT
         self.shapes = []
@@ -131,6 +134,49 @@ class Canvas(QWidget):
         # initialisation for panning
         self.pan_initial_pos = QPoint()
         self._pan_dragging = False
+        language_changed.connect(self.refresh_interaction_hint)
+
+    def _publish_interaction_hint(self, text, interactive=False):
+        self.setToolTip(text or tr("canvas.image"))
+        # Canvas hints use the direct signal; native StatusTip events must not
+        # replay a cached shape after the pointer/tool has already changed.
+        self.setStatusTip("")
+        self.interactionHintChanged.emit(text, interactive)
+
+    def refresh_interaction_hint(self, _language=None, *, interactive=False, control_down=False):
+        """Project current interaction state, without retaining category text."""
+        text = ""
+        if self.pixmap is not None and not self.pixmap_size.isEmpty():
+            if self._pan_dragging or self.panning():
+                text = tr("canvas.hintPan")
+            elif self.drawing():
+                text = tr("canvas.hintDrawFinish" if self.current else "canvas.hintDrawStart")
+            elif self._annotation_gesture_source == "keyboard" and self.selected_shape is not None:
+                text = tr("canvas.hintKeyboardMove", label=self.selected_shape.label)
+            elif self._pointer_global_pos is not None:
+                target = self.interaction_snapshot.hover
+                shape = target.shape
+                if self._near_duplicate_hover_cluster is not None:
+                    text = self._near_duplicate_tooltip(self._near_duplicate_hover_cluster)
+                elif self.selection_dragging:
+                    text = tr("canvas.hintMultiSelect")
+                elif shape is not None and shape in self.shapes and self.isVisible(shape):
+                    if self._annotation_gesture_source == "mouse":
+                        text = tr("canvas.hintResizing" if target.vertex is not None or target.edge is not None
+                                  else "canvas.hintMoving", label=shape.label)
+                    elif self.multi_selection_mode or control_down:
+                        text = tr("canvas.ctrlToggle", label=shape.label)
+                    elif target.vertex is not None:
+                        text = tr("canvas.movePoint")
+                    elif target.edge is not None:
+                        text = tr("canvas.resizeShape", label=shape.label)
+                    else:
+                        text = tr("canvas.moveShape", label=shape.label)
+                else:
+                    text = tr("canvas.hintMultiSelect" if self.multi_selection_mode or control_down else "canvas.hintSelect")
+            elif self.hasFocus():
+                text = tr("canvas.hintSelect")
+        self._publish_interaction_hint(text, interactive)
 
     def set_drawing_color(self, qcolor):
         self.drawing_line_color = qcolor
@@ -147,6 +193,7 @@ class Canvas(QWidget):
             else CURSOR_DRAW if self.drawing()
             else self._cursor
         )
+        self.refresh_interaction_hint(interactive=True)
 
     def leaveEvent(self, ev):
         self._pointer_global_pos = None
@@ -162,6 +209,8 @@ class Canvas(QWidget):
             self.un_highlight()
         self.restore_cursor()
 
+        self._publish_interaction_hint("")
+
     def focusOutEvent(self, ev):
         self.multi_selection_mode = False
         self.restore_cursor()
@@ -169,8 +218,15 @@ class Canvas(QWidget):
             self._held_arrow_keys.clear()
             self._finish_annotation_gesture()
         super(Canvas, self).focusOutEvent(ev)
+        self.refresh_interaction_hint()
+        if self._pointer_global_pos is None:
+            self._publish_interaction_hint("")
 
     def event(self, ev):
+        if ev.type() == QEvent.ToolTip:
+            # Keep hover guidance in the status bar without obscuring the image.
+            ev.ignore()
+            return True
         if (
             ev.type() == QEvent.UngrabMouse
             and self._annotation_gesture_source == "mouse"
@@ -353,6 +409,7 @@ class Canvas(QWidget):
     def set_mode(self, mode):
         if mode not in (self.CREATE, self.EDIT, self.PAN):
             raise ValueError("Unknown canvas mode: %r" % (mode,))
+        previous_mode = self.mode
         self.mode = mode
         self._overlap_drag_shape = None
         if mode != self.CREATE:
@@ -375,7 +432,10 @@ class Canvas(QWidget):
         self.setCursor(QCursor(self._cursor))
         if self.underMouse():
             self.override_cursor(self._cursor)
+        self.refresh_interaction_hint(interactive=True)
         self.update()
+        if mode != previous_mode:
+            self.modeChanged.emit(mode)
 
     @property
     def near_duplicate_clusters(self):
@@ -502,10 +562,16 @@ class Canvas(QWidget):
         self._interaction.set_hover(shape, vertex=vertex, edge=edge)
         if previous_shape is not shape:
             self.hoverShapeChanged.emit(shape)
+        readout = self._active_readout_shape()
+        if readout is None and self.editing():
+            readout = shape
+        self._emit_annotation_size(readout)
+        self.refresh_interaction_hint()
 
     def set_hover_target(self, shape=None, vertex=None, edge=None):
         """Project one coherent hover transition and its Qt side effects."""
         self._set_hover(shape, vertex, edge)
+        self.refresh_interaction_hint()
         self.update()
 
     def set_external_hover_shape(self, shape):
@@ -571,6 +637,7 @@ class Canvas(QWidget):
 
     def set_multi_selection_mode(self, enabled):
         self.multi_selection_mode = bool(enabled)
+        self.refresh_interaction_hint(interactive=True)
         self.update()
         if self.current is not None:
             return
@@ -753,6 +820,13 @@ class Canvas(QWidget):
         return shape
 
     def mouseMoveEvent(self, ev):
+        self.refresh_interaction_hint(interactive=True)
+        try:
+            self._handle_pointer_move(ev)
+        finally:
+            self.refresh_interaction_hint(control_down=bool(ev.modifiers() & Qt.ControlModifier))
+
+    def _handle_pointer_move(self, ev):
         """Update line with last point and current coordinates."""
         pos = self.transform_pos(ev.pos())
         self._last_pointer_pos = QPointF(pos)
@@ -893,12 +967,10 @@ class Canvas(QWidget):
         if target.vertex is not None:
             self.override_cursor(self.vertex_cursor(target.vertex))
             self.setToolTip(tr("canvas.movePoint"))
-            self.setStatusTip(self.toolTip())
         elif target.edge is not None:
             self.setToolTip(
                 tr("canvas.resizeShape", label=target.shape.label)
             )
-            self.setStatusTip(self.toolTip())
             self.override_cursor(
                 CURSOR_SIZE_VERTICAL
                 if target.edge % 2 == 0
@@ -908,12 +980,18 @@ class Canvas(QWidget):
             self.setToolTip(
                 tr("canvas.moveShape", label=target.shape.label)
             )
-            self.setStatusTip(self.toolTip())
             self.override_cursor(CURSOR_GRAB)
         else:
             self.override_cursor(CURSOR_DEFAULT)
 
     def mousePressEvent(self, ev):
+        self.refresh_interaction_hint(interactive=True)
+        try:
+            self._handle_pointer_press(ev)
+        finally:
+            self.refresh_interaction_hint(control_down=bool(ev.modifiers() & Qt.ControlModifier))
+
+    def _handle_pointer_press(self, ev):
         pos = self.transform_pos(ev.pos())
         self._pointer_global_pos = self.mapToGlobal(ev.pos())
         self._last_pointer_pos = QPointF(pos)
@@ -993,6 +1071,13 @@ class Canvas(QWidget):
         self.update()
 
     def mouseReleaseEvent(self, ev):
+        self.refresh_interaction_hint(interactive=True)
+        try:
+            self._handle_pointer_release(ev)
+        finally:
+            self.refresh_interaction_hint(control_down=bool(ev.modifiers() & Qt.ControlModifier))
+
+    def _handle_pointer_release(self, ev):
         self._last_pointer_pos = self.transform_pos(ev.pos())
         self._pointer_global_pos = self.mapToGlobal(ev.pos())
         if self._pan_dragging and ev.button() in (
@@ -1810,6 +1895,9 @@ class Canvas(QWidget):
         if shape is None and self._valid_pointer_position(position):
             shape = self.resolve_pointer_target(position).shape
         self._emit_coordinates(position, shape)
+        if self.editing() and self._annotation_gesture_source != "mouse":
+            self._refresh_hover(position, suppress_handles=self.multi_selection_mode)
+        self.refresh_interaction_hint()
 
     def refresh_tracked_pointer_coordinates(self):
         """Reproject the last screen position after scrolling, panning or zoom."""
@@ -2069,7 +2157,7 @@ class Canvas(QWidget):
             and len(self.selected_shapes) > 1
         ):
             self.statusRequest.emit(
-                'Arrow-key movement requires a single selected label'
+                tr('canvas.singleSelectionForArrows')
             )
             ev.accept()
         elif key == Qt.Key_Left and len(self.selected_shapes) == 1:
@@ -2106,6 +2194,7 @@ class Canvas(QWidget):
             return
         self._annotation_gesture_description = description
         self._annotation_gesture_source = source
+        self.refresh_interaction_hint(interactive=source == "keyboard")
         self._near_duplicate_marker_hits = tuple()
         self.update()
         self.annotationGestureStarted.emit(description)
@@ -2119,6 +2208,7 @@ class Canvas(QWidget):
         self._annotation_gesture_source = None
         self._near_duplicate_marker_hits = tuple()
         self.annotationGestureFinished.emit(description)
+        self.refresh_interaction_hint()
         self.update()
 
     def cancel_annotation_gesture(self):
@@ -2131,6 +2221,7 @@ class Canvas(QWidget):
         self._held_arrow_keys.clear()
         self._near_duplicate_marker_hits = tuple()
         self.annotationGestureCanceled.emit(description)
+        self.refresh_interaction_hint()
         self.update()
 
     def _begin_arrow_gesture(self, event):
@@ -2341,6 +2432,7 @@ class Canvas(QWidget):
         self.update()
 
     def _reset_transient_interaction(self):
+        self._publish_interaction_hint("")
         self._overlap_drag_shape = None
         self._drawing_scene_cache.clear()
         self._pending_label_shape = None

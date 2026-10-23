@@ -30,6 +30,10 @@ Image-quality content validation is a separate explicit operation. Opening a dir
 
 Progress is non-modal, for example `Discovered X · Indexed Y`. Each load has a monotonically increasing generation identity. Selecting another directory immediately invalidates the prior generation; late results are discarded. Explicit stop leaves an already-ready workspace usable with an incomplete index and offers resume.
 
+Progress and Stop/Resume occupy the middle of the [unified workbench status bar](canvas-tool-rail.md#unified-workbench-status). They remain ahead of operation-result and hover messages until the task completes or is invalidated. Failures persist with a Details command and Resume; live language changes update both task copy and button text without altering the task state. Completion removes the task controls and returns the middle region to operation feedback without moving zoom.
+
+Resume preserves the request kind and arguments: an annotation-directory request restarts annotation indexing rather than reopening the previous image directory. Progress transitions and completion discard queued ordinary results, preventing old file/category messages from resurfacing after a task.
+
 A corrupt or disappearing non-current file contributes to an aggregated warning without aborting the load. If the proposed current image cannot load, the coordinator tries the next usable image. Repeated errors do not open one modal dialog per file.
 
 Application-owned file operations update the index immediately. Debounced metadata differences in the watched annotation directory update only affected image statuses and candidate-label contributions. Other external changes appear through refresh, reopening, or access to the affected file; directory events never trigger a full synchronous rescan.

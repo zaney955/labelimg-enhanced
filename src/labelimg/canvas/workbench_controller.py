@@ -314,6 +314,7 @@ class CanvasActionsMixin:
             or self.image.isNull()
             or event.oldSize().isEmpty()
             or bool(getattr(self, "_ignore_zoom_viewport_resize", False))
+            or bool(getattr(self, "_ui_scale_reflowing", False))
         ):
             return
         if self.zoom_mode != self.MANUAL_ZOOM:

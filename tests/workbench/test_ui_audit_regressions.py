@@ -225,12 +225,21 @@ class UiAuditRegressionTest(unittest.TestCase):
         self.assertTrue(dialog.empty.isVisible())
 
     def test_autosave_button_names_its_current_state(self):
+        self.window.resize(1800, 900)
+        self.window.show()
+        QTest.qWait(20)
         button = self.window.top_commands.auto_save_button
         self.window.auto_saving.setChecked(False)
         self.assertIn('Off', button.text())
         button.click()
         self.assertIn('On', button.text())
         self.assertEqual(button.toolButtonStyle(), Qt.ToolButtonTextBesideIcon)
+        self.window.resize(1024, 720)
+        self.window.ui_scale.set_percent(200)
+        QTest.qWait(20)
+        self.assertEqual(button.toolButtonStyle(), Qt.ToolButtonIconOnly)
+        self.assertIn('On', button.accessibleName())
+        self.assertTrue(button.isChecked())
 
     def test_restore_layout_preserves_preferences_and_restores_dock_positions(self):
         from PyQt5.QtWidgets import QDockWidget

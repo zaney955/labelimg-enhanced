@@ -253,17 +253,28 @@ class PanelChromeTest(unittest.TestCase):
             )
 
     def test_application_exit_after_repeated_mode_changes(self):
-        # Exercise native Qt destruction in fresh interpreters, including saved
-        # mode changes between launches. A single successful close missed the
-        # intermittent dock-style shutdown regression.
+        # Exercise the real Qt loop and native destruction in fresh interpreters,
+        # including saved mode changes. Collect while Python/Qt are still fully
+        # initialized: module-global wrappers left to interpreter finalization
+        # intermittently crash even on the unchanged baseline.
         environment = os.environ.copy()
         for _repeat in range(2):
             for mode in ("light", "dark", "system"):
                 code = (
-                    "from labelimg.workbench.bootstrap import get_main_app; "
-                    "app,window=get_main_app(); "
-                    f"window.appearance.apply_preferences({mode!r},'blue'); "
-                    "window.close(); app.quit()"
+                    "import gc, weakref\n"
+                    "from PyQt5.QtCore import QTimer\n"
+                    "from PyQt5 import sip\n"
+                    "from labelimg.workbench.bootstrap import get_main_app\n"
+                    "def exercise():\n"
+                    "    app,window=get_main_app()\n"
+                    f"    window.appearance.apply_preferences({mode!r},'blue')\n"
+                    "    QTimer.singleShot(0, window.close)\n"
+                    "    app.exec_()\n"
+                    "    assert sip.isdeleted(window), 'Primary window outlived its close'\n"
+                    "    return weakref.ref(app)\n"
+                    "reference=exercise()\n"
+                    "gc.collect()\n"
+                    "assert reference() is None, 'Closed QApplication retained'\n"
                 )
                 result = subprocess.run(
                     [sys.executable, "-X", "faulthandler", "-B", "-c", code],

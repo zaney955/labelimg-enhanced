@@ -246,7 +246,7 @@ class ThemeTest(unittest.TestCase):
                 before,
             )
             self.assertEqual(window.canvas.pixmap.toImage(), before_image)
-            self.assertIn(COLORS["accent"], window.dock.widget().styleSheet())
+            self.assertIn(COLORS["accent"], window.dock.styleSheet())
             window.undo_annotation()
             self.assertEqual(len(window.canvas.shapes), 0)
 

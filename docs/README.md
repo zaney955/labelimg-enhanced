@@ -10,6 +10,7 @@
 | --- | --- |
 | 新增或修改界面前必读：通用设计范式、布局、状态、组件接入与验收 | [UI 设计规范](design/ui-guidelines.md) |
 | 全局外观、对话框分区、底部操作区与缩放渲染验证 | [全局界面外观](design/ui-presentation.md) |
+| 全局界面缩放、独立画布缩放、快捷键迁移与 DPI 边界 | [全局界面缩放](design/ui-scaling.md) |
 | 浅色/深色/系统跟随、强调色预设及扩展接口 | [外观与主题接口](design/themes.md) |
 | 功能模块、状态归属、调用关系与架构检查范围 | [模块化架构](design/modular-architecture-refactor.md) |
 | 标注事务、Undo/Redo、自动保存、格式选择、外部冲突、候选类别与文件恢复 | [标注历史与文件恢复](design/undo-redo-and-file-recovery.md) |

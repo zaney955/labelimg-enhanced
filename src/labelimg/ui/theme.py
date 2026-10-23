@@ -3,13 +3,18 @@
 from collections.abc import Mapping
 from dataclasses import dataclass
 import re
+import weakref
 from string import Template
 from types import MappingProxyType
 
 from PyQt5 import sip
-from PyQt5.QtCore import QObject, pyqtSignal
+from PyQt5.QtCore import QObject, Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QPalette
 from labelimg.ui.typography import FONT_TOKENS
+from labelimg.ui.metrics import current_percent, scale_stylesheet
+
+_style_scales = weakref.WeakKeyDictionary()
+_surface_polish_scales = weakref.WeakKeyDictionary()
 
 _LIGHT_COLORS = {
     "surface": "#FFFFFF",
@@ -137,7 +142,7 @@ class ThemeStyle(str):
 
     def __new__(cls, template):
         template = template.template if isinstance(template, ThemeStyle) else template
-        instance = super().__new__(cls, Template(template).substitute({**COLORS, **FONT_TOKENS}))
+        instance = super().__new__(cls, scale_stylesheet(Template(template).substitute({**COLORS, **FONT_TOKENS})))
         instance.template = template
         return instance
 
@@ -160,7 +165,8 @@ def theme_style(stylesheet):
 def apply_theme_style(widget, stylesheet):
     """Bind QSS to a widget/application so existing windows can change theme."""
     template = _style_template(stylesheet)
-    widget.setProperty("labelimgThemeStyle", template)
+    if widget.property("labelimgThemeStyle") != template:
+        widget.setProperty("labelimgThemeStyle", template)
     resolved = str(theme_style(template))
     if "url(:/" in resolved:
         from labelimg.ui.icons import themed_icon_path
@@ -170,13 +176,78 @@ def apply_theme_style(widget, stylesheet):
             lambda match: 'url("' + themed_icon_path(match[1]) + '")',
             resolved,
         )
-    widget.setStyleSheet(resolved)
+    if widget.styleSheet() != resolved:
+        widget.setStyleSheet(resolved)
+    _style_scales[widget] = current_percent()
 
 
 def widget_theme_style(widget):
     """Get a bound style without flattening its theme tokens during composition."""
     template = widget.property("labelimgThemeStyle")
     return theme_style(template if template is not None else widget.styleSheet())
+
+
+def _style_surfaces(app):
+    surfaces = (app, *app.allWidgets())
+    # Qt 5 can retain a constructor-time QSS palette on unpolished native
+    # toolbar/status controls. Polish the old rules before invalidating them,
+    # so changing theme/zoom before first show follows the same path as live UI.
+    for widget in surfaces:
+        if widget is not app and not sip.isdeleted(widget):
+            widget.ensurePolished()
+    return surfaces
+
+
+def refresh_theme_styles():
+    """Resize visible regions; hidden windows catch up before they are shown."""
+    from PyQt5.QtWidgets import QApplication, QWidget
+
+    app = QApplication.instance()
+    if app is None:
+        return
+    # The application sheet is a fallback. Rebinding it repolishes every hidden
+    # editor and popup as well. Each visible window/region owns its scaled rules.
+    for widget in app.allWidgets():
+        if sip.isdeleted(widget) or not QWidget.isVisible(widget):
+            continue
+        template = widget.property("labelimgThemeStyle")
+        if template is not None:
+            apply_theme_style(widget, template)
+
+
+def prepare_surface_scale(widget, *, showing=False):
+    """Bring a newly visible subtree up to date before native layout/painting."""
+    from PyQt5.QtWidgets import QDialog, QFileDialog, QMenu, QWidget
+
+    # Labels/frames can be temporarily parentless during construction. They
+    # must inherit their eventual region rather than acquire a local full sheet.
+    owns_surface = isinstance(widget, (QDialog, QMenu)) or widget.windowType() == Qt.ToolTip
+    if owns_surface and not widget.property("labelimgSurfaceRoot"):
+        if isinstance(widget, QFileDialog) and not widget.testOption(QFileDialog.DontUseNativeDialog):
+            return
+        from labelimg.ui.presentation import SURFACE_STYLE
+
+        apply_theme_style(widget, SURFACE_STYLE + "\n" + widget_theme_style(widget))
+        widget.setProperty("labelimgSurfaceRoot", True)
+    window = QWidget.window(widget)
+    for surface in (widget, *widget.findChildren(QWidget)):
+        if QWidget.window(surface) is not window or _style_scales.get(surface) == current_percent():
+            continue
+        template = surface.property("labelimgThemeStyle")
+        if template is not None:
+            surface.ensurePolished()
+            apply_theme_style(surface, template)
+    if (showing and widget.property("labelimgSurfaceRoot")
+            and _surface_polish_scales.get(widget) != current_percent()):
+        # Native button-box buttons can retain the application's fallback font
+        # when they were constructed before their dialog's regional sheet.
+        # Refresh once before showing, never on the shortcut's hot path.
+        for surface in (widget, *widget.findChildren(QWidget)):
+            if QWidget.window(surface) is window:
+                style = surface.style()
+                style.unpolish(surface)
+                style.polish(surface)
+        _surface_polish_scales[widget] = current_percent()
 
 
 def apply_theme_palette(widget):
@@ -227,7 +298,7 @@ def set_theme(identifier):
     try:
         app = QApplication.instance()
         if app is not None:
-            surfaces = (app, *app.allWidgets())
+            surfaces = _style_surfaces(app)
             for widget in surfaces:
                 if sip.isdeleted(widget):
                     continue

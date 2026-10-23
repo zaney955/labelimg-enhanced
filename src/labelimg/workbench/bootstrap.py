@@ -6,6 +6,7 @@ import os
 import sys
 
 from PyQt5.QtWidgets import QApplication
+from PyQt5.QtCore import Qt
 
 from labelimg.ui.actions import new_icon
 from labelimg.ui.icons import install_icon_style
@@ -71,10 +72,17 @@ def create_workbench(
 def get_main_app(argv=None):
     """Create the Qt application and its one concrete workbench window."""
     argv = [] if argv is None else list(argv)
+    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+    QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     app = QApplication(argv)
     app.setApplicationName(APP_NAME)
     app.setWindowIcon(new_icon("app"))
     window = create_workbench(parse_launch_options(argv))
+    # Dispose native widgets while the application's style/plugins still live.
+    # Keeping a hidden primary window until cyclic/interpreter GC makes native
+    # Qt teardown depend on Python wrapper finalization order.
+    window.setAttribute(Qt.WA_DeleteOnClose, True)
     window.show()
     return app, window
 

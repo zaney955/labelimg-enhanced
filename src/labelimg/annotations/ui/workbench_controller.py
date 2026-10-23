@@ -346,7 +346,8 @@ class AnnotationActionsMixin:
             self._watch_current_annotation_document()
             return
         except AnnotationDocumentError as error:
-            self.status(tr('external.invalid', path=self._annotation_watch_target or '', error=annotation_error_text(error)), 0)
+            self.status_translation('external.invalid', 0, important=True, source="annotation-sync",
+                                    path=self._annotation_watch_target or '', error=annotation_error_text(error))
             self._watch_current_annotation_document()
             return
         view = self.annotation_editing.view
@@ -357,13 +358,10 @@ class AnnotationActionsMixin:
                 image_key
             )
         except AnnotationDocumentError as error:
-            self.status(
-                tr(
-                    'external.invalid',
-                    path=self._annotation_watch_target or '',
-                    error=annotation_error_text(error),
-                ),
-                0,
+            self.status_translation(
+                'external.invalid', 0,
+                important=True, source="annotation-sync",
+                path=self._annotation_watch_target or '', error=annotation_error_text(error),
             )
             self._watch_current_annotation_document()
             return
@@ -394,6 +392,7 @@ class AnnotationActionsMixin:
             self._watch_current_annotation_document()
             return
         if not mismatches and target == view.current_target:
+            self.statusBar().clear_important_message(source="annotation-sync")
             self._watch_current_annotation_document()
             return
         try:
@@ -412,12 +411,13 @@ class AnnotationActionsMixin:
             self._watch_current_annotation_document()
             return
         except AnnotationDocumentError as error:
-            self.status(
-                tr('external.invalid', path=target, error=annotation_error_text(error)),
-                0,
+            self.status_translation(
+                'external.invalid', 0, path=target, error=annotation_error_text(error),
+                important=True, source="annotation-sync",
             )
             self._watch_current_annotation_document()
             return
+        self.statusBar().clear_important_message(source="annotation-sync")
         if (
             target == view.current_target
             and self._annotation_document_content_signature(document)
@@ -678,15 +678,10 @@ class AnnotationActionsMixin:
                 return
         except Exception as error:
             recovery_error = error
-        self.status(
-            tr(
-                'history.failureDetail',
-                image=os.path.basename(image_key),
-                projection=target_error,
-                rollback=rollback_error,
-                reload=recovery_error or tr('history.unavailable'),
-            ),
-            10000,
+        self.status_translation(
+            'history.failureDetail', 10000, important=True,
+            image=os.path.basename(image_key), projection=target_error,
+            rollback=rollback_error, reload=recovery_error or tr('history.unavailable'),
         )
         for action in (
             self.actions.create,
@@ -2035,10 +2030,7 @@ class AnnotationActionsMixin:
         self.auto_save_timer.stop()
         self.refresh_file_list_statuses()
         if self._autosave_request:
-            self.status(
-                tr('conflict.autosavePaused'),
-                10000,
-            )
+            self.status_translation('conflict.autosavePaused', 10000, important=True)
             return None
 
         box = QMessageBox(self)

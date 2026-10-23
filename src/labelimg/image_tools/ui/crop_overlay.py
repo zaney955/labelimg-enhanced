@@ -25,7 +25,7 @@ from PyQt5.QtGui import (
 from PyQt5.QtWidgets import (
     QApplication,
     QFrame,
-    QHBoxLayout,
+    QGridLayout,
     QLabel,
     QLayout,
     QPushButton,
@@ -38,6 +38,7 @@ from labelimg.ui.menu import Menu as QMenu
 from labelimg.localization.runtime import tr
 from labelimg.ui.actions import new_icon
 from labelimg.ui.icons import IconLabel
+from labelimg.ui.metrics import dp, scale_changed
 from labelimg.image_tools.domain.crop_geometry import CropRegion
 
 
@@ -265,10 +266,7 @@ class CropOverlay(QWidget):
 
     def mouseMoveEvent(self, event):
         image_point = self._image_point(event.pos())
-        if self._region is None:
-            pointer_position = self._pointer_image_position(event.pos())
-            if pointer_position is not None:
-                self.pointerPositionChanged.emit(pointer_position)
+        self.pointerPositionChanged.emit(self._pointer_image_position(event.pos()))
         if self._drag_mode is None:
             self._update_cursor(event.pos(), image_point)
             return
@@ -296,6 +294,10 @@ class CropOverlay(QWidget):
             )
         self._assign_region(region)
         event.accept()
+
+    def leaveEvent(self, event):
+        self.pointerPositionChanged.emit(None)
+        super().leaveEvent(event)
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton and self._drag_mode is not None:
@@ -543,25 +545,35 @@ class CropControlBar(QFrame):
         self._syncing = False
         self._drag_offset = None
         self._user_moved = False
+        self._reflowing = False
+        self._row_widgets = []
+        self._separators = []
+        self.setProperty('uiScaleDynamicGeometry', True)
         self.setObjectName("cropControlBar")
         self.setFrameShape(QFrame.StyledPanel)
         self.setAutoFillBackground(True)
         present_surface(self, theme_style("#cropControlBar { background: ${surface}; "
             "border: 1px solid ${border}; border-radius: 6px; }"
-            "#cropControlBar QPushButton { min-width: 0; padding: 0 8px; }"))
-        layout = QHBoxLayout(self)
+            "#cropControlBar QPushButton { min-width: 0; min-height: 24px; padding: 0 8px; }"
+            "#cropControlBar QSpinBox { min-height: 24px; padding: 0 5px; padding-right: 22px; }"
+            "#cropControlBar QComboBox { min-height: 24px; }"))
+        layout = QGridLayout(self)
         layout.setContentsMargins(7, 5, 7, 5)
         layout.setSpacing(5)
-        layout.setSizeConstraint(QLayout.SetFixedSize)
+        layout.setSizeConstraint(QLayout.SetNoConstraint)
+
+        def add(widget):
+            layout.addWidget(widget, 0, len(self._row_widgets))
+            self._row_widgets.append(widget)
 
         self.drag_handle = IconLabel("drag-handle", self)
         self.drag_handle.setCursor(Qt.SizeAllCursor)
         self.drag_handle.installEventFilter(self)
-        layout.addWidget(self.drag_handle)
+        add(self.drag_handle)
 
         self.labels = {}
         self.labels["ratio"] = QLabel(tr("crop.ratio"), self)
-        layout.addWidget(self.labels["ratio"])
+        add(self.labels["ratio"])
         self.ratio_combo = QComboBox(self)
         self._ratio_items = (
             ("crop.ratio.free", None),
@@ -572,8 +584,8 @@ class CropControlBar(QFrame):
         )
         for message_id, value in self._ratio_items:
             self.ratio_combo.addItem(tr(message_id), value)
-        layout.addWidget(self.ratio_combo)
-        layout.addWidget(self._separator())
+        add(self.ratio_combo)
+        add(self._separator())
 
         self.spins = {}
         for key, message_id in (
@@ -588,6 +600,7 @@ class CropControlBar(QFrame):
             spin.setMinimum(0)
             spin.setEnabled(False)
             spin.setFixedWidth(82)
+            spin.setProperty('uiScaleDynamicGeometry', True)
             spin.valueChanged.connect(self._values_changed)
             spin.editingFinished.connect(
                 lambda target=overlay: target.setFocus(
@@ -595,27 +608,33 @@ class CropControlBar(QFrame):
                 )
             )
             self.spins[key] = spin
-            layout.addWidget(self.labels[key])
-            layout.addWidget(spin)
+            add(self.labels[key])
+            add(spin)
 
-        layout.addWidget(self._separator())
+        add(self._separator())
         self.apply_button = QPushButton(tr("crop.apply"), self)
         self.cancel_button = QPushButton(tr("common.cancel"), self)
         self.apply_button.setEnabled(False)
         role(self.apply_button, "primary")
         self.apply_button.clicked.connect(overlay.applyRequested.emit)
         self.cancel_button.clicked.connect(overlay.cancelRequested.emit)
-        layout.addWidget(self.apply_button)
-        layout.addWidget(self.cancel_button)
+        add(self.apply_button)
+        add(self.cancel_button)
 
         self.ratio_combo.currentIndexChanged.connect(self._ratio_changed)
         overlay.regionChanged.connect(self._region_changed)
         overlay.pointerPositionChanged.connect(self._pointer_position_changed)
         if parent is not None:
             parent.installEventFilter(self)
+        scale_changed.connect(self._scale_changed)
         self.hide()
 
     def begin(self, image_size):
+        from labelimg.ui.theme import prepare_surface_scale
+
+        # This hidden overlay measures itself before show(); resolve its lazy
+        # style first so the grid reserves the final spin/button heights.
+        prepare_surface_scale(self)
         self._image_size = tuple(map(int, image_size))
         width, height = self._image_size
         self.spins["x"].setRange(0, max(0, width - 1))
@@ -625,7 +644,7 @@ class CropControlBar(QFrame):
         self.ratio_combo.setCurrentIndex(0)
         self._region_changed(None)
         self._user_moved = False
-        self.adjustSize()
+        self._reflow()
         self._place_initial()
         self.show()
         self.raise_()
@@ -649,7 +668,7 @@ class CropControlBar(QFrame):
             self.ratio_combo.setItemText(index, tr(message_id))
         self.apply_button.setText(tr("crop.apply"))
         self.cancel_button.setText(tr("common.cancel"))
-        self.adjustSize()
+        self._reflow()
         if self.isVisible():
             if self._user_moved:
                 self._clamp_position()
@@ -687,7 +706,7 @@ class CropControlBar(QFrame):
             self._syncing = False
 
     def _pointer_position_changed(self, point):
-        if self.overlay.region is not None:
+        if point is None or self.overlay.region is not None:
             return
         self._syncing = True
         try:
@@ -722,6 +741,7 @@ class CropControlBar(QFrame):
     def eventFilter(self, watched, event):
         if watched is self.parentWidget() and event.type() == QEvent.Resize:
             if self.isVisible():
+                self._reflow()
                 if self._user_moved:
                     self._clamp_position()
                 else:
@@ -772,7 +792,89 @@ class CropControlBar(QFrame):
         separator = QFrame(self)
         separator.setFrameShape(QFrame.VLine)
         separator.setFrameShadow(QFrame.Sunken)
+        self._separators.append(separator)
         return separator
+
+    def _scale_changed(self, _percent):
+        if self.isVisible():
+            self._reflow()
+            self._clamp_position() if self._user_moved else self._place_initial()
+
+    def _reflow(self):
+        """Keep every crop field and both commands inside the live viewport."""
+        parent = self.parentWidget()
+        if parent is None or self._reflowing:
+            return
+        self._reflowing = True
+        try:
+            layout = self.layout()
+            while layout.count():
+                layout.takeAt(0)
+            for column in range(max(layout.columnCount(), len(self._row_widgets))):
+                layout.setColumnStretch(column, 0)
+            self.labels['ratio'].setWordWrap(False)
+            for spin in self.spins.values():
+                spin.setFixedWidth(dp(82))
+            for separator in self._separators:
+                separator.show()
+            for column, widget in enumerate(self._row_widgets):
+                layout.addWidget(widget, 0, column)
+            layout.invalidate()
+            available = max(1, parent.width() - dp(16))
+            if self.sizeHint().width() <= available:
+                self.setFixedSize(self.sizeHint())
+                return
+            while layout.count():
+                layout.takeAt(0)
+            for separator in self._separators:
+                separator.hide()
+            self.labels['ratio'].setWordWrap(True)
+            margins = layout.contentsMargins()
+            cell = max(1, (available - margins.left() - margins.right()
+                           - layout.horizontalSpacing()) // 2)
+            for spin in self.spins.values():
+                spin.setFixedWidth(min(dp(82), cell))
+            for column in range(4):
+                layout.setColumnStretch(column, 1)
+            narrow = (
+                self.drag_handle.width() + self.labels['ratio'].minimumSizeHint().width()
+                + self.ratio_combo.minimumSizeHint().width() + dp(30)
+                > available - margins.left() - margins.right()
+                or self.apply_button.minimumSizeHint().width()
+                + self.cancel_button.minimumSizeHint().width() + dp(5)
+                > available - margins.left() - margins.right()
+            )
+            layout.setVerticalSpacing(dp(3 if narrow else 5))
+            layout.addWidget(self.drag_handle, 0, 0)
+            layout.addWidget(self.labels['ratio'], 0, 1, 1, 3 if narrow else 1)
+            if narrow:
+                layout.addWidget(self.ratio_combo, 1, 0, 1, 4)
+            else:
+                layout.addWidget(self.ratio_combo, 0, 2, 1, 2)
+            for index, key in enumerate(('x', 'y', 'width', 'height')):
+                if narrow:
+                    self.spins[key].setFixedWidth(min(dp(82), max(1,
+                        available - margins.left() - margins.right()
+                        - dp(20) - layout.horizontalSpacing())))
+                    layout.addWidget(self.labels[key], index + 2, 0)
+                    layout.addWidget(self.spins[key], index + 2, 1, 1, 3)
+                else:
+                    row, column = 1 + (index // 2) * 2, (index % 2) * 2
+                    layout.addWidget(self.labels[key], row, column, 1, 2)
+                    layout.addWidget(self.spins[key], row + 1, column, 1, 2)
+            layout.addWidget(self.apply_button, 6 if narrow else 5, 0, 1, 4 if narrow else 2)
+            layout.addWidget(self.cancel_button, 7 if narrow else 5, 0 if narrow else 2, 1, 4 if narrow else 2)
+            layout.invalidate()
+            height = layout.totalHeightForWidth(available)
+            if narrow and max(height, layout.totalMinimumSize().height()) > parent.height():
+                # Retain font/control sizes when a large-scale viewport is only
+                # a few pixels short; use the shared compact row gap instead.
+                layout.setVerticalSpacing(dp(2))
+                layout.invalidate()
+                height = layout.totalHeightForWidth(available)
+            self.setFixedSize(available, max(height, layout.totalMinimumSize().height()))
+        finally:
+            self._reflowing = False
 
     def _begin_drag(self, global_position):
         self._drag_offset = global_position - self.mapToGlobal(QPoint())
@@ -791,7 +893,7 @@ class CropControlBar(QFrame):
             return
         self.move(self._bounded_position(QPoint(
             (parent.width() - self.width()) // 2,
-            8,
+            dp(8),
         )))
 
     def _clamp_position(self):

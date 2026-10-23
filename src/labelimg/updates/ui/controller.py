@@ -354,10 +354,12 @@ class UpdateUiCoordinator(QObject):
         client=None,
         distribution_strategy=None,
         download_client_factory=InstallerDownloadClient,
+        important_status=None,
     ):
         super().__init__(window)
         self.window = window
         self.status = status
+        self.important_status = important_status
         client = client or GitHubReleaseClient(current_version, parent=self)
         self.controller = UpdateController(
             settings,
@@ -593,7 +595,10 @@ class UpdateUiCoordinator(QObject):
         download_client.take_candidate()
 
     def _installer_failed(self, detail):
-        self.status(tr("updates.install.failed", detail=detail), 10000)
+        if self.important_status is not None:
+            self.important_status("updates.install.failed", 10000, detail=detail)
+        else:
+            self.status(tr("updates.install.failed", detail=detail), 10000)
         release = self.current_release
         self._clear_download()
         if release is not None:

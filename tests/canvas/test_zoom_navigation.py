@@ -194,35 +194,34 @@ class WorkbenchZoomTest(unittest.TestCase):
 
         self.assertTrue(self.window.zoom_widget.isVisible())
         self.assertTrue(self.window.zoom_widget.slider.isVisible())
-        self.assertIn(self.window.zoom_widget.slider.width(), (64, 80))
+        self.assertIn(self.window.zoom_widget.slider.width(), (64, 80, 112))
 
-    def test_canvas_status_is_local_and_reflows_when_sidebar_expands(self):
+    def test_unified_status_spans_window_and_is_independent_of_sidebar_width(self):
         self.window.resize(1800, 760)
         self.app.processEvents()
         strip = self.window.canvas_status
         self.assertFalse(strip.stacked)
-        self.assertEqual(strip.width(), self.window.scroll_area.width())
-        self.assertEqual(strip.mapToGlobal(QPoint()).x(),
-                         self.window.scroll_area.mapToGlobal(QPoint()).x())
-        self.assertNotIn(self.window.zoom_widget,
-                         self.window.statusBar().findChildren(ZoomControl))
+        self.assertIs(strip, self.window.statusBar())
+        self.assertEqual(strip.width(), self.window.width())
+        self.assertIn(self.window.zoom_widget,
+                      self.window.statusBar().findChildren(ZoomControl))
         self.assertGreaterEqual(strip.mapToGlobal(QPoint()).y(),
                                 self.window.scroll_area.mapToGlobal(QPoint(
                                     0, self.window.scroll_area.height(),
                                 )).y())
 
         window_width = self.window.width()
+        slider_origin = self.window.zoom_widget.slider.mapToGlobal(QPoint())
         # Let Qt expand the dock up to the Canvas minimum; a fixed 1200-pixel
         # dock can still leave a full status row with Linux font metrics.
         self.window.resizeDocks([self.window.file_dock], [window_width], Qt.Horizontal)
         for _ in range(3):
             self.app.processEvents()
         self.assertEqual(self.window.width(), window_width)
-        self.assertTrue(strip.stacked)
-        self.assertTrue(strip.rect().contains(
-            self.window.zoom_widget.geometry()))
+        self.assertFalse(strip.stacked)
+        self.assertEqual(self.window.zoom_widget.slider.mapToGlobal(QPoint()), slider_origin)
         for label in (strip.coordinates, strip.dimensions):
-            self.assertGreaterEqual(label.width(), label.sizeHint().width())
+            self.assertGreaterEqual(label.width(), label.fontMetrics().horizontalAdvance(label.text()))
 
     def test_readout_digits_and_placeholders_do_not_move_slider(self):
         self.assertEqual(self.window.label_dimensions.text(), "")
@@ -297,16 +296,16 @@ class WorkbenchZoomTest(unittest.TestCase):
         self.assertEqual(
             [shortcut.toString()
              for shortcut in self.window.actions.zoomIn.shortcuts()],
-            ["Ctrl+="],
+            ["Ctrl+Alt+="],
         )
         self.assertEqual(
             self.window.actions.zoomInAlias.key().toString(),
-            "Ctrl++",
+            "Ctrl+Alt++",
         )
         self.assertEqual(
             [shortcut.toString()
              for shortcut in self.window.actions.zoomOut.shortcuts()],
-            ["Ctrl+-"],
+            ["Ctrl+Alt+-"],
         )
         self.assertEqual(
             [shortcut.toString()
@@ -323,11 +322,11 @@ class WorkbenchZoomTest(unittest.TestCase):
         self.window.actions.zoomOrg.trigger()
         self.assertAlmostEqual(self.window.zoom_widget.value(), 100.0)
 
-        QTest.keyClick(self.window, Qt.Key_Equal, Qt.ControlModifier)
+        QTest.keyClick(self.window, Qt.Key_Equal, Qt.ControlModifier | Qt.AltModifier)
         self.assertAlmostEqual(self.window.zoom_widget.value(), 110.0)
-        QTest.keyClick(self.window, Qt.Key_Minus, Qt.ControlModifier)
+        QTest.keyClick(self.window, Qt.Key_Minus, Qt.ControlModifier | Qt.AltModifier)
         self.assertAlmostEqual(self.window.zoom_widget.value(), 100.0)
-        QTest.keyClick(self.window, Qt.Key_Plus, Qt.ControlModifier)
+        QTest.keyClick(self.window, Qt.Key_Plus, Qt.ControlModifier | Qt.AltModifier)
         self.assertAlmostEqual(self.window.zoom_widget.value(), 110.0)
         QTest.keyClick(self.window, Qt.Key_1, Qt.ControlModifier)
         self.assertAlmostEqual(self.window.zoom_widget.value(), 100.0)

@@ -47,9 +47,16 @@ python tools/run_tests.py --package-root "$checkRoot/package"
 $env:PYTHONPATH = "$PWD/src"
 python -B tools/render_ui_gallery.py --output .test-state/ui-zh-dark --language zh_CN --scale 1.5 --mode dark --accent teal
 python -B tools/render_label_selection.py --output .test-state/labels-en --language en --scale 1.25
+python -B tools/render_status_bar.py --output .test-state/footer-en-dark-150 --language en --mode dark --scale 1.5
+python -B tools/render_ui_scaling.py --output .test-state/zoom-en-dark --language en --mode dark --dpr 1.5 --levels 75 100 125 150 200
+python -B tools/render_ui_scaling.py --output .test-state/zoom-native --native --language zh_CN --levels 100 150 200
 ```
 
 图库支持 `--focus` 和 `--panels-only` 子集；覆盖范围以脚本和生成的 JSON 清单为准。中英文、主题、缩放及实际桌面的验证边界见[全局界面外观](design/ui-presentation.md#双语与验证)。脚本使用临时图像和标注；不要为验证修改用户数据。
+
+底栏工具 `render_status_bar.py` 的 `--scale` 对应 Qt 系统 DPR（1、1.25、1.5），`--ui-scale` 对应应用界面比例（75、100、125、150、200）。分别组合 `--language en/zh_CN` 与 `--mode light/dark`；PNG 和 `manifest.json` 记录空态、窄窗口、悬停、加载/停止/失败、焦点与大坐标读数，并执行缩放滑块、预设菜单、放大镜和任务按钮交互。几何检查失败会返回非零退出码；它不会修改 Windows 的实际显示缩放设置。
+
+在 Windows 添加 `--native` 可显示临时测试窗口，并实际打开、截图和关闭状态详情对话框及比例菜单；默认 offscreen 通过隔离的对话框调用检查完整消息。原生窗口检查与系统 DPR 模拟应分别记录。
 
 大目录计时使用 `python tools/benchmark_directory_loading.py --count 10000`，与确定性正确性测试分开。目标与测量条件见[目录加载](design/large-directory-loading.md#performance-budget)。
 

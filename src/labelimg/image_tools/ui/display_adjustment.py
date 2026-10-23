@@ -604,10 +604,11 @@ class DisplayAdjustmentPanel(QWidget):
 class DisplayAdjustmentOverlay(QObject):
     """Place a persistent floating trigger and scrollable panel in a viewport."""
 
-    PANEL_WIDTH = 248
-    VIEWPORT_MARGIN = 12
-    PANEL_TOP_MARGIN = 8
-    PANEL_GAP = 8
+    from labelimg.ui.metrics import Metric
+    PANEL_WIDTH = Metric(248)
+    VIEWPORT_MARGIN = Metric(12)
+    PANEL_TOP_MARGIN = Metric(8)
+    PANEL_GAP = Metric(8)
 
     def __init__(self, viewport, panel, action, parent=None):
         super().__init__(parent or viewport)

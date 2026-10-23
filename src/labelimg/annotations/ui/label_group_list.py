@@ -6,6 +6,7 @@ from labelimg.localization.runtime import language_changed, tr
 from labelimg.canvas import CATEGORY_CONFLICT
 from labelimg.ui.icons import paint_icon
 from labelimg.ui.theme import COLORS
+from labelimg.ui.metrics import Metric, scale_changed
 from labelimg.ui.risk_glyphs import draw_not_equal_glyph
 from labelimg.annotations.ui.style import LABEL_INDICATOR_FILL_ALPHA, natural_label_key
 
@@ -36,22 +37,22 @@ class LabelGroupListWidget(QAbstractScrollArea):
     nearDuplicateRequested = pyqtSignal(object, object, object)
     nearDuplicateGroupRequested = pyqtSignal(object, object)
 
-    row_height = 32
-    row_inset = 1
-    label_min_width = 36
-    label_max_width = 240
+    row_height = Metric(32)
+    row_inset = Metric(1)
+    label_min_width = Metric(36)
+    label_max_width = Metric(240)
     label_width_ratio = 0.45
-    label_left_margin = 16
-    label_button_gap = 6
-    count_area_width = 50
-    risk_area_width = 16
-    risk_count_gap = 3
-    visibility_area_width = 26
-    arrow_area_width = 16
-    chip_size = 24
-    chip_gap = 4
-    chip_step = chip_size + chip_gap
-    drag_threshold = 5
+    label_left_margin = Metric(16)
+    label_button_gap = Metric(6)
+    count_area_width = Metric(50)
+    risk_area_width = Metric(16)
+    risk_count_gap = Metric(3)
+    visibility_area_width = Metric(26)
+    arrow_area_width = Metric(16)
+    chip_size = Metric(24)
+    chip_gap = Metric(4)
+    chip_step = Metric(28)
+    drag_threshold = Metric(5)
     selected_fill_alpha = LABEL_INDICATOR_FILL_ALPHA
     hover_background_alpha = 45
     separator_alpha = 45
@@ -60,6 +61,7 @@ class LabelGroupListWidget(QAbstractScrollArea):
 
     def __init__(self, parent=None):
         super(LabelGroupListWidget, self).__init__(parent)
+        scale_changed.connect(self._scale_changed)
         self._scene_shapes = tuple()
         self._visible_shapes = set()
         self._groups = []
@@ -1024,6 +1026,13 @@ class LabelGroupListWidget(QAbstractScrollArea):
         self._clamp_all_group_scrolls()
         self._update_scroll_range()
         super(LabelGroupListWidget, self).resizeEvent(event)
+
+    def _scale_changed(self, _percent):
+        self._invalidate_label_width()
+        self._clamp_all_group_scrolls()
+        self._update_scroll_range()
+        self.verticalScrollBar().setSingleStep(self.row_height)
+        self.viewport().update()
 
     def changeEvent(self, event):
         if (

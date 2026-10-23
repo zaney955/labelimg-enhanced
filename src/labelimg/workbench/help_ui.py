@@ -52,6 +52,10 @@ class ShortcutSection:
 
 _ACTION_SECTIONS = (
     (
+        "shortcuts.section.interfaceZoom",
+        ("uiZoomIn", "uiZoomOut", "uiZoomReset"),
+    ),
+    (
         "shortcuts.section.workspace",
         (
             "openDir",

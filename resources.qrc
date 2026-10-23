@@ -1,5 +1,13 @@
 <!DOCTYPE RCC><RCC version="1.0">
 <qresource>
+<file alias="ui-zoom">resources/icons/ui-zoom.svg</file>
+<file alias="ui-zoom-in">resources/icons/ui-zoom-in.svg</file>
+<file alias="ui-zoom-out">resources/icons/ui-zoom-out.svg</file>
+<file alias="ui-zoom-reset">resources/icons/ui-zoom-reset.svg</file>
+<file alias="ui-zoom">resources/icons/ui-zoom.svg</file>
+<file alias="ui-zoom-in">resources/icons/ui-zoom-in.svg</file>
+<file alias="ui-zoom-out">resources/icons/ui-zoom-out.svg</file>
+<file alias="ui-zoom-reset">resources/icons/ui-zoom-reset.svg</file>
 <file alias="external-link">resources/icons/external-link.svg</file>
 <file alias="external-link">resources/icons/external-link.svg</file>
 

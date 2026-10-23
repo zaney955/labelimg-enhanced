@@ -39,6 +39,7 @@ except ImportError:  # pragma: no cover - legacy Qt4 compatibility
 from labelimg.annotations.domain.model import AnnotationFormat
 from labelimg.localization.runtime import language_changed, tr
 from labelimg.ui.actions import format_action_tooltip, new_icon
+from labelimg.ui.metrics import dp, scaled_size, scale_changed
 
 
 BUTTON_SIZE = QSize(44, 44)
@@ -47,17 +48,18 @@ ICON_SIZE = QSize(24, 24)
 
 def _set_text_button_compact(button, compact):
     """Size a command button for its current text, font, and Qt style."""
+    button.setProperty("uiScaleDynamicGeometry", True)
     button.setToolButtonStyle(
         Qt.ToolButtonIconOnly if compact
         else Qt.ToolButtonTextBesideIcon
     )
     if compact:
-        button.setFixedSize(BUTTON_SIZE)
+        button.setFixedSize(scaled_size(BUTTON_SIZE))
         return
     hint = button.sizeHint()
     button.setFixedSize(
-        max(BUTTON_SIZE.width(), hint.width()),
-        max(BUTTON_SIZE.height(), hint.height()),
+        max(dp(BUTTON_SIZE.width()), hint.width()),
+        max(dp(BUTTON_SIZE.height()), hint.height()),
     )
 
 
@@ -129,6 +131,11 @@ class CanvasToolRail(QToolBar):
         self.buttons["crop"] = crop_button
         select_action.setChecked(True)
         language_changed.connect(self.retranslate_ui)
+        scale_changed.connect(self._scale_margins)
+
+    def _scale_margins(self, _percent):
+        self.setContentsMargins(dp(4), dp(4), dp(4), dp(4))
+        self.layout().setContentsMargins(dp(4), dp(4), dp(4), dp(4))
 
     def retranslate_ui(self, _language=None):
         for button in self.buttons.values():
@@ -136,7 +143,7 @@ class CanvasToolRail(QToolBar):
 
     def sizeHint(self):
         hint = super(CanvasToolRail, self).sizeHint()
-        hint.setWidth(52)
+        hint.setWidth(dp(52))
         return hint
 
 
@@ -270,14 +277,20 @@ class TopCommandBar(QToolBar):
         self.save_button.setObjectName("saveButton")
         self.addWidget(self.save_button)
         language_changed.connect(self.retranslate_ui)
+        scale_changed.connect(self._scale_changed)
         self.retranslate_ui()
+
+    def _scale_changed(self, _percent):
+        self._sync_auto_save()
+        self.format_selector.set_compact(self.format_selector._compact)
+        self.update_responsive_layout(self.width())
 
     def _sync_auto_save(self):
         button = self.auto_save_button
         text = tr('autosave.on' if button.defaultAction().isChecked() else 'autosave.off')
         button.setText(text)
         button.setAccessibleName(text)
-        _set_text_button_compact(button, False)
+        _set_text_button_compact(button, getattr(self, '_auto_save_compact', False))
         self.layout().invalidate()
 
     def retranslate_ui(self, _language=None):
@@ -341,6 +354,8 @@ class TopCommandBar(QToolBar):
         self.image_quick_widget_action.setVisible(quick_actions_compact)
         _set_text_button_compact(self.open_button, open_compact)
         self.format_selector.set_compact(context_compact)
+        self._auto_save_compact = context_compact
+        _set_text_button_compact(self.auto_save_button, context_compact)
         self.layout().invalidate()
 
 
@@ -403,13 +418,14 @@ class ZoomControl(QFrame):
 
     def set_compact(self, compact):
         compact = bool(compact)
-        self.set_slider_width(80 if compact else 112)
+        self.set_slider_width(dp(80 if compact else 112))
 
     def set_slider_width(self, width):
-        width = max(64, min(112, int(width)))
+        self.slider.setProperty("uiScaleDynamicGeometry", True)
+        width = max(dp(64), min(dp(112), int(width)))
         if width == self.slider.width():
             return
-        self._compact = width < 112
+        self._compact = width < dp(112)
         self.slider.setFixedWidth(width)
         self.updateGeometry()
 
@@ -469,12 +485,18 @@ class ZoomControl(QFrame):
 
     def _update_value_button_width(self):
         current_text = self.value_button.text()
-        self.value_button.setMinimumWidth(58)
+        self.value_button.setProperty("uiScaleDynamicGeometry", True)
+        self.value_button.setMinimumWidth(dp(58))
         self.value_button.setMaximumWidth(16777215)
         self.value_button.setText("%.2f%%" % self._maximum)
-        width = max(58, self.value_button.sizeHint().width())
+        width = max(dp(58), self.value_button.sizeHint().width())
         self.value_button.setFixedWidth(width)
         self.value_button.setText(current_text)
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() in (QEvent.FontChange, QEvent.StyleChange) and hasattr(self, "value_button"):
+            self._update_value_button_width()
 
     def _slider_position_for_value(self, value):
         if self._maximum <= self._minimum:
@@ -542,10 +564,10 @@ class ZoomControl(QFrame):
         self.setAccessibleName(title)
         self.slider.setAccessibleName(title)
         self.minus.setToolTip(format_action_tooltip(
-            tr("zoom.outShort"), ("Ctrl+-",)
+            tr("zoom.outShort"), ("Ctrl+Alt+-",)
         ))
         self.plus.setToolTip(format_action_tooltip(
-            tr("zoom.inShort"), ("Ctrl+=",)
+            tr("zoom.inShort"), ("Ctrl+Alt+=",)
         ))
         self.value_button.setToolTip(tr("zoom.presets"))
         self.minus.setAccessibleName(tr("zoom.outShort"))

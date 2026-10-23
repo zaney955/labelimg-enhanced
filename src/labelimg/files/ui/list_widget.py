@@ -1747,14 +1747,16 @@ class FileListWidget(QListView):
 
 class FileListItemDelegate(QStyledItemDelegate):
     hover_background_alpha = 18
-    status_column_width = 20
-    alert_column_width = 20
-    status_name_gap = 6
-    name_alert_gap = 4
+    from labelimg.ui.metrics import Metric
+    status_column_width = Metric(20)
+    alert_column_width = Metric(20)
+    status_name_gap = Metric(6)
+    name_alert_gap = Metric(4)
 
     def sizeHint(self, option, index):
         size = super().sizeHint(option, index)
-        size.setHeight(max(32, option.fontMetrics.height() + 10))
+        from labelimg.ui.metrics import dp
+        size.setHeight(max(dp(32), option.fontMetrics.height() + dp(10)))
         return size
 
     def paint(self, painter, option, index):

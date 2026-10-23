@@ -7,6 +7,7 @@ from PyQt5.QtGui import QColor, QPainter, QPainterPath, QPen
 from PyQt5.QtWidgets import (
     QApplication,
     QButtonGroup,
+    QBoxLayout,
     QAbstractButton,
     QFrame,
     QLabel,
@@ -38,6 +39,7 @@ from labelimg.ui.theme import (
 )
 from labelimg.ui.theme_palettes import available_accents, luminance
 from labelimg.ui.icons import icon, outline_icon
+from labelimg.ui.metrics import dp, sp
 
 COLOR_MODES = ("system", "light", "dark")
 
@@ -148,7 +150,7 @@ class AccentButton(QAbstractButton):
 
     def sizeHint(self):
         return QSize(
-            max(56, self.fontMetrics().horizontalAdvance(self.text()) + 12), 72
+            max(dp(56), self.fontMetrics().horizontalAdvance(self.text()) + dp(12)), dp(72)
         )
 
     def paintEvent(self, event):
@@ -163,22 +165,22 @@ class AccentButton(QAbstractButton):
         colors = appearance_theme(
             self.controller.effective_mode, self.preset.identifier
         ).colors
-        circle = QRectF((self.width() - 28) / 2, 8, 28, 28)
+        circle = QRectF((self.width() - sp(28)) / 2, sp(8), sp(28), sp(28))
         painter.setBrush(QColor(colors["accent"]))
         painter.setPen(Qt.NoPen)
         painter.drawEllipse(circle)
         if self.isChecked():
             painter.setBrush(Qt.NoBrush)
-            painter.setPen(QPen(QColor(colors["accent"]), 1.6))
-            painter.drawEllipse(circle.adjusted(-4, -4, 4, 4))
+            painter.setPen(QPen(QColor(colors["accent"]), sp(1.6)))
+            painter.drawEllipse(circle.adjusted(-sp(4), -sp(4), sp(4), sp(4)))
             path = QPainterPath()
-            path.moveTo(circle.left() + 8, circle.top() + 14)
-            path.lineTo(circle.left() + 12, circle.top() + 18)
-            path.lineTo(circle.left() + 20, circle.top() + 10)
+            path.moveTo(circle.left() + sp(8), circle.top() + sp(14))
+            path.lineTo(circle.left() + sp(12), circle.top() + sp(18))
+            path.lineTo(circle.left() + sp(20), circle.top() + sp(10))
             painter.setPen(
                 QPen(
                     QColor(colors["on_accent"]),
-                    2,
+                    sp(2),
                     Qt.SolidLine,
                     Qt.RoundCap,
                     Qt.RoundJoin,
@@ -187,7 +189,7 @@ class AccentButton(QAbstractButton):
             painter.drawPath(path)
         painter.setPen(QColor(COLORS["text"] if self.isChecked() else COLORS["muted"]))
         painter.drawText(
-            self.rect().adjusted(0, 43, 0, 0),
+            self.rect().adjusted(0, dp(43), 0, 0),
             Qt.AlignHCenter | Qt.AlignTop,
             self.text(),
         )
@@ -201,7 +203,7 @@ class ModeButton(QToolButton):
         if self.isChecked():
             painter = QPainter(self)
             outline_icon('done', COLORS['selection_foreground']).paint(
-                painter, QRect(self.width() - 24, (self.height() - 16) // 2, 16, 16))
+                painter, QRect(self.width() - dp(24), (self.height() - dp(16)) // 2, dp(16), dp(16)))
 
 
 class AppearanceDialog(QDialog):
@@ -217,6 +219,7 @@ class AppearanceDialog(QDialog):
         mode_bar = QFrame()
         mode_bar.setObjectName("appearanceModeBar")
         modes = QHBoxLayout(mode_bar)
+        self.mode_layout = modes
         modes.setContentsMargins(4, 4, 4, 4)
         modes.setSpacing(4)
         self.mode_group = QButtonGroup(self)
@@ -239,6 +242,7 @@ class AppearanceDialog(QDialog):
         self.accent_caption = role(QLabel(), "sectionTitle")
         root.addWidget(self.accent_caption)
         accents = QGridLayout()
+        self.accent_layout = accents
         accents.setHorizontalSpacing(4)
         accents.setVerticalSpacing(8)
         self.accent_group = QButtonGroup(self)
@@ -249,6 +253,11 @@ class AppearanceDialog(QDialog):
             self.accent_buttons[preset.identifier] = button
             accents.addWidget(button, index // 8, index % 8)
         root.addLayout(accents)
+        from labelimg.ui.scale_control import UiScaleControl
+        app = QApplication.instance()
+        if app is not None and hasattr(app, "ui_scale"):
+            self.scale_control = UiScaleControl(app.ui_scale)
+            root.addWidget(self.scale_control)
         root.addStretch(1)
         self.buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel | QDialogButtonBox.RestoreDefaults)
         self.buttons.button(QDialogButtonBox.RestoreDefaults).clicked.connect(
@@ -284,6 +293,19 @@ class AppearanceDialog(QDialog):
         self.retranslate_ui()
         self._project()
         self.buttons.button(QDialogButtonBox.Save).setFocus(Qt.OtherFocusReason)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if not hasattr(self, "accent_buttons") or not self.accent_buttons:
+            return
+        available = max(1, self.width() - dp(72))
+        width = max(button.sizeHint().width() for button in self.accent_buttons.values())
+        fitting = max(1, min(8, available // max(1, width + dp(4))))
+        columns = next(value for value in (8, 4, 2, 1) if value <= fitting)
+        for index, button in enumerate(self.accent_buttons.values()):
+            self.accent_layout.addWidget(button, index // columns, index % columns)
+        total = sum(button.sizeHint().width() for button in self.mode_buttons.values()) + dp(24)
+        self.mode_layout.setDirection(QBoxLayout.TopToBottom if total > available else QBoxLayout.LeftToRight)
 
     def _mode_clicked(self, button):
         self.controller.apply_preferences(

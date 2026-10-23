@@ -1100,7 +1100,7 @@ class FileListSelectionTest(unittest.TestCase):
         self.assertEqual(controls.search_edit.selectedText(), "03")
         self.assertEqual(
             self.window.actions.fitWindow.shortcut().toString(),
-            "Ctrl+0",
+            "Ctrl+Alt+0",
         )
 
         QTest.keyClick(

@@ -6,11 +6,12 @@ import os
 import time
 
 from PyQt5.QtCore import QObject, QThread, QTimer, Qt, pyqtSignal, pyqtSlot
-from PyQt5.QtWidgets import QPushButton
+from PyQt5.QtWidgets import QToolButton
 
 from labelimg.annotations import AnnotationWorkspace, YoloClassMappingDeclined
 from labelimg.files import discover_images
-from labelimg.localization.runtime import tr
+from labelimg.localization.runtime import language_changed, tr
+from labelimg.ui.icons import icon
 
 
 UI_BATCH_SIZE = 64
@@ -89,10 +90,35 @@ class DirectoryLoadingMixin:
         self._directory_status_pending = False
         self._directory_ready_commit_seconds = 0.0
         self._directory_max_ui_batch_seconds = 0.0
-        self.directory_load_button = QPushButton(self)
+        self._directory_load_resumable = False
+        self._directory_load_kind = "images"
+        self.directory_load_button = QToolButton(self)
+        self.directory_load_button.setAutoRaise(True)
         self.directory_load_button.hide()
         self.directory_load_button.clicked.connect(self._toggle_directory_load)
-        self.statusBar().addPermanentWidget(self.directory_load_button)
+        self.statusBar().set_task_button(self.directory_load_button)
+        language_changed.connect(self._retranslate_directory_feedback)
+        self._retranslate_directory_feedback()
+
+    def _retranslate_directory_feedback(self, _language=None):
+        title = tr("directoryLoading.resume" if self._directory_load_resumable
+                   else "directoryLoading.stop")
+        self.directory_load_button.setText(title)
+        self.directory_load_button.setIcon(icon("refresh" if self._directory_load_resumable else "close"))
+        self.directory_load_button.setToolTip(title)
+        self.directory_load_button.setAccessibleName(title)
+
+    def _directory_feedback(self, message_id, **values):
+        self._directory_load_resumable = message_id in (
+            "directoryLoading.stopped", "directoryLoading.failed",
+        )
+        self._retranslate_directory_feedback()
+        self.statusBar().set_task_message(message_id, **values)
+
+    def _complete_directory_feedback(self):
+        self.directory_load_button.hide()
+        self.statusBar().clear_task_message()
+        self.status(tr("directoryLoading.complete", count=len(self.m_img_list)))
 
     def start_directory_load(self, directory, initial_index=0):
         if not directory or not self.may_continue():
@@ -108,6 +134,7 @@ class DirectoryLoadingMixin:
         directory = os.path.abspath(os.fspath(directory))
         annotation_directory = self.default_save_dir
         self._directory_load_request = (directory, initial_index)
+        self._directory_load_kind = "images"
         extensions = tuple(
             ".%s" % value.data().decode("ascii").lower()
             for value in self.supported_image_formats()
@@ -135,9 +162,8 @@ class DirectoryLoadingMixin:
         thread.finished.connect(worker.deleteLater)
         thread.finished.connect(thread.deleteLater)
         self._directory_load_jobs[generation] = (thread, worker)
-        self.directory_load_button.setText(tr("directoryLoading.stop"))
         self.directory_load_button.show()
-        self.status(tr("directoryLoading.discovering"))
+        self._directory_feedback("directoryLoading.discovering")
         thread.start()
         return True
 
@@ -145,6 +171,8 @@ class DirectoryLoadingMixin:
         if not self._annotation_directory_is_current(directory) and not self.may_continue():
             return False
         self._ensure_directory_loading()
+        self._directory_load_kind = "annotations"
+        self._directory_load_request = (directory,)
         self._directory_load_generation += 1
         generation = self._directory_load_generation
         self._directory_pending_paths = ()
@@ -166,9 +194,8 @@ class DirectoryLoadingMixin:
         thread.finished.connect(worker.deleteLater)
         thread.finished.connect(thread.deleteLater)
         self._directory_load_jobs[generation] = (thread, worker)
-        self.directory_load_button.setText(tr("directoryLoading.stop"))
         self.directory_load_button.show()
-        self.status(tr("directoryLoading.annotation"))
+        self._directory_feedback("directoryLoading.annotation")
         thread.start()
         return True
 
@@ -184,8 +211,8 @@ class DirectoryLoadingMixin:
         self._directory_pending_workspace = None
         self._directory_projection_pending = False
         self._directory_status_pending = False
-        self.directory_load_button.setText(tr("directoryLoading.resume"))
-        self.status(tr("directoryLoading.stopped"))
+        if not self.directory_load_button.isHidden():
+            self._directory_feedback("directoryLoading.stopped")
 
     def finish_directory_loads(self, timeout_ms=5000):
         """Discard late results and retain workers until their threads stop."""
@@ -197,9 +224,12 @@ class DirectoryLoadingMixin:
         return True
 
     def _toggle_directory_load(self):
-        if self.directory_load_button.text() == tr("directoryLoading.resume"):
+        if self._directory_load_resumable:
             if self._directory_load_request:
-                self.start_directory_load(*self._directory_load_request)
+                if self._directory_load_kind == "annotations":
+                    self.start_annotation_directory_load(*self._directory_load_request)
+                else:
+                    self.start_directory_load(*self._directory_load_request)
         else:
             self.stop_directory_load()
 
@@ -228,7 +258,7 @@ class DirectoryLoadingMixin:
         self.file_list_controls.set_index_complete(False)
         if self._directory_projection_pending:
             QTimer.singleShot(0, lambda current=generation: self._publish_next_path_batch(current))
-        self.status(tr("directoryLoading.indexing", count=len(paths)))
+        self._directory_feedback("directoryLoading.indexing", count=len(paths))
 
     def _publish_next_path_batch(self, generation):
         if generation != self._directory_load_generation:
@@ -298,8 +328,7 @@ class DirectoryLoadingMixin:
         self._finish_directory_initial_selection()
         self.file_list_widget.viewport().update()
         self.update_file_selection_count()
-        self.directory_load_button.hide()
-        self.status(tr("directoryLoading.complete", count=len(self.m_img_list)))
+        self._complete_directory_feedback()
 
     def _finish_directory_initial_selection(self):
         initial = self._directory_initial_selection
@@ -323,6 +352,7 @@ class DirectoryLoadingMixin:
         if interrupted:
             self.stop_directory_load()
             self.directory_load_button.hide()
+            self.statusBar().clear_task_message()
         self._directory_initial_selection = None
         return interrupted
 
@@ -332,14 +362,12 @@ class DirectoryLoadingMixin:
         if generation != self._directory_load_generation:
             return
         if self.commit_indexed_annotation_directory(directory, workspace):
-            self.directory_load_button.hide()
-            self.status(tr("directoryLoading.complete", count=len(self.m_img_list)))
+            self._complete_directory_feedback()
 
     def _directory_load_failed(self, generation, error):
         if generation != self._directory_load_generation:
             return
-        self.directory_load_button.setText(tr("directoryLoading.resume"))
-        self.status(tr("directoryLoading.failed", error=error))
+        self._directory_feedback("directoryLoading.failed", error=error)
 
     def _directory_worker_finished(self, generation):
         self._directory_load_jobs.pop(generation, None)

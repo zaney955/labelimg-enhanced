@@ -775,9 +775,13 @@ class CommandSurfacesTest(unittest.TestCase):
             data = image.bits().asstring(image.byteCount())
             return hashlib.sha256(data).digest()
 
+        # Percentage presets are values of one setting, sharing its window icon;
+        # independently named commands retain distinct semantic artwork.
+        commands = [action for action in menu_actions
+                    if action not in self.window.menus.uiScale.actions()]
         self.assertEqual(
-            len({icon_signature(action) for action in menu_actions}),
-            len(menu_actions),
+            len({icon_signature(action) for action in commands}),
+            len(commands),
         )
 
     def test_file_and_edit_menus_have_distinct_command_ownership(self):
@@ -891,17 +895,22 @@ class CommandSurfacesTest(unittest.TestCase):
                 self.window.magnifier_option,
                 self.window.annotation_display_action,
                 view_actions[12],
+                self.window.actions.uiZoomIn,
+                self.window.actions.uiZoomOut,
+                self.window.actions.uiZoomReset,
+                self.window.menus.uiScale.menuAction(),
+                view_actions[17],
                 self.window.actions.zoomIn,
                 self.window.actions.zoomOut,
                 self.window.actions.zoomOrg,
-                view_actions[16],
+                view_actions[21],
                 self.window.actions.fitWindow,
                 self.window.actions.fitWidth,
-                view_actions[19],
+                view_actions[24],
                 self.window.actions.restoreLayout,
             ],
         )
-        for index in (3, 6, 9, 12, 16, 19):
+        for index in (3, 6, 9, 12, 17, 21, 24):
             self.assertTrue(view_actions[index].isSeparator())
         self.assertEqual(self.window.actions.labels.text(), "Annotation Panel")
         self.assertEqual(

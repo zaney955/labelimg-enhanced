@@ -33,3 +33,4 @@ SETTING_UPDATE_SNOOZED_UNTIL = "updates/snoozedUntil"
 
 SETTING_COLOR_MODE = "interface/colorMode"
 SETTING_ACCENT_COLOR = "interface/accentColor"
+SETTING_UI_SCALE = "interface/uiScale"

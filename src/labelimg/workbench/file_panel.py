@@ -36,10 +36,10 @@ from labelimg.platform.settings_keys import (
 from labelimg.ui.actions import new_icon
 from labelimg.ui.icons import IconLabel
 from labelimg.ui.presentation import present_panel
-from labelimg.ui.panels import PanelHeader, panel_body, panel_context, panel_list
+from labelimg.ui.panels import PanelCountLabel, PanelHeader, panel_body, panel_context, panel_list
 
 
-class _ElidedLabel(QLabel):
+class _ElidedLabel(PanelCountLabel):
     def __init__(self, parent=None, elide_mode=Qt.ElideRight):
         super().__init__(parent)
         self._elide_mode = elide_mode

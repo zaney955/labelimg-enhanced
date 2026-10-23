@@ -16,6 +16,7 @@ from PyQt5.QtWidgets import QApplication
 from labelimg.localization.runtime import ENGLISH, SIMPLIFIED_CHINESE, set_language
 from labelimg.ui.theme import COLORS, LIGHT_THEME, appearance_theme, set_theme
 from labelimg.ui.theme_palettes import available_accents, contrast_ratio, blend
+from labelimg.ui.metrics import dp
 from labelimg.workbench.bootstrap import WorkbenchLaunchOptions, create_workbench
 
 
@@ -72,7 +73,7 @@ class ReviewOverlayTest(unittest.TestCase):
         self.assertEqual(self.controls.y(), 0)
         self.assertEqual(self.controls.x() + self.controls.width(), self.viewport.width())
         self.assertEqual(self.controls.ribbon.width(), self.viewport.width())
-        self.assertEqual(self.controls.ribbon.height(), self.controls.height())
+        self.assertEqual(self.controls.ribbon.height(), self.controls.height() + dp(44))
         self.assertEqual(self.controls.ribbon.pos(), QPoint())
 
     def test_no_image_hides_both_layers_and_removes_review_from_top_bar(self):
@@ -82,6 +83,8 @@ class ReviewOverlayTest(unittest.TestCase):
         self.assertTrue(all(not action.isEnabled() for action in self.controls.actions.values()))
         self.load_image()
         self.assertTrue(self.controls.isVisible())
+        self.assertFalse(self.controls.ribbon.isVisible())
+        self.window.set_current_review_state('verified')
         self.assertTrue(self.controls.ribbon.isVisible())
         self.assert_anchored()
         self.controls.setEnabled(False)
@@ -106,6 +109,92 @@ class ReviewOverlayTest(unittest.TestCase):
                     self.assertGreaterEqual(button.width(), button.sizeHint().width())
                 self.assert_anchored()
             self.assertTrue(all(geometry == geometries[0] for geometry in geometries))
+
+    def test_draw_tool_hides_both_layers_before_first_corner_and_restores_on_exit(self):
+        self.load_image()
+        for state in self.controls.actions:
+            for exit_tool in ('select', 'pan'):
+                with self.subTest(state=state, exit_tool=exit_tool):
+                    self.window.set_edit_mode()
+                    self.window.set_current_review_state(state)
+                    self.window.canvas.setFocus()
+                    QTest.keyClick(self.window.canvas, Qt.Key_W)
+                    self.app.processEvents()
+                    self.assertTrue(self.window.canvas.drawing())
+                    self.assertIsNone(self.window.canvas.current)
+                    self.assertFalse(self.controls.isVisible())
+                    self.assertFalse(self.controls.ribbon.isVisible())
+                    self.assertEqual(self.controls.state, state)
+                    button = self.window.tools.buttons[exit_tool]
+                    QTest.mouseClick(button, Qt.LeftButton)
+                    self.app.processEvents()
+                    self.assertTrue(self.controls.isVisible())
+                    self.assertEqual(self.controls.ribbon.isVisible(), state != 'unreviewed')
+                    self.assertEqual(self.controls.state, state)
+
+    def test_review_stays_hidden_through_drawing_and_initial_label_choice(self):
+        self.load_image()
+        self.window.set_current_review_state('questioned')
+        self.window.canvas.setFocus()
+        QTest.keyClick(self.window.canvas, Qt.Key_W)
+        start = self.window.canvas.image_to_widget(QPointF(40, 50)).toPoint()
+        end = self.window.canvas.image_to_widget(QPointF(180, 150)).toPoint()
+        QTest.mousePress(self.window.canvas, Qt.LeftButton, pos=start)
+        self.assertIsNotNone(self.window.canvas.current)
+        self.assertFalse(self.controls.isVisible())
+        self.assertFalse(self.controls.ribbon.isVisible())
+        QApplication.sendEvent(self.window.canvas, QMouseEvent(
+            QEvent.MouseMove, QPointF(end), Qt.NoButton, Qt.LeftButton, Qt.NoModifier,
+        ))
+
+        def choose_label(*_args, **_kwargs):
+            self.assertIsNotNone(self.window.canvas._pending_label_shape)
+            self.assertFalse(self.controls.isVisible())
+            self.assertFalse(self.controls.ribbon.isVisible())
+            return 'cat'
+
+        with patch.object(self.window.candidate_label_dialog, 'choose', side_effect=choose_label) as dialog:
+            QTest.mouseRelease(self.window.canvas, Qt.LeftButton, pos=end)
+        dialog.assert_called_once()
+        self.assertEqual(len(self.window.canvas.shapes), 1)
+        self.assertTrue(self.window.canvas.editing())
+        self.assertTrue(self.controls.isVisible())
+        self.assertEqual(self.controls.ribbon.isVisible(), self.controls.state != 'unreviewed')
+        QTest.keyClick(self.window.canvas, Qt.Key_W)
+        QTest.mousePress(self.window.canvas, Qt.LeftButton, pos=start)
+        QTest.keyClick(self.window.canvas, Qt.Key_Escape)
+        self.assertTrue(self.window.canvas.editing())
+        self.assertTrue(self.controls.isVisible())
+        self.assertEqual(len(self.window.canvas.shapes), 1)
+
+    def test_hidden_review_layers_survive_live_refreshes_and_image_availability(self):
+        self.load_image()
+        try:
+            for language in (ENGLISH, SIMPLIFIED_CHINESE):
+                for mode in ('light', 'dark'):
+                    for percent in (100, 125, 150):
+                        with self.subTest(language=language, mode=mode, percent=percent):
+                            self.window.create_shape()
+                            self.window.change_language(language)
+                            self.window.appearance.apply_preferences(mode, 'plum')
+                            self.window.ui_scale.set_percent(percent, persist=False)
+                            self.window.resize(1024, 720)
+                            self.controls.setEnabled(False)
+                            self.controls.setEnabled(True)
+                            self.controls.set_state('verified')
+                            self.app.processEvents()
+                            self.assertFalse(self.controls.isVisible())
+                            self.assertFalse(self.controls.ribbon.isVisible())
+                            self.window.set_edit_mode()
+                            self.assertTrue(self.controls.isVisible())
+                            self.assertTrue(self.controls.ribbon.isVisible())
+            self.window.create_shape()
+            self.controls.setEnabled(False)
+            self.window.set_edit_mode()
+            self.assertFalse(self.controls.isVisible())
+            self.assertFalse(self.controls.ribbon.isVisible())
+        finally:
+            self.window.ui_scale.set_percent(100, persist=False)
 
     def test_selected_text_is_bolder_and_visibly_distinct_without_the_ribbon(self):
         self.load_image()
@@ -194,26 +283,59 @@ class ReviewOverlayTest(unittest.TestCase):
         self.assertEqual(len(self.window.canvas.shapes), 1)
         self.assertEqual(self.window.canvas.shapes[0].label, 'cat')
 
-    def test_every_review_state_has_the_same_transparent_to_tinted_transition(self):
+    def test_status_ribbon_spans_width_and_fades_down_to_the_unmodified_image(self):
         self.load_image()
         self.window.resize(2400, 900)
+        self.window.set_zoom(200)
         self.app.processEvents()
-        point = QPoint(300, 10)
-        self.controls.ribbon.hide()
-        baseline = self.viewport.grab().toImage().pixelColor(point)
-        self.controls.ribbon.show()
-        self.assertEqual(self.viewport.grab().toImage().pixelColor(point), baseline)
         for state in ('questioned', 'verified'):
             self.window.set_current_review_state(state)
-            painted = self.viewport.grab().toImage().pixelColor(point)
-            self.assertEqual(painted, baseline, 'Every state fades to transparent away from commands')
-            near_controls = QPoint(self.viewport.width() - 5, 2)
+            self.assertTrue(self.controls.ribbon.isVisible())
             self.controls.ribbon.hide()
-            before = self.viewport.grab().toImage().pixelColor(near_controls)
+            baseline = self.viewport.grab().toImage()
             self.controls.ribbon.show()
-            self.assertNotEqual(self.viewport.grab().toImage().pixelColor(near_controls), before)
+            painted = self.viewport.grab().toImage()
+            height = self.controls.ribbon.height()
+            for x in (30, self.viewport.width() // 2, self.viewport.width() - 5):
+                # No labels at y=1, even at the right edge of the command row.
+                self.assertNotEqual(painted.pixelColor(x, 1), baseline.pixelColor(x, 1))
+                self.assertEqual(painted.pixelColor(x, height - 1), baseline.pixelColor(x, height - 1))
+                self.assertEqual(painted.pixelColor(x, height + 1), baseline.pixelColor(x, height + 1))
+            distance = lambda y: sum(abs(a-b) for a, b in zip(
+                painted.pixelColor(30, y).getRgb()[:3], baseline.pixelColor(30, y).getRgb()[:3]))
+            self.assertGreater(distance(self.controls.height()), distance(height - dp(12)))
+            self.assertGreater(distance(height - dp(12)), 0)
+            # Fade begins at the top; there is no solid block the height of
+            # the command row across the canvas.
+            self.assertGreater(distance(1), distance(self.controls.height() // 2) * 1.15)
+            self.assertEqual(painted.pixelColor(30, 1), painted.pixelColor(self.viewport.width() // 2, 1))
+            # The button group adds no separate surface to the shared gradient.
+            # Its right padding has no text/icon or transient focus feedback.
+            y = self.controls.height() // 2
+            self.assertEqual(painted.pixelColor(30, y), painted.pixelColor(self.viewport.width() - 1, y))
         self.window.set_current_review_state('unreviewed')
-        self.assertEqual(self.viewport.grab().toImage().pixelColor(point), baseline)
+        self.assertFalse(self.controls.ribbon.isVisible())
+        self.assertTrue(self.controls.isVisible())
+        self.assertEqual(self.viewport.grab().toImage().pixelColor(30, 1), baseline.pixelColor(30, 1))
+        self.controls.setEnabled(False)
+        self.controls.setEnabled(True)
+        self.assertFalse(self.controls.ribbon.isVisible())
+        self.controls.set_state('questioned')
+        self.assertTrue(self.controls.ribbon.isVisible())
+        self.controls.set_state('unreviewed')
+        self.assertFalse(self.controls.ribbon.isVisible())
+
+    def test_gradient_geometry_tracks_live_interface_scaling(self):
+        self.load_image()
+        self.window.set_current_review_state('verified')
+        try:
+            for percent in (100, 125, 150, 100):
+                self.window.ui_scale.set_percent(percent)
+                self.app.processEvents()
+                self.assert_anchored()
+                self.assertTrue(self.controls.ribbon.isVisible())
+        finally:
+            self.window.ui_scale.set_percent(100)
 
     def test_live_themes_keep_readability_and_leave_document_pixels_unchanged(self):
         self.load_image()
@@ -226,10 +348,13 @@ class ReviewOverlayTest(unittest.TestCase):
                     self.controls.set_state(state)
                     color = self.controls.ribbon_color
                     active, muted = self.controls._foregrounds()
-                    for base in ('#000000', '#FFFFFF'):
-                        background = blend(blend(color.name(), COLORS['surface'], color.alphaF()), base, 246 / 255)
-                        self.assertGreaterEqual(contrast_ratio(active, background), 4.5)
-                        self.assertGreaterEqual(contrast_ratio(muted, background), 4.5)
+                    # The command group is transparent. Contrast is defined
+                    # against the theme canvas, without assuming an opaque
+                    # backing that would conceal arbitrary source-image pixels.
+                    opacity = 210 / 255 * (1 - self.controls.height() / 2 / (self.controls.ribbon.height() - 1))
+                    background = blend(blend(color.name(), COLORS['surface'], color.alphaF()), COLORS['background'], opacity) if color.alpha() else COLORS['background']
+                    self.assertGreaterEqual(contrast_ratio(active, background), 4.5)
+                    self.assertGreaterEqual(contrast_ratio(muted, background), 4.5)
                     self.assertEqual(color.alpha() == 0, state == 'unreviewed')
                     if state != 'unreviewed':
                         self.assertGreaterEqual(color.alphaF(), .2)

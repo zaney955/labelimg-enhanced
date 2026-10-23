@@ -84,7 +84,7 @@ from labelimg.workbench.commands import (
 from labelimg.workbench.canvas_context_menu import (
     CanvasContextMenuController,
 )
-from labelimg.workbench.canvas_status import CanvasStatusStrip
+from labelimg.workbench.canvas_status import WorkbenchStatusBar
 from labelimg.annotations.ui.candidate_label_dialog import CandidateLabelDialog
 from labelimg.annotations.ui.review_control import ReviewControl
 from labelimg.annotations.ui.label_list import (
@@ -486,12 +486,14 @@ class WorkbenchComposer:
         canvas_layout.setContentsMargins(1, 1, 1, 1)
         canvas_layout.setSpacing(0)
         canvas_layout.addWidget(scroll, 1)
-        self.canvas_status = CanvasStatusStrip(self.zoom_widget)
-        canvas_layout.addWidget(self.canvas_status)
+        self.canvas_status = WorkbenchStatusBar(self.zoom_widget, self)
+        self.setStatusBar(self.canvas_status)
+        self.canvas.interactionHintChanged.connect(self.canvas_status.set_canvas_hint)
+        self.canvas.imageSizeChanged.connect(self.canvas_status.reset_context)
         self.label_coordinates = self.canvas_status.coordinates
         self.label_dimensions = self.canvas_status.dimensions
-        self.canvas.coordinatesChanged.connect(self.label_coordinates.setText)
-        self.canvas.annotationSizeChanged.connect(self.label_dimensions.setText)
+        self.canvas.coordinatesChanged.connect(self.canvas_status.set_canvas_coordinates)
+        self.canvas.annotationSizeChanged.connect(self.canvas_status.set_annotation_size)
         self.canvas.imageSizeChanged.connect(self.canvas_status.set_image_size)
         for bar in self.scroll_bars.values():
             bar.valueChanged.connect(self.queue_canvas_readout_refresh)
@@ -508,6 +510,9 @@ class WorkbenchComposer:
             CropOverlay,
         )
         self.crop_overlay = CropOverlay(self.canvas)
+        self.crop_overlay.pointerPositionChanged.connect(self.canvas_status.resume_tool_hint)
+        self.crop_overlay.pointerPositionChanged.connect(self.canvas_status.set_tool_pointer_position)
+        self.crop_overlay.regionChanged.connect(self.canvas_status.resume_tool_hint)
         self.crop_controls = CropControlBar(
             self.crop_overlay,
             self.scroll_area.viewport(),
@@ -757,6 +762,7 @@ class WorkbenchComposer:
             settings,
             __version__,
             self.status,
+            important_status=partial(self.status_translation, important=True),
         )
         check_updates = action(
             tr('updates.check'),
@@ -774,8 +780,8 @@ class WorkbenchComposer:
                 keyboard=(
                     "%s / %s"
                     % (
-                        format_shortcut("Ctrl+="),
-                        format_shortcut("Ctrl+-"),
+                        format_shortcut("Ctrl+Alt+="),
+                        format_shortcut("Ctrl+Alt+-"),
                     )
                 ),
                 wheel=format_shortcut("Ctrl+Wheel"),
@@ -785,16 +791,16 @@ class WorkbenchComposer:
         self.zoom_widget.setEnabled(False)
 
         zoom_in = action(get_str('zoomin'), partial(self.add_zoom, 1),
-                         'Ctrl+=', 'zoom-in', get_str('zoominDetail'), enabled=False)
-        zoom_in_alias = QShortcut(QKeySequence('Ctrl++'), self)
+                         'Ctrl+Alt+=', 'zoom-in', get_str('zoominDetail'), enabled=False)
+        zoom_in_alias = QShortcut(QKeySequence('Ctrl+Alt++'), self)
         zoom_in_alias.activated.connect(partial(self.add_zoom, 1))
         zoom_in_alias.setEnabled(False)
         zoom_out = action(get_str('zoomout'), partial(self.add_zoom, -1),
-                          'Ctrl+-', 'zoom-out', get_str('zoomoutDetail'), enabled=False)
+                          'Ctrl+Alt+-', 'zoom-out', get_str('zoomoutDetail'), enabled=False)
         zoom_org = action(get_str('originalsize'), partial(self.set_zoom, 100),
                           'Ctrl+1', 'zoom', get_str('originalsizeDetail'), enabled=False)
         fit_window = action(get_str('fitWin'), self.set_fit_window,
-                            'Ctrl+0', 'fit-window', get_str('fitWinDetail'),
+                            'Ctrl+Alt+0', 'fit-window', get_str('fitWinDetail'),
                             checkable=True, enabled=False)
         fit_width = action(get_str('fitWidth'), self.set_fit_width,
                            'Ctrl+Shift+F', 'fit-width', get_str('fitWidthDetail'),
@@ -1170,6 +1176,12 @@ class WorkbenchComposer:
 
         self.review_control = ReviewControl(self.scroll_area.viewport())
         self.review_control.setEnabled(False)
+        self.canvas.modeChanged.connect(
+            lambda mode: self.review_control.set_suppressed(
+                mode == Canvas.CREATE or self._crop_active
+            )
+        )
+        self.review_control.set_suppressed(self.canvas.drawing())
         self.review_control.stateRequested.connect(
             self.set_current_review_state
         )
@@ -1297,7 +1309,7 @@ class WorkbenchComposer:
         }
         self.retranslate_ui()
 
-        self.statusBar().showMessage(tr('status.started', app=__appname__))
+        self.status(tr('status.started', app=__appname__))
         self.statusBar().show()
 
         # Application state.
@@ -1327,7 +1339,7 @@ class WorkbenchComposer:
         self.last_open_dir = ustr(settings.get(SETTING_LAST_OPEN_DIR, None))
         if self.default_save_dir is None and save_dir is not None and os.path.exists(save_dir):
             self.default_save_dir = save_dir
-            self.statusBar().showMessage(tr(
+            self.status(tr(
                 'status.startedSaveDir',
                 app=__appname__,
                 path=self.default_save_dir,
@@ -1369,4 +1381,10 @@ class WorkbenchComposer:
             self.scroll_area.viewport(), self.actions.openDir, self.canvas,
         )
         QTimer.singleShot(3000, self.update_ui.check_automatic)
+        from labelimg.ui.scaling import ui_scale_controller
+        from labelimg.workbench.ui_scaling import install_scale_commands
+        from labelimg.ui.presentation import scope_workbench_styles
+        scope_workbench_styles(self)
+        ui_scale_controller().attach(self, settings)
+        install_scale_commands(self)
 
