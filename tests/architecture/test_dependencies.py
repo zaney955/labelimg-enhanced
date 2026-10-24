@@ -244,8 +244,8 @@ class ModularArchitectureTest(unittest.TestCase):
         for name in ("common", "core", "utils"):
             self.assertFalse((PACKAGE_ROOT / name).exists())
 
-    def test_version_and_console_entry_are_the_2_6_contract(self):
-        self.assertEqual(labelimg.__version__, "2.6.0")
+    def test_version_and_console_entry_are_the_3_0_contract(self):
+        self.assertEqual(labelimg.__version__, "3.0.0")
         project = (REPOSITORY_ROOT / "pyproject.toml").read_text(encoding="utf-8")
         self.assertIn(
             'labelImg = "labelimg.workbench.bootstrap:main"',

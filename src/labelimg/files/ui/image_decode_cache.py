@@ -89,6 +89,13 @@ class DecodedImageCache:
         key, token = _path_key(path), _source_token(path)
         with self._lock:
             future = self._jobs.get(key)
+            if future is None:
+                # A prefetch may have finished between the optimistic cache
+                # lookup above and this job lookup. Recheck while holding the
+                # same lock used to store the completed decode.
+                image = self.get(path)
+                if image is not None:
+                    return image
         if future is not None and not future.cancelled():
             try:
                 _key, job_token, image = future.result()
@@ -157,25 +164,29 @@ class DecodedImageCache:
         try:
             key, token, image = future.result()
         except Exception:
-            return
-        finally:
             with self._lock:
-                matching = next(
-                    (
-                        job_key
-                        for job_key, job in self._jobs.items()
-                        if job is future
-                    ),
-                    None,
-                )
-                if matching is not None:
-                    self._jobs.pop(matching, None)
-        if image.isNull() or _source_token(key) != token:
+                self._remove_job(future)
             return
         with self._lock:
-            if key not in self._wanted:
-                return
-            self._store(key, token, image)
+            if (
+                not image.isNull()
+                and _source_token(key) == token
+                and key in self._wanted
+            ):
+                self._store(key, token, image)
+            self._remove_job(future)
+
+    def _remove_job(self, future):
+        matching = next(
+            (
+                job_key
+                for job_key, job in self._jobs.items()
+                if job is future
+            ),
+            None,
+        )
+        if matching is not None:
+            self._jobs.pop(matching, None)
 
     def _store(self, key, token, image):
         stored = QImage(image)

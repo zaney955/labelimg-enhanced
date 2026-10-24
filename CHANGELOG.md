@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 3.0.0
 
 - Separate menu checkmarks from command icons, size preference buttons to their content, unify selection colors and review-ribbon gradients, distinguish keyboard focus from selected appearance modes, restore the original lightly tinted category capsules, remove the Help tutorial, and give combo popup rows consistent spacing.
 
