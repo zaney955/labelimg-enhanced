@@ -855,10 +855,6 @@ class CropControlBar(QFrame):
                 + button_width(self.cancel_button) + layout.horizontalSpacing()
                 > inner_available
             )
-            stack_actions = (
-                narrow
-                or 2 * dp(82) + layout.horizontalSpacing() > inner_available
-            )
             if not narrow:
                 maximum_button_width = max(
                     1,
@@ -890,14 +886,14 @@ class CropControlBar(QFrame):
                 action_row,
                 0,
                 1,
-                4 if stack_actions else 2,
+                4,
             )
             layout.addWidget(
                 self.cancel_button,
-                action_row + 1 if stack_actions else action_row,
-                0 if stack_actions else 2,
+                action_row + 1,
+                0,
                 1,
-                4 if stack_actions else 2,
+                4,
             )
             layout.invalidate()
             height = layout.totalHeightForWidth(available)
