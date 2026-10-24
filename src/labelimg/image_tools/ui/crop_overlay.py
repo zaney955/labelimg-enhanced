@@ -827,60 +827,26 @@ class CropControlBar(QFrame):
                 layout.takeAt(0)
             for separator in self._separators:
                 separator.hide()
+            # Once the complete command row no longer fits, keep one column.
+            # Qt styles distribute spanning grid cells differently, so a
+            # partially compacted two-column form can overlap on Linux.
             self.labels['ratio'].setWordWrap(True)
             margins = layout.contentsMargins()
-            cell = max(1, (available - margins.left() - margins.right()
-                           - layout.horizontalSpacing()) // 2)
-            for spin in self.spins.values():
-                spin.setFixedWidth(min(dp(82), cell))
             for column in range(4):
                 layout.setColumnStretch(column, 1)
-            inner_available = (
-                available - margins.left() - margins.right()
-            )
             for button in (self.apply_button, self.cancel_button):
                 button.setMaximumWidth(16777215)
-
-            def button_width(button):
-                return max(
-                    button.minimumWidth(),
-                    button.minimumSizeHint().width(),
-                    button.sizeHint().width(),
-                )
-            narrow = (
-                self.drag_handle.width() + self.labels['ratio'].minimumSizeHint().width()
-                + self.ratio_combo.minimumSizeHint().width() + dp(30)
-                > inner_available
-                or button_width(self.apply_button)
-                + button_width(self.cancel_button) + layout.horizontalSpacing()
-                > inner_available
-            )
-            if not narrow:
-                maximum_button_width = max(
-                    1,
-                    (inner_available - layout.horizontalSpacing()) // 2,
-                )
-                for button in (self.apply_button, self.cancel_button):
-                    button.setMaximumWidth(maximum_button_width)
-            layout.setVerticalSpacing(dp(3 if narrow else 5))
+            layout.setVerticalSpacing(dp(3))
             layout.addWidget(self.drag_handle, 0, 0)
-            layout.addWidget(self.labels['ratio'], 0, 1, 1, 3 if narrow else 1)
-            if narrow:
-                layout.addWidget(self.ratio_combo, 1, 0, 1, 4)
-            else:
-                layout.addWidget(self.ratio_combo, 0, 2, 1, 2)
+            layout.addWidget(self.labels['ratio'], 0, 1, 1, 3)
+            layout.addWidget(self.ratio_combo, 1, 0, 1, 4)
             for index, key in enumerate(('x', 'y', 'width', 'height')):
-                if narrow:
-                    self.spins[key].setFixedWidth(min(dp(82), max(1,
-                        available - margins.left() - margins.right()
-                        - dp(20) - layout.horizontalSpacing())))
-                    layout.addWidget(self.labels[key], index + 2, 0)
-                    layout.addWidget(self.spins[key], index + 2, 1, 1, 3)
-                else:
-                    row, column = 1 + (index // 2) * 2, (index % 2) * 2
-                    layout.addWidget(self.labels[key], row, column, 1, 2)
-                    layout.addWidget(self.spins[key], row + 1, column, 1, 2)
-            action_row = 6 if narrow else 5
+                self.spins[key].setFixedWidth(min(dp(82), max(1,
+                    available - margins.left() - margins.right()
+                    - dp(20) - layout.horizontalSpacing())))
+                layout.addWidget(self.labels[key], index + 2, 0)
+                layout.addWidget(self.spins[key], index + 2, 1, 1, 3)
+            action_row = 6
             layout.addWidget(
                 self.apply_button,
                 action_row,
@@ -897,7 +863,7 @@ class CropControlBar(QFrame):
             )
             layout.invalidate()
             height = layout.totalHeightForWidth(available)
-            if narrow and max(height, layout.totalMinimumSize().height()) > parent.height():
+            if max(height, layout.totalMinimumSize().height()) > parent.height():
                 # Retain font/control sizes when a large-scale viewport is only
                 # a few pixels short; use the shared compact row gap instead.
                 layout.setVerticalSpacing(dp(2))
