@@ -303,9 +303,11 @@ class AppearanceTest(unittest.TestCase):
         # after all assertions passed and QApplication was being destroyed.
         for mode in ("light", "dark", "system"):
             code = (
-                "from labelimg.workbench.bootstrap import get_main_app; a,w=get_main_app(); w.appearance.apply_preferences("
+                "from PyQt5.QtCore import QTimer; "
+                "from labelimg.workbench.bootstrap import get_main_app; "
+                "a,w=get_main_app(); w.appearance.apply_preferences("
                 + repr(mode)
-                + ',"blue"); w.close(); a.quit()'
+                + ',"blue"); QTimer.singleShot(0,w.close); raise SystemExit(a.exec_())'
             )
             env = os.environ.copy()
             env["QT_QPA_PLATFORM"] = "offscreen"

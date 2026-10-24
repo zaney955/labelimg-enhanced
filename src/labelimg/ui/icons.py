@@ -102,6 +102,13 @@ def _native_icon(name, theme_id, cache_directory):
 _icon_names = {}
 
 
+def _clear_native_icon_caches(*_args):
+    """Release Qt icon engines before QApplication/plugin teardown."""
+    _native_icon.cache_clear()
+    outline_icon.cache_clear()
+    _icon_names.clear()
+
+
 def _icon_cache_directory():
     app = QApplication.instance()
     if not hasattr(app, "_labelimg_icon_directory"):
@@ -422,4 +429,6 @@ def install_icon_style():
     app.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
     # Construct by name so Qt never transfers ownership of the existing style.
     app.setStyle(IconStyle(app.style().objectName()))
+    app.aboutToQuit.connect(_clear_native_icon_caches)
+    app.destroyed.connect(_clear_native_icon_caches)
     app.setProperty("labelimgIconStyle", True)
