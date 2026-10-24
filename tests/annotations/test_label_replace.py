@@ -346,6 +346,27 @@ class LabelReplacementTest(unittest.TestCase):
         self.transaction.recover(result.recovery)
         self.assertEqual(tuple(self.labels(path) for path in paths), (('apple',), ('apple',)))
 
+    def test_recovery_retries_a_transient_atomic_replace_failure(self):
+        target = self.root / 'annotation.xml'
+        target.write_bytes(b'current')
+        replace_file = os.replace
+        calls = []
+
+        def fail_once(source, destination):
+            calls.append(destination)
+            if len(calls) == 1:
+                raise PermissionError(13, 'injected sharing failure', destination)
+            return replace_file(source, destination)
+
+        with patch('labelimg.annotations.application.label_replace.os.replace', side_effect=fail_once), patch(
+            'labelimg.annotations.application.label_replace.time.sleep',
+        ) as sleep:
+            self.transaction._restore(((str(target), b'original'),))
+
+        self.assertEqual(target.read_bytes(), b'original')
+        self.assertEqual(calls, [str(target), str(target)])
+        sleep.assert_called_once_with(0.05)
+
     def test_label_validation_rejects_noop_empty_and_multiline_names(self):
         for old, new in (('apple', 'apple'), ('', 'pear'), ('apple', ''), ('apple', 'a\nb')):
             with self.subTest(old=old, new=new), self.assertRaises(ValueError):

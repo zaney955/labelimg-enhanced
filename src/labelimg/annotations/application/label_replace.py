@@ -8,6 +8,7 @@ from collections import defaultdict
 from dataclasses import dataclass, replace
 import os
 import tempfile
+import time
 
 from labelimg.annotations.domain.model import AnnotationBox, AnnotationFormat
 from labelimg.annotations.infrastructure.document import AnnotationDocument
@@ -16,6 +17,25 @@ from labelimg.annotations.infrastructure.storage import (
 )
 from labelimg.annotations.application.yolo_vocabulary import plan_yolo_vocabulary, shared_yolo_classes_path
 from labelimg.platform.recovery import RecoveryConflict, RecoveryError
+
+
+_REPLACE_RETRY_DELAYS = (0.05, 0.10, 0.20, 0.40)
+
+
+def _replace_with_retry(source, target):
+    """Retry transient Windows sharing failures around atomic replacement."""
+    for delay in (*_REPLACE_RETRY_DELAYS, None):
+        try:
+            os.replace(source, target)
+            return
+        except OSError as error:
+            transient = (
+                isinstance(error, PermissionError)
+                or getattr(error, 'winerror', None) in (5, 32, 33)
+            )
+            if delay is None or not transient:
+                raise
+            time.sleep(delay)
 
 
 @dataclass(frozen=True)
@@ -326,7 +346,7 @@ class LabelReplacementTransaction:
                 try:
                     with os.fdopen(descriptor, 'wb') as output:
                         output.write(content)
-                    os.replace(staged, path)
+                    _replace_with_retry(staged, path)
                     prior = expected.get(path)
                     if prior is not None and prior.exists:
                         os.utime(path, ns=(os.stat(path).st_atime_ns, prior.modified_ns))
