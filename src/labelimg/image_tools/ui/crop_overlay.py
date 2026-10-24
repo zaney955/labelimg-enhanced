@@ -807,6 +807,7 @@ class CropControlBar(QFrame):
         self._reflowing = True
         try:
             layout = self.layout()
+            layout.setHorizontalSpacing(dp(6))
             while layout.count():
                 layout.takeAt(0)
             for column in range(max(layout.columnCount(), len(self._row_widgets))):
