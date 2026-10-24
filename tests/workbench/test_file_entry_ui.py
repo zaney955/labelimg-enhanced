@@ -142,7 +142,7 @@ class FileEntryUiTest(unittest.TestCase):
         annotation_dir = os.path.join(self.temporary.name, "labels")
         os.makedirs(annotation_dir)
         with patch(
-            "labelimg.workbench.main_window.QFileDialog.getExistingDirectory",
+            "PyQt5.QtWidgets.QFileDialog.getExistingDirectory",
             return_value=annotation_dir,
         ):
             self.window.actions.changeSaveDir.trigger()
@@ -226,10 +226,10 @@ class FileEntryUiTest(unittest.TestCase):
         )
 
         with patch(
-            "labelimg.workbench.main_window.QDialog.exec_",
+            "PyQt5.QtWidgets.QDialog.exec_",
             return_value=QDialog.Rejected,
         ), patch(
-            "labelimg.workbench.main_window.QFileDialog.getOpenFileName",
+            "PyQt5.QtWidgets.QFileDialog.getOpenFileName",
         ) as file_picker:
             self.window.actions.replaceAnnotation.trigger()
 

@@ -3,19 +3,10 @@
 import re
 
 from PyQt5.QtGui import QKeySequence
-from PyQt5.QtWidgets import QAction, QMenu, QPushButton
+from PyQt5.QtWidgets import QAction, QMenu
 
 from labelimg.localization.runtime import tr
 from labelimg.ui.icons import icon as new_icon
-
-
-def new_button(text, icon=None, slot=None):
-    button = QPushButton(text)
-    if icon is not None:
-        button.setIcon(new_icon(icon))
-    if slot is not None:
-        button.clicked.connect(slot)
-    return button
 
 
 def plain_action_text(text):

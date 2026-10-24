@@ -190,7 +190,7 @@ class LabelReplacementTest(unittest.TestCase):
 
     def test_yolo_existing_destination_reuses_id_without_duplicate_names(self):
         path = self.image('image.png')
-        saved = self.document(path, ('apple', 'apple_s', 'pear'), AnnotationFormat.YOLO)
+        self.document(path, ('apple', 'apple_s', 'pear'), AnnotationFormat.YOLO)
         classes = self.root / 'classes.txt'
         original = classes.read_bytes()
         result = self.transaction.apply(self.preview((path,)))
@@ -202,9 +202,9 @@ class LabelReplacementTest(unittest.TestCase):
 
     def test_shared_createml_collection_updates_only_target_records(self):
         first, second = self.image('train/same.png'), self.image('val/same.png')
-        outside = self.image('outside.png')
+        self.image('outside.png')
         target = str(self.root / 'collection.json')
-        first_saved = self.document(first, target=target, annotation_format=AnnotationFormat.CREATE_ML)
+        self.document(first, target=target, annotation_format=AnnotationFormat.CREATE_ML)
         # Give records their complete references to distinguish equal names.
         payload = json.loads(Path(target).read_text())
         payload[0]['image'] = 'train/same.png'

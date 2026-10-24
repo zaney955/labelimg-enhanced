@@ -233,7 +233,6 @@ class LabelListWidget(QListWidget):
         self._visibility_press_item = None
         self._visibility_hover_index = QPersistentModelIndex()
         self._row_hover_index = QPersistentModelIndex()
-        self._projected_hover_index = QPersistentModelIndex()
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setTextElideMode(Qt.ElideRight)
         self.setMouseTracking(True)
@@ -262,14 +261,8 @@ class LabelListWidget(QListWidget):
 
     def row_hovered(self, index):
         return (
-            (
-                self._row_hover_index.isValid()
-                and self._row_hover_index == index
-            )
-            or (
-                self._projected_hover_index.isValid()
-                and self._projected_hover_index == index
-            )
+            self._row_hover_index.isValid()
+            and self._row_hover_index == index
         )
 
     def hovered_item(self):
@@ -282,13 +275,6 @@ class LabelListWidget(QListWidget):
         if changed:
             self.rowHoverChanged.emit(self.hovered_item())
 
-    def set_projected_hover_item(self, item):
-        index = (
-            self.indexFromItem(item)
-            if item is not None
-            else QModelIndex()
-        )
-        self._set_hover_index('_projected_hover_index', index)
 
     def _set_hover_index(self, attribute, index):
         persistent_index = (

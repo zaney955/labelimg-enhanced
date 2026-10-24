@@ -5,7 +5,7 @@ from PyQt5.QtWidgets import (
 )
 
 from labelimg.localization.runtime import localize_dialog_buttons, tr
-from labelimg.ui.presentation import present_dialog, role, section
+from labelimg.ui.presentation import present_dialog, role
 
 
 def show_annotation_display_settings(window):

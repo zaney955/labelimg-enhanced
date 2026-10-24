@@ -649,7 +649,7 @@ class CommandSurfacesTest(unittest.TestCase):
         self.reopen_window()
         self.assertFalse(self.window.canvas.hide_at_crosshair)
         self.assertTrue(self.window.canvas.protect_selected_annotations)
-        with patch("labelimg.workbench.main_window.QProcess.startDetached"), patch(
+        with patch("PyQt5.QtCore.QProcess.startDetached"), patch(
             "labelimg.workbench.main_window.localized_question", return_value=QMessageBox.Yes
         ):
             self.window.reset_all()
@@ -723,7 +723,7 @@ class CommandSurfacesTest(unittest.TestCase):
         self.assertEqual(self.window.label_color_palette.algorithm, MAXIMIN)
         self.assertEqual(self.window.label_color_palette.snapshot(), {})
         self.assertTrue(self.window.menus.labelColorAlgorithm.actions_by_algorithm[MAXIMIN].isChecked())
-        with patch("labelimg.workbench.main_window.QProcess.startDetached"), patch(
+        with patch("PyQt5.QtCore.QProcess.startDetached"), patch(
             "labelimg.workbench.main_window.localized_question", return_value=QMessageBox.Yes
         ):
             self.window.reset_all()

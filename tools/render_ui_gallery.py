@@ -105,7 +105,7 @@ from labelimg import __version__
 from labelimg.localization.runtime import localize_message_box_buttons, tr
 from labelimg.ui.presentation import present_dialog
 from labelimg.ui.appearance import AppearanceDialog
-from labelimg.ui.theme import LIGHT_THEME, current_theme, register_theme, set_theme
+from labelimg.ui.theme import current_theme
 
 app = QApplication.instance() or QApplication([])
 font_path = Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts" / "msyh.ttc"

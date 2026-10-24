@@ -155,7 +155,7 @@ class UiAuditRegressionTest(unittest.TestCase):
             before = stream.read()
         with patch('labelimg.workbench.main_window.localized_question', return_value=QMessageBox.Yes), \
              patch.object(self.window, 'may_continue', return_value=False), \
-             patch('labelimg.workbench.main_window.QProcess.startDetached') as restart:
+             patch('PyQt5.QtCore.QProcess.startDetached') as restart:
             self.window.actions.resetAll.trigger()
         self.assertEqual(self.window.settings.get('audit-sentinel'), 'keep')
         self.assertEqual(self.window.settings.path, path)
@@ -298,7 +298,7 @@ class UiAuditRegressionTest(unittest.TestCase):
         self.window.show()
         with patch('labelimg.workbench.main_window.localized_question', return_value=QMessageBox.Yes), \
              patch.object(self.window, 'may_continue', return_value=True), \
-             patch('labelimg.workbench.main_window.QProcess.startDetached') as restart:
+             patch('PyQt5.QtCore.QProcess.startDetached') as restart:
             self.window.reset_all()
         restart.assert_called_once()
         self.assertIsNone(self.window.settings.get('audit-sentinel'))

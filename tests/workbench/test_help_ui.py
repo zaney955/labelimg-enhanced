@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt5.QtCore import QEvent, Qt
+from PyQt5.QtCore import QEvent
 from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import QApplication, QDialog
 
@@ -170,7 +170,7 @@ class HelpDialogTest(unittest.TestCase):
                 "labelimg.workbench.help_ui.ShortcutCatalogDialog.exec_",
                 return_value=QDialog.Rejected,
             ),
-            patch("labelimg.workbench.main_window.wb.open") as browser_open,
+            patch("PyQt5.QtGui.QDesktopServices.openUrl") as browser_open,
         ):
             self.window.show_shortcuts_dialog()
         browser_open.assert_not_called()

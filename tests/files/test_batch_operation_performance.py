@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from labelimg.files.application.operations import AnnotationFileService, FileOperationResult, SystemTrashAdapter
-from labelimg.files.application.recovery import TrashIdentity, TrashedResource
+from labelimg.platform.recovery import TrashIdentity, TrashedResource
 
 
 class BatchOperationPerformanceTest(unittest.TestCase):

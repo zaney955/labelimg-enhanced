@@ -2,10 +2,7 @@
 
 from dataclasses import dataclass, replace
 
-try:
-    from PyQt5.QtCore import QPointF, QRectF
-except ImportError:
-    from PyQt4.QtCore import QPointF, QRectF
+from PyQt5.QtCore import QPointF, QRectF
 
 
 @dataclass(frozen=True)
@@ -342,10 +339,6 @@ class CanvasInteraction:
         )
         return contains and strict
 
-    def clear_hover(self):
-        previous = self.hover_shape
-        self.set_hover()
-        return previous
 
     def reset(self):
         self._snapshot = CanvasInteractionSnapshot()

@@ -1204,18 +1204,6 @@ class AnnotationActionsMixin:
         self.canvas.update()
 
 
-    def pop_label_list_menu(self, point):
-        # Compatibility entry point for extensions using the historical name.
-        target = self.label_list.target_at(point)
-        if target is not None:
-            self.pop_label_group_menu(
-                ('instance', target)
-                if target in self.canvas.shapes
-                else ('group', target),
-                self.label_list.viewport().mapToGlobal(point),
-            )
-
-
     def isolate_label_group(self, label):
         self.label_visibility_requested(
             (shape for shape in self.canvas.shapes if shape.label != label), False
@@ -1276,9 +1264,6 @@ class AnnotationActionsMixin:
             )
         return stored_status if stored_status is not None else self.annotation_workspace.entry(image_path).status
 
-    def file_annotation_state(self, image_path):
-        status = self._file_annotation_status(image_path)
-        return 'annotated' if status.has_annotations else 'unannotated'
 
     def file_review_state(self, image_path):
         status = self._file_annotation_status(image_path)
@@ -1827,10 +1812,6 @@ class AnnotationActionsMixin:
         ))
 
 
-    def selected_label_shapes(self):
-        return list(self.label_list.selected_shapes())
-
-
     def label_selection_requested(self, shapes, active_shape):
         self.canvas.set_selected_shapes(
             shapes,
@@ -1903,17 +1884,6 @@ class AnnotationActionsMixin:
         return shape
 
 
-    def load_labels(self, shapes):
-        s = []
-        for annotation_shape in shapes:
-            shape = self.shape_from_annotation(annotation_shape)
-            s.append(shape)
-            self.add_label(shape)
-        self.update_combo_box()
-        self.canvas.load_shapes(s)
-        self.refresh_near_duplicate_clusters()
-
-
     def load_annotation_document(self, document):
         shapes, snapped = shapes_from_document(
             document,
@@ -1922,7 +1892,7 @@ class AnnotationActionsMixin:
         )
         for shape in shapes:
             self.add_label(shape)
-        self.update_combo_box()
+        self.label_list.viewport().update()
         self.canvas.load_shapes(shapes)
         self.annotation_document = document
         self.canvas.verified = document.verified
@@ -1934,13 +1904,6 @@ class AnnotationActionsMixin:
                 else 'unreviewed'
             )
         self.refresh_near_duplicate_clusters()
-
-
-    def update_combo_box(self):
-        # Kept as a compatibility seam for legacy call sites. The old
-        # visibility combobox was replaced by the side-effect-free group
-        # filter, and the grouped list updates itself from scene mutations.
-        self.label_list.viewport().update()
 
 
     def _sync_annotation_target_ui(self):
@@ -2080,19 +2043,11 @@ class AnnotationActionsMixin:
         return None
 
 
-    def combo_selection_changed(self, index):
-        return
-
-
     def label_selection_changed(self):
         self.label_selection_requested(
             self.label_list.selected_shapes(),
             self.label_list.active_shape(),
         )
-
-
-    def label_item_changed(self, item):
-        return
 
 
     def new_shape(self):
@@ -2136,12 +2091,6 @@ class AnnotationActionsMixin:
             self.annotation_editing.cancel_edit(restore=False)
             self._sync_annotation_history_ui()
             self.set_edit_mode()
-
-
-    def annotation_path_for_image(self, image_path):
-        return self.annotation_workspace.entry(image_path).path_for(
-            AnnotationFormat.PASCAL_VOC
-        )
 
 
     def annotation_paths_for_image(self, image_path):

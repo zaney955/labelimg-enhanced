@@ -1,10 +1,9 @@
 import os
 import tempfile
 import unittest
-from functools import cmp_to_key
 
 from labelimg.files.ui.controller import FileActionsMixin
-from labelimg.workbench.support import portable_logical_compare
+from labelimg.files.application.discovery import relative_image_sort_key
 
 
 class FileListSortingTest(unittest.TestCase):
@@ -58,7 +57,7 @@ class FileListSortingTest(unittest.TestCase):
         ]
 
         self.assertEqual(
-            sorted(names, key=cmp_to_key(portable_logical_compare)),
+            sorted(names, key=lambda name: relative_image_sort_key(name, os.curdir)),
             [
                 "00nested.jpg",
                 "0dc52y1wpm.jpg",

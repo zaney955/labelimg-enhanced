@@ -264,7 +264,7 @@ class YoloDatasetUiTest(unittest.TestCase):
         self.assertEqual(self.annotation_icons(), ["unannotated", "unannotated"])
         mapping.write_bytes(original)
         with patch(
-            "labelimg.workbench.main_window.QFileDialog.getExistingDirectory",
+            "PyQt5.QtWidgets.QFileDialog.getExistingDirectory",
             return_value=str(self.labels),
         ):
             self.window.change_save_dir_dialog()
@@ -282,7 +282,7 @@ class YoloDatasetUiTest(unittest.TestCase):
         self.assertEqual(self.annotation_icons(), ["unannotated", "unannotated"])
         mapping.write_bytes(original)
         with patch(
-            "labelimg.workbench.main_window.QFileDialog.getExistingDirectory",
+            "PyQt5.QtWidgets.QFileDialog.getExistingDirectory",
             return_value=str(self.labels),
         ):
             with patch.object(self.window, "isVisible", return_value=True):
@@ -307,7 +307,7 @@ class YoloDatasetUiTest(unittest.TestCase):
         workspace = self.window.annotation_workspace
         shape = self.window.canvas.shapes[0]
         with patch(
-            "labelimg.workbench.main_window.QFileDialog.getExistingDirectory",
+            "PyQt5.QtWidgets.QFileDialog.getExistingDirectory",
             return_value=str(self.labels),
         ):
             with patch.object(self.window, "may_continue") as guard:
@@ -330,7 +330,7 @@ class YoloDatasetUiTest(unittest.TestCase):
         self.assertEqual(self.annotation_icons(), ["unannotated", "unannotated"])
         mapping.write_text(content, encoding="utf8")
         with patch(
-            "labelimg.workbench.main_window.QFileDialog.getExistingDirectory",
+            "PyQt5.QtWidgets.QFileDialog.getExistingDirectory",
             return_value=str(self.labels),
         ):
             self.window.change_save_dir_dialog()

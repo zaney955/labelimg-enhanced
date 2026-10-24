@@ -1,4 +1,4 @@
-from PyQt5.QtCore import QEvent, QPoint, QPointF, QRect, QRectF, Qt, pyqtSignal
+from PyQt5.QtCore import QEvent, QPoint, QRect, QRectF, Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QFont, QFontMetrics, QPainter, QPalette, QPen
 from PyQt5.QtWidgets import QAbstractScrollArea, QToolTip
 
@@ -232,8 +232,6 @@ class LabelGroupListWidget(QAbstractScrollArea):
         self.viewport().update()
 
     # Public queries ---------------------------------------------------
-    def all_group_labels(self):
-        return [group.label for group in self._groups]
 
     def group_labels(self):
         return [group.label for group in self._filtered_groups()]
@@ -245,14 +243,10 @@ class LabelGroupListWidget(QAbstractScrollArea):
     def group_count(self):
         return len(self._filtered_groups())
 
-    def total_group_count(self):
-        return len(self._groups)
 
     def annotation_count(self):
         return sum(len(group.shapes) for group in self._filtered_groups())
 
-    def total_annotation_count(self):
-        return len(self._scene_shapes)
 
     def selected_shapes(self):
         return self._selected
@@ -655,22 +649,6 @@ class LabelGroupListWidget(QAbstractScrollArea):
             painter.drawEllipse(corner.center(), 1.4, 1.4)
         painter.restore()
 
-    def _paint_column_dividers(self, painter, layout):
-        color = QColor(self.palette().color(QPalette.Mid))
-        color.setAlpha(self.separator_alpha)
-        painter.save()
-        top = layout["row"].top() + 5
-        bottom = layout["row"].bottom() - 5
-        height = max(0, bottom - top + 1)
-        painter.fillRect(
-            QRect(layout["count"].left(), top, 1, height),
-            color,
-        )
-        painter.fillRect(
-            QRect(layout["visibility"].left(), top, 1, height),
-            color,
-        )
-        painter.restore()
 
     def _paint_visibility(self, painter, group, rect):
         state = self.group_visibility(group.label)

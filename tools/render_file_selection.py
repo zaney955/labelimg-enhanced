@@ -19,7 +19,7 @@ os.environ["QT_QPA_PLATFORM"] = "offscreen"
 os.environ["QT_SCALE_FACTOR"] = str(args.scale)
 os.environ["LABELIMG_CONFIG_DIR"] = str(root / "config")
 (root / "config").mkdir(exist_ok=True)
-from PyQt5.QtCore import QEvent, QItemSelectionModel, QRect, Qt
+from PyQt5.QtCore import QEvent, QRect, Qt
 from PyQt5.QtGui import QFont, QFontDatabase, QImage, QColor, QScreen
 from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication

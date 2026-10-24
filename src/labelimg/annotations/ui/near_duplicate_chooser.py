@@ -48,9 +48,6 @@ class _MemberRow(QWidget):
         layout.addWidget(self.visibility_button)
         self.retranslate_ui()
 
-    def set_visible_state(self, visible):
-        self.visible = bool(visible)
-        self.retranslate_ui()
 
     def retranslate_ui(self):
         self.visibility_button.setIcon(new_icon("visibility" if self.visible else "visibility-off"))

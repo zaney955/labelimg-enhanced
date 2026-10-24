@@ -27,4 +27,6 @@ jobs:
         env:
           LABELIMG_CONFIG_DIR: ${{ runner.temp }}
       - name: Build wheel
-        run: python -m pip wheel . --no-deps
+        run: python -m pip wheel . --no-deps --wheel-dir dist
+      - name: Validate built wheel contents
+        run: python -B -m unittest discover -s tests/packaging -p test_wheel_contract.py

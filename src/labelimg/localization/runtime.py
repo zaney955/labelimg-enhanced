@@ -6,16 +6,10 @@ import locale
 import os
 import re
 
-try:
-    from PyQt5.QtCore import (
-        QObject,
-        pyqtSignal,
-    )
-except ImportError:  # pragma: no cover - retained for the legacy Qt4 import path
-    from PyQt4.QtCore import (
-        QObject,
-        pyqtSignal,
-    )
+from PyQt5.QtCore import (
+    QObject,
+    pyqtSignal,
+)
 
 from labelimg.localization.catalogs import CATALOGS
 
@@ -90,16 +84,9 @@ def tr(message_id, **values):
     return template.format(**values) if values else template
 
 
-def catalog_keys(language):
-    return frozenset(CATALOGS[normalize_language(language)])
-
-
 def localize_dialog_buttons(button_box):
     """Set application-owned QDialogButtonBox labels explicitly."""
-    try:
-        from PyQt5.QtWidgets import QDialogButtonBox
-    except ImportError:  # pragma: no cover
-        from PyQt4.QtGui import QDialogButtonBox
+    from PyQt5.QtWidgets import QDialogButtonBox
     messages = {
         QDialogButtonBox.Ok: "standard.ok",
         QDialogButtonBox.Cancel: "standard.cancel",
@@ -121,10 +108,7 @@ def localize_dialog_buttons(button_box):
 
 def localize_message_box_buttons(message_box):
     """Set labels on the standard buttons currently owned by a QMessageBox."""
-    try:
-        from PyQt5.QtWidgets import QMessageBox
-    except ImportError:  # pragma: no cover
-        from PyQt4.QtGui import QMessageBox
+    from PyQt5.QtWidgets import QMessageBox
     from labelimg.ui.presentation import SURFACE_STYLE
     from labelimg.ui.theme import apply_theme_palette, widget_theme_style
     if not message_box.property("labelimgPresentation"):
@@ -151,10 +135,7 @@ def localize_message_box_buttons(message_box):
 
 
 def _show_message(icon, parent, title, text, buttons=None, default_button=None):
-    try:
-        from PyQt5.QtWidgets import QMessageBox
-    except ImportError:  # pragma: no cover
-        from PyQt4.QtGui import QMessageBox
+    from PyQt5.QtWidgets import QMessageBox
     if buttons is None:
         buttons = QMessageBox.Ok
     box = QMessageBox(icon, title, text, QMessageBox.NoButton, parent)

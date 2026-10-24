@@ -15,7 +15,7 @@ from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication, QDockWidget, QStyle, QStyleOption, QToolButton
 from labelimg.localization.runtime import ENGLISH, SIMPLIFIED_CHINESE, set_language
 from labelimg.ui.panels import PanelHeader
-from labelimg.ui.theme import COLORS, appearance_theme, set_theme
+from labelimg.ui.theme import COLORS, appearance_theme
 from labelimg.ui.theme_palettes import available_accents, contrast_ratio
 from labelimg.workbench.bootstrap import WorkbenchLaunchOptions, create_workbench
 

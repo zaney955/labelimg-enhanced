@@ -17,14 +17,14 @@ from PyQt5.QtGui import QColor, QImage, QPainter, QPen
 from PyQt5.QtWidgets import QApplication, QDialog, QMessageBox
 
 from labelimg.annotations import AnnotationWorkspace
-from labelimg.files.application.recovery import TrashIdentity
+from labelimg.platform.recovery import TrashIdentity
 from labelimg.files.ui.list_widget import FILE_ANNOTATION_STATE_ROLE, FILE_REVIEW_STATE_ROLE, CURRENT_IMAGE_ROLE
 from labelimg.image_tools.domain.quality import ImageQualityPolicy
 from labelimg.image_tools.ui.quality_panel import ImageQualityRequest
 from labelimg.image_tools.application.display_adjustment import DisplayAdjustmentValues
 from labelimg.image_tools.application.colored_frame_processor import ImageToolProcessor
 from labelimg.image_tools.application.adjustment import ImageAdjustmentOptions
-from labelimg.image_tools.application.crop import CropRegion
+from labelimg.image_tools.domain.crop_geometry import CropRegion
 from labelimg.image_tools.application.geometry_transform import GeometryOperation
 from labelimg.image_tools.ui.adjustment_dialog import ImageAdjustmentRequest
 from labelimg.image_tools.ui.geometry_dialog import GeometryTransformRequest

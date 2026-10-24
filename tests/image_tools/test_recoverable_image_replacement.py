@@ -4,7 +4,7 @@ import tempfile
 import unittest
 
 from labelimg.annotations.infrastructure.storage import fingerprint_path
-from labelimg.files.application.recovery import TrashIdentity
+from labelimg.platform.recovery import TrashIdentity
 from labelimg.image_tools.infrastructure.recoverable_replacement import (
     PreparedImageReplacement,
     RecoverableImageReplacementError,

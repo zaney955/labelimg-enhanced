@@ -228,7 +228,7 @@ def _shell_item(path, guid_type, interface):
         POINTER(guid_type),
         POINTER(POINTER(interface)),
     )
-    shell32.SHCreateItemFromParsingName.restype = c_long = ctypes.c_long
+    shell32.SHCreateItemFromParsingName.restype = ctypes.c_long
     item = POINTER(interface)()
     result = shell32.SHCreateItemFromParsingName(
         os.path.abspath(path),

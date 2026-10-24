@@ -1,10 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf8 -*-
 import os
-import sys
-from xml.etree import ElementTree
-from xml.etree.ElementTree import Element, SubElement
-from lxml import etree
 
 TXT_EXT = '.txt'
 ENCODE_METHOD = "utf-8"

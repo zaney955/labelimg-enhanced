@@ -6,13 +6,13 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt5.QtCore import QEvent, Qt
 from PyQt5.QtGui import QPalette
 from PyQt5.QtTest import QTest
-from PyQt5.QtWidgets import QApplication, QDialog
+from PyQt5.QtWidgets import QApplication
 from labelimg.localization.runtime import ENGLISH, SIMPLIFIED_CHINESE, set_language
 from labelimg.platform.settings import Settings
 from labelimg.platform.settings_keys import SETTING_ACCENT_COLOR, SETTING_COLOR_MODE
@@ -27,7 +27,6 @@ from labelimg.ui.theme import (
 from labelimg.ui.theme_palettes import (
     available_accents,
     contrast_ratio,
-    appearance_colors,
 )
 
 

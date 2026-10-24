@@ -8,7 +8,7 @@ import os.path
 
 
 from PyQt5.QtCore import QBuffer, QByteArray, QIODevice, QSignalBlocker, QThread, Qt
-from PyQt5.QtGui import QCursor, QImage, QImageReader, QPixmap
+from PyQt5.QtGui import QCursor, QImage, QImageReader
 from PyQt5.QtWidgets import QApplication, QDialog, QMessageBox, QProgressDialog
 
 import labelimg.ui.generated_resources  # noqa: F401 - registers Qt resources

@@ -5,14 +5,11 @@ import math
 import os
 from xml.etree import ElementTree
 
-try:
-    from PyQt5.QtGui import QImage
-except ImportError:
-    from PyQt4.QtGui import QImage
+from PyQt5.QtGui import QImage
 
-from labelimg.annotations.infrastructure.formats.create_ml import CreateMLReader, CreateMLWriter, JSON_EXT
+from labelimg.annotations.infrastructure.formats.create_ml import CreateMLReader, CreateMLWriter
 from labelimg.annotations.infrastructure.formats.create_ml_collection import CreateMLAnnotationCollection
-from labelimg.annotations.infrastructure.formats.pascal_voc import PascalVocReader, PascalVocWriter, XML_EXT
+from labelimg.annotations.infrastructure.formats.pascal_voc import PascalVocReader, PascalVocWriter
 from labelimg.annotations.domain.model import (
     AnnotationBox,
     AnnotationDocument as DomainAnnotationDocument,
@@ -22,19 +19,10 @@ from labelimg.annotations.domain.model import (
 )
 from labelimg.annotations.infrastructure.formats.yolo_classes import resolve_yolo_classes
 from labelimg.annotations.infrastructure.formats.yolo import (
-    TXT_EXT,
     YOLOWriter,
     YoloReader,
     decode_yolo_classes,
 )
-
-
-
-
-
-
-
-
 
 
 @dataclass(frozen=True)
@@ -183,23 +171,12 @@ class AnnotationDocument(DomainAnnotationDocument):
         return target_path
 
 
-def load_document(annotation_path, image_path, image_data):
-    return AnnotationDocument.load(annotation_path, image_path, image_data)
-
-
-def inspect_document(annotation_path, image_path=None, image_data=None):
-    return AnnotationDocument.inspect(annotation_path, image_path, image_data)
-
-
 def image_path_hint(annotation_path):
     return AnnotationDocument.image_path_hint(annotation_path)
 
 
 def save_document(document, annotation_path, annotation_format):
     return AnnotationDocument.save(document, annotation_path, annotation_format)
-
-
-
 
 
 class _AnnotationFormatAdapter:

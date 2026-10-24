@@ -1,12 +1,10 @@
 """Category counts must reflect actual boxes, documents and image scope."""
 
 import json
-import os
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
 
 from labelimg.annotations import AnnotationWorkspace
 from labelimg.annotations.application.statistics import AnnotationStatisticsCollector, StatisticsCanceled, StatisticsError

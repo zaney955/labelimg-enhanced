@@ -10,12 +10,8 @@ import numpy as np
 from PIL import Image
 
 from labelimg.annotations.domain.history import AnnotationBoxState
-from labelimg.image_tools.application.crop import (
-    CropRegion,
-    ImageCropProcessor,
-    crop_pixels,
-    transform_annotation_boxes,
-)
+from labelimg.image_tools.application.crop import ImageCropProcessor
+from labelimg.image_tools.domain.crop_geometry import CropRegion, crop_pixels, transform_annotation_boxes
 from labelimg.image_tools.application.crop_annotations import prepare_crop_annotations
 from labelimg.annotations.domain.history import AnnotationSnapshot
 from labelimg.annotations.infrastructure.storage import fingerprint_path

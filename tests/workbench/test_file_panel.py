@@ -11,9 +11,8 @@ from PyQt5.QtCore import QEvent, QPoint, QRect, Qt
 from PyQt5.QtGui import QColor, QImage, QPainter
 from PyQt5.QtWidgets import QApplication, QStyle, QStyleOptionViewItem
 
-from labelimg.annotations import AnnotationFormat
 from labelimg.files.ui.list_widget import (
-    CURRENT_IMAGE_ROLE, FILE_PERSISTENCE_FLAGS_ROLE, FileListItemDelegate,
+    FILE_PERSISTENCE_FLAGS_ROLE, FileListItemDelegate,
 )
 from labelimg.localization.runtime import ENGLISH, SIMPLIFIED_CHINESE, set_language
 from labelimg.workbench.bootstrap import WorkbenchLaunchOptions, create_workbench
@@ -130,7 +129,7 @@ class FilePanelTest(unittest.TestCase):
     def test_directory_row_triggers_existing_command(self):
         calls = []
         self.window.actions.changeSaveDir.triggered.connect(lambda: calls.append(True))
-        with patch('labelimg.workbench.main_window.QFileDialog.getExistingDirectory', return_value='') as chooser:
+        with patch('PyQt5.QtWidgets.QFileDialog.getExistingDirectory', return_value='') as chooser:
             self.window.annotation_directory_bar.click()
             chooser.assert_called_once()
         self.assertEqual(calls, [True])

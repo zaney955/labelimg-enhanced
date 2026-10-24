@@ -32,7 +32,7 @@ from labelimg.localization.runtime import localize_message_box_buttons, question
 from labelimg.annotations import AnnotationFormat, annotation_stems_for_image
 from labelimg.files import discover_images
 from labelimg.platform.text import native_text as ustr
-from labelimg.files.ui.list_widget import BatchRenameDialog, CURRENT_IMAGE_ROLE, FILE_CATEGORY_LABELS_ROLE, FILE_ANNOTATION_STATE_ROLE, FILE_PERSISTENCE_FLAGS_ROLE, FILE_QUALITY_FINDINGS_ROLE, FILE_REVIEW_STATE_ROLE, compare_relative_image_paths, validate_base_name, validate_rename_mapping
+from labelimg.files.ui.list_widget import BatchRenameDialog, CURRENT_IMAGE_ROLE, FILE_CATEGORY_LABELS_ROLE, FILE_ANNOTATION_STATE_ROLE, FILE_PERSISTENCE_FLAGS_ROLE, FILE_QUALITY_FINDINGS_ROLE, FILE_REVIEW_STATE_ROLE, validate_base_name, validate_rename_mapping
 from labelimg.files.application.operations import FileOperationError
 from labelimg.files.application.transaction import FileOperationBlocked
 
@@ -205,10 +205,6 @@ class FileActionsMixin:
         ]
 
 
-    def show_file_list_filter(self):
-        self.file_list_controls.show_filter_panel()
-
-
     def focus_image_search(self):
         self.file_list_controls.focus_search()
 
@@ -261,9 +257,6 @@ class FileActionsMixin:
         }
         previous_projection = getattr(self, '_file_list_projection', None)
         include_advanced_filters = self.file_list_controls.index_complete
-        projection_query = state.projection_query(
-            include_advanced_filters
-        )
         presorted = bool(
             state.sort_key == 'name'
             and not state.descending

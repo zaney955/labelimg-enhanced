@@ -1,11 +1,7 @@
 """Project between Qt-free annotation boxes and interactive Canvas shapes."""
 
-try:
-    from PyQt5.QtCore import QPointF
-    from PyQt5.QtGui import QColor
-except ImportError:
-    from PyQt4.QtCore import QPointF
-    from PyQt4.QtGui import QColor
+from PyQt5.QtCore import QPointF
+from PyQt5.QtGui import QColor
 
 from labelimg.annotations.domain.model import AnnotationBox, AnnotationDocument
 from labelimg.canvas import Shape

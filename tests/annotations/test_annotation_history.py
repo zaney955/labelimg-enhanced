@@ -257,7 +257,7 @@ class AnnotationHistoryTest(unittest.TestCase):
         reviewed = replace(
             reviewed, verified=True, questioned=False
         )
-        opened = history.open_image(
+        history.open_image(
             "image-a",
             reviewed,
             saved_baseline=("a.xml", "reviewed"),

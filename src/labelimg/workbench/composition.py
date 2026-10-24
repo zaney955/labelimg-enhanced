@@ -1,27 +1,18 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-import argparse
-import ctypes
 import os.path
 import platform
-import re
-import sys
-import subprocess
-import shutil
-import webbrowser as wb
 
-from dataclasses import replace
-from functools import cmp_to_key, partial
+from functools import partial
 from types import SimpleNamespace
 
-from PyQt5.QtCore import QByteArray, QDateTime, QEvent, QFileInfo, QItemSelectionModel, QModelIndex, QPersistentModelIndex, QPoint, QPointF, QProcess, QRect, QRectF, QSignalBlocker, QSize, QThread, QTimer, Qt, pyqtSignal
-from PyQt5.QtGui import QBrush, QColor, QCursor, QImage, QImageReader, QKeySequence, QPainter, QPainterPath, QPalette, QPen, QPixmap
-from PyQt5.QtWidgets import QAbstractItemView, QAction, QActionGroup, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDockWidget, QFileDialog, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QProgressDialog, QPushButton, QScrollArea, QShortcut, QSizePolicy, QStackedWidget, QStyle, QStyleOptionViewItem, QStyledItemDelegate, QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget
+from PyQt5.QtCore import QByteArray, QPoint, QSize, QTimer, Qt
+from PyQt5.QtGui import QImage, QKeySequence
+from PyQt5.QtWidgets import QAction, QActionGroup, QApplication, QDockWidget, QScrollArea, QShortcut, QVBoxLayout
 from labelimg.ui.menu import Menu as QMenu
 
 import labelimg.ui.generated_resources  # noqa: F401 - registers Qt resources
 from labelimg import __version__
-from labelimg.ui.query_field import decorate_list_query_field
 from labelimg.platform.settings_keys import (
     SETTING_AUTO_CHECK_UPDATES,
     SETTING_AUTO_HIDE_OVERLAPPING,
@@ -33,7 +24,6 @@ from labelimg.platform.settings_keys import (
     SETTING_LABEL_COLOR_ALGORITHM,
     SETTING_AUTO_SAVE,
     SETTING_DRAW_SQUARE,
-    SETTING_FILENAME,
     SETTING_LABEL_FILE_FORMAT,
     SETTING_LANGUAGE,
     SETTING_LAST_OPEN_DIR,
@@ -50,7 +40,6 @@ from labelimg.ui.actions import (
     format_shortcut,
     new_action,
     new_icon,
-    set_action_copy,
 )
 from labelimg.annotations.ui.style import LabelColorPalette
 from labelimg.workbench.label_color_settings import LabelColorAlgorithmMenu
@@ -63,16 +52,9 @@ from labelimg.localization.runtime import (
     LANGUAGE_NAMES,
     SIMPLIFIED_CHINESE,
     current_language,
-    critical as localized_critical,
-    information as localized_information,
-    localize_dialog_buttons,
-    localize_message_box_buttons,
-    question as localized_question,
     set_language,
     system_language,
     tr,
-    translate_history_description,
-    warning as localized_warning,
 )
 from labelimg.canvas.widget import Canvas
 from labelimg.workbench.commands import (
@@ -87,77 +69,35 @@ from labelimg.workbench.canvas_context_menu import (
 from labelimg.workbench.canvas_status import WorkbenchStatusBar
 from labelimg.annotations.ui.candidate_label_dialog import CandidateLabelDialog
 from labelimg.annotations.ui.review_control import ReviewControl
-from labelimg.annotations.ui.label_list import (
-    LabelListItemDelegate,
-    LabelListWidget,
-)
 from labelimg.ui.color_dialog import ColorDialog
 from labelimg.ui.appearance import AppearanceController, show_appearance
 from labelimg.ui.presentation import present_workbench, present_result_panel
 from labelimg.annotations.domain.model import (
-    AnnotationDocument,
-    AnnotationDocumentError,
     AnnotationFormat,
 )
-from labelimg.annotations.infrastructure.document import image_path_hint
-from labelimg.annotations.ui.canvas_adapter import (
-    document_from_shapes,
-    shapes_from_document,
-)
 from labelimg.annotations.application.workspace import (
-    AmbiguousAnnotationDocuments,
     AnnotationWorkspace,
-    annotation_resources,
 )
 from labelimg.annotations.application.editing import (
     AnnotationEditingController,
-    ProjectionFailed,
 )
 from labelimg.annotations.ui.controller import (
     AnnotationHistoryShortcutFilter,
     CanvasAnnotationScene,
 )
-from labelimg.annotations.domain.history import UnknownImageHistory
 from labelimg.annotations.application.review import ReviewStateTransaction
 from labelimg.annotations import LabelReplacementTransaction
 from labelimg.annotations.application.persistence import AnnotationSaveCoordinator
-from labelimg.annotations.infrastructure.storage import (
-    AnnotationStorageConflict,
-    fingerprint_image,
-    fingerprint_path,
-)
-from labelimg.ui.tool_bar import ToolBar
-from labelimg.ui.window import WindowMixin
 from labelimg.platform.text import native_text as ustr
-from labelimg.files.ui.list_widget import (
-    BatchRenameDialog,
-    CURRENT_IMAGE_ROLE,
-    FILE_ANNOTATION_STATE_ROLE,
-    FILE_PERSISTENCE_FLAGS_ROLE,
-    FILE_QUALITY_FINDINGS_ROLE,
-    FILE_REVIEW_STATE_ROLE,
-    compare_relative_image_paths,
-    validate_base_name,
-    validate_rename_mapping,
-)
 from labelimg.files.application.operations import (
-    FileOperationError,
     SystemTrashAdapter,
 )
 from labelimg.files import (
-    FileOperationBlocked,
     FileOperationTransaction,
-    FileRecoveryBlocked,
-    RecoveryOperation,
 )
 from labelimg.annotations.ui.near_duplicate_chooser import NearDuplicateChooser
 from labelimg.image_tools.application.session import (
-    AdjustmentChange,
-    CropChange,
-    GeometryTransformChange,
-    ImageProcessingProjectionKind,
     ImageProcessingSession,
-    PreparedPixelChange,
 )
 from labelimg.image_tools import (
     CanvasDisplayAdjustmentSession,
@@ -172,18 +112,8 @@ from labelimg.image_tools.ui.display_adjustment import (
 from labelimg.workbench.session import WorkbenchSession
 from labelimg.workbench.support import (
     APP_NAME,
-    compare_image_paths,
-    document_format_name,
-    inverted,
-    portable_logical_compare,
-    read_image as read,
 )
-from labelimg.annotations.ui.workbench_controller import AnnotationActionsMixin
-from labelimg.canvas.workbench_controller import CanvasActionsMixin
-from labelimg.files.ui.controller import FileActionsMixin
-from labelimg.image_tools.ui.controller import ImageToolsActionsMixin
 from labelimg.updates.ui import UpdateUiCoordinator
-from labelimg.workbench.recovery_ui import RecoveryActionsMixin
 
 __appname__ = APP_NAME
 

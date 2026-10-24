@@ -235,7 +235,7 @@ class DrawingHistoryConsistencyTest(unittest.TestCase):
                     self.window.save_file()
 
     def test_adjusted_crop_preserves_original_geometry(self):
-        from labelimg.image_tools.application.crop import CropRegion
+        from labelimg.image_tools.domain.crop_geometry import CropRegion
         self.install_trash()
         with patch("labelimg.image_tools.ui.display_adjustment.PREVIEW_MAX_PIXELS", 100), patch.object(self.window.display_adjustment_controller, "_submit_full"):
             self.window.display_adjustment_panel.master_brightness.slider.setValue(20)

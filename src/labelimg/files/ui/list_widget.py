@@ -67,8 +67,6 @@ from labelimg.files.model import (
     FileListItemState,
     FileListProjection,
     FileListQuery,
-    compare_relative_image_paths,
-    portable_logical_compare,
     quality_finding_value,
 )
 from labelimg.localization.runtime import language_changed, localize_dialog_buttons, tr
@@ -251,11 +249,6 @@ class FileListControlButton(QToolButton):
             self.active = active
             self.update()
 
-    def set_descending(self, descending):
-        self.descending = bool(descending)
-        if self.kind != "filter":
-            self.setIcon(new_icon("sort-descending" if self.descending else "sort-ascending"))
-        self.update()
 
     def enterEvent(self, event):
         self._hovered = True
@@ -705,9 +698,9 @@ class FileListFilterPanel(QFrame):
         self.category_search.setFocus(Qt.PopupFocusReason)
 
     def _fit_content(self):
-        for section in (self.category_section, self.state_section):
-            section.layout().invalidate()
-            section.layout().activate()
+        for filter_section in (self.category_section, self.state_section):
+            filter_section.layout().invalidate()
+            filter_section.layout().activate()
         self.layout().invalidate()
         self.layout().activate()
         self.adjustSize()
@@ -1018,8 +1011,6 @@ class FileListControlBar(QWidget):
         if changed and emit:
             self.viewChanged.emit()
 
-    def clear_filters(self, _checked=False, emit=True):
-        self.clear_all_conditions(_checked, emit)
 
     def _update_filter_presentation(self):
         self.filter_button.set_active(self.state.advanced_filter_active)
@@ -1391,8 +1382,6 @@ class FileListWidget(QListView):
         if not item.isHidden() and item._selected:
             self._set_item_selected(item, True)
 
-    def _item_is_selected(self, item):
-        return item._selected
 
     def _set_item_selected(self, item, selected):
         item._selected = selected
@@ -2227,4 +2216,3 @@ def _relative_or_absolute(path, root):
     if relative == os.pardir or relative.startswith(os.pardir + os.sep):
         return path
     return relative
-    QSortFilterProxyModel,

@@ -13,13 +13,13 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt5.QtCore import QEvent, QSize, Qt
 from PyQt5.QtGui import QImage, QColor, QFont, QFontDatabase, QFontMetrics, QKeyEvent, QKeySequence
 from PyQt5.QtTest import QTest
-from PyQt5.QtWidgets import QApplication, QFrame, QInputDialog, QLineEdit, QDialog, QPushButton
+from PyQt5.QtWidgets import QApplication, QFrame, QInputDialog, QLineEdit, QPushButton
 
 from labelimg.ui.appearance import AppearanceDialog
 from labelimg.platform.settings import Settings
 from labelimg.platform.settings_keys import SETTING_UI_SCALE
 from labelimg.workbench.preferences import PreferencesDialog
-from labelimg.localization.runtime import ENGLISH, SIMPLIFIED_CHINESE, set_language
+from labelimg.localization.runtime import ENGLISH, SIMPLIFIED_CHINESE
 
 from labelimg.workbench.bootstrap import WorkbenchLaunchOptions, create_workbench
 

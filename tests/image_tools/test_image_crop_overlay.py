@@ -10,7 +10,7 @@ from PyQt5.QtTest import QSignalSpy, QTest
 from PyQt5.QtWidgets import QApplication, QWidget
 
 from labelimg.canvas.widget import Canvas
-from labelimg.image_tools.application.crop import CropRegion
+from labelimg.image_tools.domain.crop_geometry import CropRegion
 from labelimg.image_tools.ui.crop_overlay import CropControlBar, CropOverlay
 
 

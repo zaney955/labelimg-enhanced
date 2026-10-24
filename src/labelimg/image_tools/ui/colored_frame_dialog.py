@@ -5,7 +5,7 @@ from __future__ import annotations
 from labelimg.ui.theme import COLORS, apply_theme_style, theme_style
 
 
-from labelimg.ui.presentation import present_dialog, present_table, role
+from labelimg.ui.presentation import present_dialog, present_table
 
 from dataclasses import dataclass
 import math
@@ -29,13 +29,11 @@ from PyQt5.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFormLayout,
-    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QMessageBox,
     QPushButton,
-    QScrollArea,
     QSpinBox,
     QSplitter,
     QToolButton,

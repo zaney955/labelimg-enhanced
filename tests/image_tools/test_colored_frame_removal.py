@@ -14,7 +14,7 @@ from labelimg.image_tools.domain.colored_frame_removal import (
 
 REAL_RED_SAMPLE_DIRECTORY = os.environ.get(
     "LABELIMG_RED_FRAME_SAMPLES",
-    r"C:\Users\GW-LIYU\Downloads\red_box",
+    "",
 )
 
 
@@ -177,7 +177,7 @@ class ColoredFrameRemovalTest(unittest.TestCase):
             for name in os.listdir(REAL_RED_SAMPLE_DIRECTORY)
             if os.path.splitext(name)[1].lower() in (".jpg", ".jpeg")
         )
-        self.assertEqual(len(sample_names), 3)
+        self.assertGreater(len(sample_names), 0, "configured sample directory is empty")
         for sample_name in sample_names:
             with self.subTest(sample=sample_name):
                 image = cv2.imdecode(

@@ -439,7 +439,6 @@ class AnnotationWorkspace:
             raise AnnotationDocumentError(
                 "%s: %s" % (active, error)
             ) from error
-        return None
 
     def document_choices(self, image_path):
         choices = []

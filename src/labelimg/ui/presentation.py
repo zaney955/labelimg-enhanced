@@ -5,7 +5,6 @@ values, selection models, annotation colors, or transaction behavior.
 """
 
 from labelimg.ui.theme import (
-    COLORS,
     apply_theme_palette,
     apply_theme_style,
     theme_style,

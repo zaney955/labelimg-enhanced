@@ -20,10 +20,8 @@ from labelimg.annotations.domain.model import AnnotationFormat
 from labelimg.annotations.infrastructure.document import AnnotationDocument
 FORMAT_YOLO = AnnotationFormat.YOLO.display_name
 from labelimg.canvas.shape import Shape
-from labelimg.files.application.recovery import (
-    FileRecoveryError,
-    TrashIdentity,
-)
+from labelimg.files.application.recovery import FileRecoveryError
+from labelimg.platform.recovery import TrashIdentity
 from labelimg.annotations.application.review import ReviewRecoveryRecord
 from labelimg.files.ui.list_widget import (
     FILE_ANNOTATION_STATE_ROLE,
@@ -739,7 +737,7 @@ class FileListAnnotationStatusTest(unittest.TestCase):
         )
 
         with patch(
-            "labelimg.workbench.main_window.QFileDialog.getExistingDirectory",
+            "PyQt5.QtWidgets.QFileDialog.getExistingDirectory",
             return_value=other_annotation_dir,
         ):
             self.window.change_save_dir_dialog()

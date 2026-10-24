@@ -3,13 +3,10 @@
 from dataclasses import dataclass
 
 from labelimg.annotations.domain.history import (
-    AnnotationBoxState,
     AnnotationHistory,
-    AnnotationSnapshot,
     HistoryBusy,
     HistoryUnavailable,
 )
-from labelimg.annotations.infrastructure.storage import fingerprint_image
 
 
 @dataclass(frozen=True)

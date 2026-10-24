@@ -13,8 +13,6 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QSizePolicy,
     QToolButton,
-    QVBoxLayout,
-    QWidget,
     QAction,
     QStyle,
     QStyleOption,

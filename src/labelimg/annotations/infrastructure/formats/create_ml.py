@@ -4,21 +4,10 @@ import os
 
 from labelimg.annotations.infrastructure.formats.create_ml_collection import (
     CreateMLAnnotationCollection,
-    CreateMLRecordIdentity,
-    normalize_image_reference,
 )
 
 JSON_EXT = '.json'
 ENCODE_METHOD = "utf-8"
-
-
-def image_reference_matches(reference, image_path, collection_path=None):
-    """Compatibility wrapper for complete-reference identity matching."""
-    collection_path = collection_path or os.curdir
-    return CreateMLRecordIdentity(
-        collection_path,
-        reference,
-    ).matches(image_path)
 
 
 class CreateMLWriter:
@@ -54,28 +43,6 @@ class CreateMLWriter:
             verified=self.verified,
             questioned=self.questioned,
         ).write(self.output_file)
-
-    def calculate_coordinates(self, x1, x2, y1, y2):
-        if x1 < x2:
-            x_min = x1
-            x_max = x2
-        else:
-            x_min = x2
-            x_max = x1
-        if y1 < y2:
-            y_min = y1
-            y_max = y2
-        else:
-            y_min = y2
-            y_max = y1
-        width = x_max - x_min
-        if width < 0:
-            width = width * -1
-        height = y_max - y_min
-        # x and y from center of rect
-        x = x_min + width / 2
-        y = y_min + height / 2
-        return height, width, x, y
 
 
 class CreateMLReader:

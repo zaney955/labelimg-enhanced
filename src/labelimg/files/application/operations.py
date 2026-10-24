@@ -18,7 +18,7 @@ from labelimg.annotations import (
     annotation_stems_for_image,
     fingerprint_path,
 )
-from labelimg.files.application.recovery import TrashIdentity, TrashedResource
+from labelimg.platform.recovery import TrashIdentity, TrashedResource
 from labelimg.annotations import (
     CreateMLAnnotationCollection,
     CreateMLCollectionError,
@@ -1173,18 +1173,6 @@ class SynchronizedRenamer:
                 owners[path] = source
         return owners
 
-    @staticmethod
-    def _basename_mapping(mapping):
-        result = {}
-        for source in mapping:
-            key = os.path.basename(source).casefold()
-            if key in result and result[key] != source:
-                raise FileOperationError(
-                    "CreateML records are ambiguous for duplicate image "
-                    "name: %s" % os.path.basename(source)
-                )
-            result[key] = source
-        return result
 
     @staticmethod
     def _claim_source(claims, path, owner):

@@ -1,23 +1,15 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-import ctypes
 import os.path
-import platform
-import re
 import sys
-import subprocess
-import shutil
-import webbrowser as wb
 
-from dataclasses import replace
 from concurrent.futures import CancelledError
-from functools import cmp_to_key, partial
 from html import escape
 from types import SimpleNamespace
 
-from PyQt5.QtCore import QByteArray, QDateTime, QEvent, QFileInfo, QItemSelectionModel, QModelIndex, QPersistentModelIndex, QPoint, QPointF, QProcess, QRect, QRectF, QSignalBlocker, QSize, QThread, QTimer, Qt, pyqtSignal
-from PyQt5.QtGui import QBrush, QColor, QCursor, QImage, QImageReader, QPainter, QPainterPath, QPalette, QPen, QPixmap
-from PyQt5.QtWidgets import QAbstractItemView, QAction, QActionGroup, QCheckBox, QDialog, QDialogButtonBox, QDockWidget, QFileDialog, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QProgressDialog, QPushButton, QScrollArea, QSizePolicy, QStackedWidget, QStyle, QStyleOptionViewItem, QStyledItemDelegate, QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget, QWidgetAction
+from PyQt5.QtCore import QDateTime, QEvent, QProcess, QSignalBlocker, QTimer, Qt
+from PyQt5.QtGui import QImage, QImageReader
+from PyQt5.QtWidgets import QDialog, QDialogButtonBox, QFileDialog, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QTableWidget, QTableWidgetItem, QVBoxLayout
 from labelimg.ui.control_style import ComboBox as QComboBox
 from labelimg.ui.input_dialog import InputDialog as QInputDialog
 
@@ -48,43 +40,22 @@ from labelimg.platform.settings_keys import (
     SETTING_WIN_STATE,
 )
 from labelimg.ui.actions import (
-    add_actions,
     format_shortcut,
-    new_action,
-    new_icon,
     set_action_copy,
 )
-from labelimg.platform.settings import Settings
 from labelimg.workbench.annotation_panel import update_annotation_summary
 from labelimg.localization.runtime import (
-    ENGLISH,
     LANGUAGE_NAMES,
-    SIMPLIFIED_CHINESE,
     current_language,
     critical as localized_critical,
     localize_dialog_buttons,
-    localize_message_box_buttons,
     question as localized_question,
     set_language,
-    system_language,
     tr,
-    translate_history_description,
     warning as localized_warning,
 )
 from labelimg.canvas.widget import Canvas
-from labelimg.workbench.commands import (
-    CanvasToolRail,
-    FormatSelector,
-    TopCommandBar,
-    ZoomControl,
-)
-from labelimg.annotations.ui.candidate_label_dialog import CandidateLabelDialog
-from labelimg.annotations.ui.label_list import (
-    LabelListItemDelegate,
-    LabelListWidget,
-)
-from labelimg.ui.color_dialog import ColorDialog
-from labelimg.annotations.ui.errors import annotation_error_html, annotation_error_text
+from labelimg.annotations.ui.errors import annotation_error_html
 from labelimg.annotations.domain.model import (
     AnnotationDocument,
     AnnotationDocumentError,
@@ -92,36 +63,16 @@ from labelimg.annotations.domain.model import (
     AnnotationFormat,
 )
 from labelimg.annotations.infrastructure.document import image_path_hint
-from labelimg.annotations.ui.canvas_adapter import (
-    document_from_shapes,
-    shapes_from_document,
-)
 from labelimg.annotations.application.workspace import (
-    AmbiguousAnnotationDocuments,
     AnnotationWorkspace,
-    annotation_resources,
 )
-from labelimg.annotations.application.editing import (
-    AnnotationEditingController,
-    ProjectionFailed,
-)
-from labelimg.annotations.ui.controller import (
-    AnnotationHistoryShortcutFilter,
-    CanvasAnnotationScene,
-)
-from labelimg.annotations.domain.history import UnknownImageHistory
-from labelimg.annotations.application.review import ReviewStateTransaction
-from labelimg.annotations.application.persistence import AnnotationSaveCoordinator
 from labelimg.annotations.infrastructure.storage import (
     AnnotationStorageConflict,
-    fingerprint_image,
     fingerprint_path,
 )
-from labelimg.ui.tool_bar import ToolBar
 from labelimg.ui.window import WindowMixin
 from labelimg.platform.text import native_text as ustr
 from labelimg.files.ui.list_widget import (
-    BatchRenameDialog,
     CURRENT_IMAGE_ROLE,
     FILE_ANNOTATION_STATE_ROLE,
     FILE_PERSISTENCE_FLAGS_ROLE,
@@ -129,26 +80,15 @@ from labelimg.files.ui.list_widget import (
     FILE_CATEGORY_LABELS_ROLE,
     FILE_REVIEW_STATE_ROLE,
     FileListItem,
-    FileListControlBar,
-    FileListItemDelegate,
-    FileListWidget,
-    compare_relative_image_paths,
-    validate_base_name,
-    validate_rename_mapping,
 )
-from labelimg.annotations.ui.label_group_list import LabelGroupListWidget
 from labelimg.workbench.session import (
     TransitionFacts,
     TransitionRequirement,
-    WorkbenchSession,
 )
 from labelimg.workbench.help_ui import AboutDialog, ShortcutCatalogDialog
 from labelimg.workbench.support import (
     APP_NAME,
-    compare_image_paths,
     document_format_name,
-    inverted,
-    portable_logical_compare,
     read_image as read,
 )
 from labelimg.annotations.ui.workbench_controller import AnnotationActionsMixin
@@ -161,20 +101,6 @@ from labelimg.workbench.recovery_ui import RecoveryActionsMixin
 
 __appname__ = APP_NAME
 _UNPREPARED_IMAGE_DATA = object()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 class MainWindow(
@@ -391,31 +317,6 @@ class MainWindow(
     # Support Functions #
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     def toggle_actions(self, value=True):
         """Enable/Disable widgets which depend on an opened image."""
         for z in self.actions.zoomActions:
@@ -551,84 +452,6 @@ class MainWindow(
         ShortcutCatalogDialog(self).exec_()
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     # Tzutalin 20160906 : Add file list and dock to move faster
 
     # Add chris
@@ -636,36 +459,12 @@ class MainWindow(
     # React to canvas signals.
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
     @staticmethod
     def _resource_key(path):
         return os.path.normcase(os.path.abspath(os.fspath(path)))
 
 
-
-
-
     # Callback functions:
-
-
-
-
-
-
-
-
 
 
     def load_file(
@@ -954,33 +753,6 @@ class MainWindow(
         Converts image counter to string representation.
         """
         return '[{} / {}]'.format(self.cur_img_idx + 1, self.img_count)
-
-    def show_bounding_box_from_annotation_file(self, file_path):
-        try:
-            loaded = self.annotation_workspace.load_for_image(
-                file_path,
-                self.image_data,
-            )
-        except YoloClassMappingDeclined:
-            return False
-        except AnnotationDocumentError as error:
-            self.status_translation('status.errorReading', detail=annotation_error_text(error), important=True)
-            return False
-        if loaded is None:
-            return False
-        self.set_format(document_format_name(loaded.annotation_format))
-        self.load_annotation_document(loaded.document)
-        self.annotation_workspace.record_document(
-            file_path,
-            loaded.annotation_path,
-            (box.label for box in loaded.document.boxes),
-        )
-        self.refresh_candidate_labels()
-        return True
-
-
-
-
 
 
     def closeEvent(self, event):
@@ -1359,15 +1131,6 @@ class MainWindow(
     def load_recent(self, filename):
         if self.may_continue():
             self.load_file(filename)
-
-
-
-
-
-
-
-
-
 
 
     def _sync_annotation_directory_ui(self):
@@ -1922,8 +1685,6 @@ class MainWindow(
             self.update_current_file_marker()
 
 
-
-
     def open_prev_image(self, _value=False):
         if self.img_count <= 0:
             return
@@ -2320,14 +2081,6 @@ class MainWindow(
         self.update_file_list_item_status(view.image_key)
         return True
 
-    def discard_changes_dialog(self):
-        yes, no, cancel = QMessageBox.Yes, QMessageBox.No, QMessageBox.Cancel
-        return localized_warning(
-            self,
-            tr('unsaved.attention'),
-            tr('unsaved.legacyPrompt'),
-            yes | no | cancel,
-        )
 
     def error_message(self, title, message):
         return localized_critical(self, title,

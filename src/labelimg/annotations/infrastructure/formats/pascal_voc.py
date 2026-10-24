@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf8 -*-
-import sys
 from xml.etree import ElementTree
 from xml.etree.ElementTree import Element, SubElement
 from lxml import etree
@@ -154,7 +153,6 @@ class PascalVocReader:
         assert self.file_path.endswith(XML_EXT), "Unsupported file format"
         parser = etree.XMLParser(encoding=ENCODE_METHOD)
         xml_tree = ElementTree.parse(self.file_path, parser=parser).getroot()
-        filename = xml_tree.find('filename').text
         verified = xml_tree.attrib.get('verified')
         self.verified = verified == 'yes'
         self.questioned = verified == 'no'

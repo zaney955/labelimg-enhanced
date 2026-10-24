@@ -14,7 +14,7 @@ from PyQt5.QtGui import QColor, QImage, QImageReader, QKeySequence
 from PyQt5.QtWidgets import QApplication, QMessageBox
 
 from labelimg.workbench.bootstrap import WorkbenchLaunchOptions, create_workbench
-from labelimg.files.application.recovery import TrashIdentity
+from labelimg.platform.recovery import TrashIdentity
 
 
 class FakeTrashAdapter:

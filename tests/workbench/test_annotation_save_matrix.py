@@ -570,7 +570,7 @@ class AnnotationSaveMatrixTest(unittest.TestCase):
         first_target = annotations / "a.txt"
         second_target = annotations / "b.xml"
         with patch.object(self.window, "save_file_dialog", return_value=str(second_target)), patch(
-            "labelimg.workbench.main_window.QFileDialog.getSaveFileName", return_value=(str(first_target), "")
+            "PyQt5.QtWidgets.QFileDialog.getSaveFileName", return_value=(str(first_target), "")
         ):
             result = self.window._save_history_views(self.window.annotation_editing.dirty_views())
         self.assertIsNotNone(result)

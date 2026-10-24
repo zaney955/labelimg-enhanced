@@ -56,34 +56,6 @@ class StableRelease:
             "sha256_url": self.sha256_url,
         }
 
-    @classmethod
-    def from_mapping(cls, value):
-        if not isinstance(value, dict):
-            raise ValueError("cached release must be a mapping")
-        return cls(
-            version=StableVersion.parse(value.get("version")),
-            tag_name=str(value.get("tag_name") or ""),
-            name=str(value.get("name") or ""),
-            summary=str(value.get("summary") or ""),
-            html_url=str(value.get("html_url") or ""),
-            published_at=str(value.get("published_at") or ""),
-            wheel_url=(
-                str(value["wheel_url"])
-                if value.get("wheel_url")
-                else None
-            ),
-            installer_url=(
-                str(value["installer_url"])
-                if value.get("installer_url")
-                else None
-            ),
-            sha256_url=(
-                str(value["sha256_url"])
-                if value.get("sha256_url")
-                else None
-            ),
-        )
-
 
 class UpdateDecisionKind(Enum):
     AVAILABLE = "available"

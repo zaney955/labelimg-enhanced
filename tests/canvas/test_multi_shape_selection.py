@@ -14,7 +14,7 @@ from PyQt5.QtGui import (
     QPixmap,
 )
 from PyQt5.QtTest import QTest
-from PyQt5.QtWidgets import QApplication, QLabel, QWidget, QAbstractItemView
+from PyQt5.QtWidgets import QApplication, QLabel, QWidget
 
 from labelimg.workbench.bootstrap import WorkbenchLaunchOptions, create_workbench
 from labelimg.canvas.widget import Canvas

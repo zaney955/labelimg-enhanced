@@ -8,13 +8,8 @@ from unittest import mock
 from labelimg.annotations.infrastructure.storage import MISSING_FINGERPRINT, fingerprint_path
 from labelimg.annotations.application.workspace import AnnotationWorkspace
 from labelimg.files.application.transaction import FileOperationTransaction
-from labelimg.files.application.recovery import (
-    FileRecoveryCenter,
-    FileRecoveryConflict,
-    RecoveryStatus,
-    TrashIdentity,
-    TrashedResource,
-)
+from labelimg.files.application.recovery import FileRecoveryCenter, FileRecoveryConflict, RecoveryStatus
+from labelimg.platform.recovery import TrashIdentity, TrashedResource
 
 
 class _Editing:

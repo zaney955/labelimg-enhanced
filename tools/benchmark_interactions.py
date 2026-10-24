@@ -33,7 +33,7 @@ def main():
     from labelimg.canvas import Shape
     from labelimg.workbench.bootstrap import WorkbenchLaunchOptions, create_workbench
     from labelimg.files.ui.list_widget import FileListItem, FILE_ANNOTATION_STATE_ROLE
-    from labelimg.files.application.recovery import TrashIdentity
+    from labelimg.platform.recovery import TrashIdentity
 
     app = QApplication.instance() or QApplication([])
     measurements = {}

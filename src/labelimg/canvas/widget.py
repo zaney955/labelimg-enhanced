@@ -11,7 +11,6 @@ from PyQt5.QtGui import (
     QPen,
     QPixmap,
     QRegion,
-    QContextMenuEvent,
 )
 from PyQt5.QtWidgets import QApplication, QWidget
 
@@ -437,13 +436,6 @@ class Canvas(QWidget):
         if mode != previous_mode:
             self.modeChanged.emit(mode)
 
-    @property
-    def near_duplicate_clusters(self):
-        return self._near_duplicate_clusters
-
-    @property
-    def near_duplicate_focus(self):
-        return self._near_duplicate_focus
 
     def set_near_duplicate_clusters(self, clusters):
         self._near_duplicate_clusters = tuple(clusters)
@@ -514,8 +506,6 @@ class Canvas(QWidget):
     def selected_edge(self):
         return self.interaction_snapshot.hover.edge is not None
 
-    def selection_count(self):
-        return len(self.selected_shapes)
 
     @property
     def selection_snapshot(self):
@@ -1134,13 +1124,6 @@ class Canvas(QWidget):
                     suppress_handles=self.multi_selection_requested(ev),
                 )
 
-    def hide_background_shapes(self, value):
-        self.hide_background = value
-        if self.selected_shapes:
-            # Only hide other shapes if there is a current selection.
-            # Otherwise the user will not be able to select a shape.
-            self.set_hiding(True)
-            self.update()
 
     def handle_drawing(self, pos):
         if self.current and self.current.reach_max_points() is False:
@@ -1277,10 +1260,6 @@ class Canvas(QWidget):
                 nearest = (index, point_distance)
         return nearest
 
-    def nearest_edge(self, shape, point):
-        """Return the nearest rectangle edge within its resize tolerance."""
-        hit = self.nearest_edge_hit(shape, point)
-        return hit[0] if hit is not None else None
 
     def nearest_edge_hit(self, shape, point):
         """Return the nearest eligible edge and its geometric distance."""
@@ -1916,12 +1895,6 @@ class Canvas(QWidget):
         self._view_offset = QPointF(offset)
         self.update()
 
-    def reset_view_offset(self):
-        self.set_view_offset(QPointF())
-
-    @property
-    def content_margins(self):
-        return tuple(self._content_margins)
 
     def set_content_margins(self, left, top, right, bottom):
         self._content_margins = tuple(
@@ -2271,12 +2244,6 @@ class Canvas(QWidget):
 
         return self.shapes[-1]
 
-    def undo_last_line(self):
-        assert self.shapes
-        self.current = self.shapes.pop()
-        self.current.set_open()
-        self.line.points = [self.current[-1], self.current[0]]
-        self.drawingPolygon.emit(True)
 
     def reset_all_lines(self):
         assert self.shapes

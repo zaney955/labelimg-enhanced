@@ -52,7 +52,6 @@ class CropOverlay(QWidget):
 
     HANDLE_SIZE = 9
     EDGE_HIT_TOLERANCE = 6
-    HANDLE_NAMES = ("nw", "n", "ne", "e", "se", "s", "sw", "w")
 
     def __init__(self, canvas):
         super().__init__(canvas)

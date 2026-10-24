@@ -15,7 +15,6 @@ import threading
 from PyQt5.QtCore import (
     QEvent,
     QObject,
-    QPointF,
     QRectF,
     QSignalBlocker,
     QSize,
@@ -44,7 +43,6 @@ from labelimg.image_tools.application.adjustment import (
     apply_adjustments,
 )
 from labelimg.image_tools.application.display_adjustment import (
-    CanvasDisplayAdjustmentSession,
     DisplayAdjustmentValues,
     contrast_factor,
 )
@@ -667,9 +665,6 @@ class DisplayAdjustmentOverlay(QObject):
         color.setAlpha(42)
         self.shadow.setColor(color)
 
-    @property
-    def is_panel_visible(self):
-        return self.panel_shell.isVisible()
 
     def eventFilter(self, watched, event):
         if watched is self.viewport and event.type() in (

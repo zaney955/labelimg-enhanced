@@ -20,7 +20,7 @@ from PyQt5.QtWidgets import (
 
 from labelimg.workbench.bootstrap import WorkbenchLaunchOptions, create_workbench
 from labelimg.localization.runtime import SIMPLIFIED_CHINESE, set_language
-from labelimg.files.application.recovery import TrashIdentity
+from labelimg.platform.recovery import TrashIdentity
 from labelimg.files.ui.list_widget import (
     BatchRenameDialog,
     CURRENT_IMAGE_ROLE,

@@ -3,38 +3,17 @@
 import math
 from labelimg.ui.presentation import MenuButton
 
-try:
-    from PyQt5.QtCore import QEvent, QSignalBlocker, Qt, QSize, pyqtSignal
-    from PyQt5.QtWidgets import (
-        QAction,
-        QActionGroup,
-        QFrame,
-        QHBoxLayout,
-        QLabel,
-        QSizePolicy,
-        QSlider,
-        QToolBar,
-        QToolButton,
-        QWidget,
-        QWidgetAction,
-    )
-    from labelimg.ui.menu import Menu as QMenu
-except ImportError:  # pragma: no cover - legacy Qt4 compatibility
-    from PyQt4.QtCore import QEvent, QSignalBlocker, Qt, QSize, pyqtSignal
-    from PyQt4.QtGui import (
-        QAction,
-        QActionGroup,
-        QFrame,
-        QHBoxLayout,
-        QLabel,
-        QMenu,
-        QSizePolicy,
-        QSlider,
-        QToolBar,
-        QToolButton,
-        QWidget,
-        QWidgetAction,
-    )
+from PyQt5.QtCore import QEvent, QSignalBlocker, Qt, QSize, pyqtSignal
+from PyQt5.QtWidgets import (
+    QActionGroup,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QSlider,
+    QToolBar,
+    QToolButton,
+)
+from labelimg.ui.menu import Menu as QMenu
 
 from labelimg.annotations.domain.model import AnnotationFormat
 from labelimg.localization.runtime import language_changed, tr

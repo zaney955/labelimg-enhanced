@@ -58,9 +58,6 @@ class CanvasDisplayAdjustmentSession:
     def revision(self):
         return self._revision
 
-    @property
-    def override_count(self):
-        return len(self._overrides)
 
     @property
     def has_adjustments(self):
@@ -217,8 +214,6 @@ class CanvasDisplayAdjustmentSession:
             self._revision += 1
         return removed
 
-    def expire_restore(self):
-        self._expire_restore()
 
     def _expire_restore(self):
         self._restore_point = None

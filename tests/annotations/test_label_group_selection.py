@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import Mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-from PyQt5.QtCore import QEvent, QPoint, QPointF, QRect, Qt
+from PyQt5.QtCore import QEvent, QPointF, QRect, Qt
 from PyQt5.QtGui import QColor, QFontMetrics, QImage, QPainter
 from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import (

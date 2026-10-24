@@ -9,8 +9,6 @@ from labelimg.platform.recovery import (
     RecoveryConflict,
     RecoveryError,
     RecoveryStatus,
-    TrashIdentity,
-    TrashedResource,
 )
 
 

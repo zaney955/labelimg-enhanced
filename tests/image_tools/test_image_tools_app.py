@@ -9,7 +9,7 @@ from unittest.mock import patch, PropertyMock
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt5.QtCore import QEvent, QPoint, Qt
-from PyQt5.QtGui import QColor, QCursor, QImage, QKeySequence, QPixmap
+from PyQt5.QtGui import QColor, QCursor, QImage, QKeySequence
 from PyQt5.QtTest import QSignalSpy, QTest
 from PyQt5.QtWidgets import QApplication, QDialog, QMessageBox, QToolButton
 from PIL import Image
@@ -20,14 +20,12 @@ from labelimg.annotations.domain.model import (
     AnnotationFormat,
 )
 from labelimg.annotations.infrastructure.document import AnnotationDocument
-from labelimg.files.application.recovery import (
-    RecoveryOperation,
-    TrashIdentity,
-)
+from labelimg.files.application.recovery import RecoveryOperation
+from labelimg.platform.recovery import TrashIdentity
 from labelimg.image_tools.application.recovery import ImageProcessingOperation
 from labelimg.image_tools.application.transaction import ImageRecoveryBlocked
 from labelimg.files.ui.list_widget import FILE_QUALITY_FINDINGS_ROLE
-from labelimg.image_tools.application.crop import CropRegion
+from labelimg.image_tools.domain.crop_geometry import CropRegion
 from labelimg.image_tools.application.adjustment import ImageAdjustmentOptions
 from labelimg.image_tools.ui.adjustment_dialog import ImageAdjustmentRequest
 from labelimg.image_tools.ui.geometry_dialog import GeometryTransformRequest

@@ -135,7 +135,7 @@ class NestedAnnotationSaveTest(unittest.TestCase):
         target.parent.mkdir(parents=True)
         target.write_bytes(self.annotation_path.read_bytes())
         with patch(
-            "labelimg.workbench.main_window.QFileDialog.getExistingDirectory",
+            "PyQt5.QtWidgets.QFileDialog.getExistingDirectory",
             return_value=str(annotations),
         ):
             self.window.change_save_dir_dialog()

@@ -92,7 +92,7 @@ class SaveDirCandidateLabelsTest(unittest.TestCase):
 
     def change_to_annotation_dir(self):
         with patch(
-            "labelimg.workbench.main_window.QFileDialog.getExistingDirectory",
+            "PyQt5.QtWidgets.QFileDialog.getExistingDirectory",
             return_value=self.annotation_dir,
         ):
             self.window.change_save_dir_dialog()

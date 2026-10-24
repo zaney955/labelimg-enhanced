@@ -4,49 +4,8 @@ from dataclasses import dataclass
 from functools import cached_property, cmp_to_key
 from bisect import bisect_left, bisect_right
 import os
-import re
 
 from labelimg.files.application.discovery import relative_image_sort_key
-
-
-def natural_sort(values, key=lambda value: value):
-    """Sort a mutable sequence using case-insensitive numeric chunks."""
-
-    def convert(text):
-        return int(text) if text.isdigit() else text.casefold()
-
-    values.sort(
-        key=lambda value: [
-            convert(part) for part in re.split(r"([0-9]+)", str(key(value)))
-        ]
-    )
-
-
-def portable_logical_compare(left_name, right_name):
-    """Compare text using case-insensitive natural numeric chunks."""
-    left_parts = re.split(r"(\d+)", str(left_name).casefold())
-    right_parts = re.split(r"(\d+)", str(right_name).casefold())
-    for left_part, right_part in zip(left_parts, right_parts):
-        left_is_number = left_part.isdigit()
-        right_is_number = right_part.isdigit()
-        if left_is_number and right_is_number:
-            left_number = int(left_part)
-            right_number = int(right_part)
-            if left_number != right_number:
-                return (left_number > right_number) - (
-                    left_number < right_number
-                )
-            if len(left_part) != len(right_part):
-                return (len(right_part) > len(left_part)) - (
-                    len(right_part) < len(left_part)
-                )
-        elif left_is_number != right_is_number:
-            return -1 if left_is_number else 1
-        elif left_part != right_part:
-            return (left_part > right_part) - (left_part < right_part)
-    return (len(left_parts) > len(right_parts)) - (
-        len(left_parts) < len(right_parts)
-    )
 
 
 def relative_path_parts(path, root):
@@ -60,31 +19,6 @@ def relative_path_parts(path, root):
         relative = os.path.basename(absolute)
     normalized = relative.replace("\\", "/")
     return tuple(part for part in normalized.split("/") if part)
-
-
-def compare_relative_image_paths(left_path, right_path, root=None):
-    """Keep relative directories grouped, then naturally order names."""
-    left_parts = relative_path_parts(left_path, root)
-    right_parts = relative_path_parts(right_path, root)
-    left_dirs, left_name = left_parts[:-1], left_parts[-1:]
-    right_dirs, right_name = right_parts[:-1], right_parts[-1:]
-    for left_part, right_part in zip(left_dirs, right_dirs):
-        comparison = portable_logical_compare(left_part, right_part)
-        if comparison:
-            return comparison
-    if len(left_dirs) != len(right_dirs):
-        return (len(left_dirs) > len(right_dirs)) - (
-            len(left_dirs) < len(right_dirs)
-        )
-    comparison = portable_logical_compare(
-        left_name[0] if left_name else "",
-        right_name[0] if right_name else "",
-    )
-    if comparison:
-        return comparison
-    left_key = os.path.abspath(left_path).casefold()
-    right_key = os.path.abspath(right_path).casefold()
-    return (left_key > right_key) - (left_key < right_key)
 
 
 @dataclass(frozen=True)

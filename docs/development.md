@@ -23,6 +23,8 @@ python -B -m unittest discover -s tests/workbench -p test_bootstrap.py
 
 定向 Qt 测试也应逐文件启动进程。以上环境变量仅用于当前终端；后续运行真实程序前清除或使用新终端。纯文档改动检查链接、命令/API 和规范一致性；代码、界面和打包改动按 [UI 验收规则](design/ui-guidelines.md#新增功能流程与验收)及所属专题选择必要验证。
 
+彩色边框修复的真实图像验收通过 `LABELIMG_RED_FRAME_SAMPLES` 显式指定 JPG/JPEG 样本目录，逐张检查检测结果；不依赖某位开发者的下载目录或固定样本数量。未提供可访问目录时仅跳过该项验收，合成图像回归仍正常执行。
+
 ## 构建并隔离验证 wheel
 
 每次使用新目录，避免旧 wheel 或旧安装内容混入：
@@ -36,6 +38,8 @@ python tools/run_tests.py --package-root "$checkRoot/package"
 ```
 
 这些命令在当前 Python 已具备运行依赖的前提下，仅把项目 wheel 安装到隔离目录。检查每条命令成功后再继续；构建失败不能继续使用旧产物。无缓存选项避免依赖用户级缓存目录的写权限；离线构建且当前环境已有 `setuptools>=70` 时可另加 `--no-build-isolation`，否则保留默认构建隔离。`--package-root` 必须指向包含 `labelimg/__init__.py` 的目录。
+
+wheel 内容测试默认查找 `dist/` 中与当前 `labelimg.__version__` 对应的 wheel，忽略旧版本。验证其他构建目录时，在运行测试前设置 `$env:LABELIMG_TEST_WHEEL = $wheel`；显式指定的文件不存在或版本不符时测试失败。源码树没有当前 wheel 时会跳过内容检查，CI 与发布流程在构建后另行运行该检查，覆盖入口、资源和全部 Python 模块清单。
 
 `python tools/run_tests.py --installed` 则移除子进程的 `PYTHONPATH`，检查**当前解释器实际安装的包**；它不会安装刚构建的 wheel。只有明确将已验证 wheel 安装到目标环境并重启应用后，才能报告部署完成。构建、解包或隔离测试通过不代表用户环境已更新。
 

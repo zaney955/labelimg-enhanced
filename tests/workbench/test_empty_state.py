@@ -48,7 +48,7 @@ class EmptyWorkbenchTest(unittest.TestCase):
         state = self.window.empty_state
         self.assertTrue(state.isVisible())
         with patch(
-            "labelimg.workbench.main_window.QFileDialog.getExistingDirectory",
+            "PyQt5.QtWidgets.QFileDialog.getExistingDirectory",
             return_value="",
         ) as choose:
             state.open_button.click()

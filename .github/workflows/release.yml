@@ -58,6 +58,8 @@ jobs:
 
       - name: Build wheel
         run: python -m pip wheel . --no-deps --wheel-dir dist
+      - name: Validate built wheel contents
+        run: python -B -m unittest discover -s tests/packaging -p test_wheel_contract.py
       - name: Validate wheel identity
         shell: pwsh
         run: |

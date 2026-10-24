@@ -58,10 +58,6 @@ class ImageQualityResult:
     findings: tuple[ImageQualityFinding, ...]
     error: str | None = None
 
-    @property
-    def has_findings(self):
-        return bool(self.findings)
-
 
 class ImageQualityScanner:
     """Run local metrics without changing image bytes."""

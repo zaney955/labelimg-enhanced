@@ -6,9 +6,7 @@ from dataclasses import dataclass, replace
 
 from labelimg.annotations import fingerprint_path
 from labelimg.image_tools.domain.crop_geometry import (
-    CropAnnotationResult,
     CropRegion,
-    crop_pixels,
     transform_annotation_boxes,
 )
 from labelimg.image_tools.infrastructure.image_codec import ImageFileCodec

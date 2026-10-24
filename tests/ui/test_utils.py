@@ -1,5 +1,3 @@
-import os
-import sys
 import unittest
 from PyQt5.QtGui import QColor
 
@@ -8,7 +6,6 @@ from labelimg.annotations.ui.style import (
     LabelColorPalette,
     label_display_color,
 )
-from labelimg.files.model import natural_sort
 from labelimg.annotations.ui.color_algorithms import FIXED, MAXIMIN
 
 class TestUtils(unittest.TestCase):
@@ -78,12 +75,6 @@ class TestUtils(unittest.TestCase):
         with self.assertRaises(ValueError):
             palette.set_algorithm("removed-algorithm")
 
-    def test_nautalSort_noError(self):
-        l1 = ['f1', 'f11', 'f3']
-        expected_l1 = ['f1', 'f3', 'f11']
-        natural_sort(l1)
-        for idx, val in enumerate(l1):
-            self.assertTrue(val == expected_l1[idx])
 
 if __name__ == '__main__':
     unittest.main()
