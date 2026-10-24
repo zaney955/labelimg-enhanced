@@ -16,6 +16,7 @@ from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication, QFrame, QInputDialog, QLineEdit, QPushButton
 
 from labelimg.ui.appearance import AppearanceDialog
+from labelimg.ui.metrics import dp
 from labelimg.platform.settings import Settings
 from labelimg.platform.settings_keys import SETTING_UI_SCALE
 from labelimg.workbench.preferences import PreferencesDialog
@@ -387,6 +388,7 @@ class UiScalingTest(unittest.TestCase):
         QTest.qWait(20)
         controls = self.window.crop_controls
         self.assertTrue(controls.isVisible())
+        self.assertEqual(controls.layout().horizontalSpacing(), dp(6))
         self.assertFalse(self.window.review_control.isVisible())
         self.assertFalse(self.window.display_adjustment_overlay.button.isVisible())
         self.assertFalse(self.window.display_adjustment_overlay.panel_shell.isVisible())

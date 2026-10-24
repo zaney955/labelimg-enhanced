@@ -558,7 +558,7 @@ class CropControlBar(QFrame):
             "#cropControlBar QComboBox { min-height: 24px; }"))
         layout = QGridLayout(self)
         layout.setContentsMargins(7, 5, 7, 5)
-        layout.setSpacing(5)
+        layout.setSpacing(6)
         layout.setSizeConstraint(QLayout.SetNoConstraint)
 
         def add(widget):
@@ -807,7 +807,6 @@ class CropControlBar(QFrame):
         self._reflowing = True
         try:
             layout = self.layout()
-            layout.setHorizontalSpacing(dp(6))
             while layout.count():
                 layout.takeAt(0)
             for column in range(max(layout.columnCount(), len(self._row_widgets))):
