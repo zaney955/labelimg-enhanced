@@ -408,6 +408,10 @@ class UiScalingTest(unittest.TestCase):
         controls.apply_button.setMinimumWidth(original_minimums[0])
         controls.cancel_button.setMinimumWidth(original_minimums[1])
         controls._reflow()
+        if 2 * dp(82) + layout.horizontalSpacing() > inner_width:
+            self.assertNotEqual(
+                controls.apply_button.y(), controls.cancel_button.y()
+            )
         self.assertFalse(self.window.review_control.isVisible())
         self.assertFalse(self.window.display_adjustment_overlay.button.isVisible())
         self.assertFalse(self.window.display_adjustment_overlay.panel_shell.isVisible())
