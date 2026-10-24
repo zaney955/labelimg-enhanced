@@ -835,19 +835,33 @@ class CropControlBar(QFrame):
                 spin.setFixedWidth(min(dp(82), cell))
             for column in range(4):
                 layout.setColumnStretch(column, 1)
+            inner_available = (
+                available - margins.left() - margins.right()
+            )
+            for button in (self.apply_button, self.cancel_button):
+                button.setMaximumWidth(16777215)
+
             def button_width(button):
                 return max(
                     button.minimumWidth(),
                     button.minimumSizeHint().width(),
+                    button.sizeHint().width(),
                 )
             narrow = (
                 self.drag_handle.width() + self.labels['ratio'].minimumSizeHint().width()
                 + self.ratio_combo.minimumSizeHint().width() + dp(30)
-                > available - margins.left() - margins.right()
+                > inner_available
                 or button_width(self.apply_button)
                 + button_width(self.cancel_button) + layout.horizontalSpacing()
-                > available - margins.left() - margins.right()
+                > inner_available
             )
+            if not narrow:
+                maximum_button_width = max(
+                    1,
+                    (inner_available - layout.horizontalSpacing()) // 2,
+                )
+                for button in (self.apply_button, self.cancel_button):
+                    button.setMaximumWidth(maximum_button_width)
             layout.setVerticalSpacing(dp(3 if narrow else 5))
             layout.addWidget(self.drag_handle, 0, 0)
             layout.addWidget(self.labels['ratio'], 0, 1, 1, 3 if narrow else 1)
