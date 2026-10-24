@@ -389,6 +389,25 @@ class UiScalingTest(unittest.TestCase):
         controls = self.window.crop_controls
         self.assertTrue(controls.isVisible())
         self.assertEqual(controls.layout().horizontalSpacing(), dp(6))
+        layout = controls.layout()
+        margins = layout.contentsMargins()
+        inner_width = (
+            controls.parentWidget().width() - dp(16)
+            - margins.left() - margins.right()
+        )
+        original_minimums = (
+            controls.apply_button.minimumWidth(),
+            controls.cancel_button.minimumWidth(),
+        )
+        for button in (controls.apply_button, controls.cancel_button):
+            button.setMinimumWidth(max(1, inner_width // 2))
+        controls._reflow()
+        self.assertNotEqual(
+            controls.apply_button.y(), controls.cancel_button.y()
+        )
+        controls.apply_button.setMinimumWidth(original_minimums[0])
+        controls.cancel_button.setMinimumWidth(original_minimums[1])
+        controls._reflow()
         self.assertFalse(self.window.review_control.isVisible())
         self.assertFalse(self.window.display_adjustment_overlay.button.isVisible())
         self.assertFalse(self.window.display_adjustment_overlay.panel_shell.isVisible())
