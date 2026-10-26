@@ -4,6 +4,19 @@
 
 基于 LabelImg `v1.8.6` 独立维护的目标框标注工具，保留 `LabelImg` 界面名称和 `labelImg` 启动命令，增强标注、复核与图像整理工作流。本项目并非 HumanSignal 官方项目。
 
+## 界面预览
+
+![浅色主题：图像标注画布、复核状态、标注面板和文件列表](docs/images/workbench-zh-light.png)
+
+<details>
+<summary>查看深色主题</summary>
+
+![深色主题：图像标注画布、复核状态、标注面板和文件列表](docs/images/workbench-zh-dark.png)
+
+</details>
+
+渲染工具与命令见[开发指南](docs/development.md#界面渲染与性能)。
+
 ## 主要功能
 
 - Pascal VOC、YOLO、CreateML 读写及明确的保存格式选择。

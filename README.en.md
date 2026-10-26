@@ -4,6 +4,19 @@
 
 An independently maintained bounding-box annotation tool derived from LabelImg `v1.8.6`. It retains the `LabelImg` application name and `labelImg` command while extending annotation, review, and image preparation. This is not an official HumanSignal project.
 
+## Interface preview
+
+![Light theme: annotation Canvas, review states, annotation panel, and file list](docs/images/workbench-en-light.png)
+
+<details>
+<summary>View the dark theme</summary>
+
+![Dark theme: annotation Canvas, review states, annotation panel, and file list](docs/images/workbench-en-dark.png)
+
+</details>
+
+See the [development guide](docs/development.md#界面渲染与性能) for rendering tools and commands.
+
 ## Highlights
 
 - Pascal VOC, YOLO, and CreateML reading/writing with an explicit save-format selector.
