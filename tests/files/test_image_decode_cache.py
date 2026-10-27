@@ -10,7 +10,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt5.QtGui import QColor, QImage
 
-from labelimg.files.ui.image_decode_cache import DecodedImageCache
+from labelimg.files.ui.image_decode_cache import DecodedImageCache, _source_token
 from labelimg.annotations import fingerprint_image
 
 
@@ -30,6 +30,16 @@ class DecodedImageCacheTest(unittest.TestCase):
         self.assertTrue(image.save(path))
         return path, image
 
+    def _replace_with_new_token(self, path, image):
+        previous = _source_token(path)
+        self.assertTrue(image.save(path))
+        stat = os.stat(path)
+        os.utime(path, ns=(
+            stat.st_atime_ns,
+            max(previous[3], stat.st_mtime_ns) + 1_000_000_000,
+        ))
+        self.assertNotEqual(_source_token(path), previous)
+
     def test_put_get_and_source_change_invalidation(self):
         path, image = self._image("cached.png", "red")
         self.assertTrue(self.cache.put(path, image))
@@ -37,8 +47,7 @@ class DecodedImageCacheTest(unittest.TestCase):
 
         replacement = QImage(40, 30, QImage.Format_RGBA8888)
         replacement.fill(QColor("blue"))
-        time.sleep(0.002)
-        self.assertTrue(replacement.save(path))
+        self._replace_with_new_token(path, replacement)
 
         self.assertIsNone(self.cache.get(path))
 
@@ -168,7 +177,9 @@ class DecodedImageCacheTest(unittest.TestCase):
         self.use_fingerprints()
         path, _image = self._image('rebound.png', 'red')
         decoded = self.cache.load(path)
-        self._image('rebound.png', 'blue')
+        replacement = QImage(40, 30, QImage.Format_RGBA8888)
+        replacement.fill(QColor('blue'))
+        self._replace_with_new_token(path, replacement)
         self.assertFalse(self.cache.put(path, decoded))
         with self.assertRaises(OSError):
             self.cache.prepare_fingerprint(path, decoded)
