@@ -6,6 +6,7 @@ import os
 from xml.etree import ElementTree
 
 from PyQt5.QtGui import QImage
+from labelimg.platform.image_metadata import ImageMetadata
 
 from labelimg.annotations.infrastructure.formats.create_ml import CreateMLReader, CreateMLWriter
 from labelimg.annotations.infrastructure.formats.create_ml_collection import CreateMLAnnotationCollection
@@ -393,7 +394,7 @@ def _first_existing_image_path(annotation_path, candidates):
 
 
 def _as_qimage(image_path, image_data):
-    if isinstance(image_data, QImage):
+    if isinstance(image_data, (QImage, ImageMetadata)):
         return image_data
     image = QImage()
     if image_data:

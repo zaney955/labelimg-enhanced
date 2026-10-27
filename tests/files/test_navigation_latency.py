@@ -127,6 +127,23 @@ class NavigationLatencyTest(unittest.TestCase):
         self.assertEqual(calls, [self.paths[1], self.paths[2]])
         self.assertEqual(self.window.cur_img_idx, 2)
 
+    def test_consecutive_warm_requests_paint_each_image_before_advancing(self):
+        self.window.show()
+        self.app.processEvents()
+        painted = []
+        original = self.window.canvas.paintEvent
+
+        def paint(event):
+            original(event)
+            if not painted or painted[-1] != self.window.file_path:
+                painted.append(self.window.file_path)
+
+        with patch.object(self.window.canvas, 'paintEvent', side_effect=paint):
+            self.window.open_next_image()
+            self.window.open_next_image()
+            self.app.processEvents()
+        self.assertEqual(painted, self.paths[1:3])
+
     def test_direct_load_cancels_pending_destination(self):
         release = threading.Event()
         cache = self.window._ensure_image_decode_cache()

@@ -2,6 +2,10 @@
 
 ## 3.0.1
 
+- Prepare large PNG previews in a cancellable background worker and reuse bounded, lossless disk previews across sessions. Separate temporary decode memory from preview cache memory, prioritize foreground navigation, and invalidate previews by source content without modifying images or annotations.
+
+- Smooth sustained large-image navigation with viewport-sized decoding, separate preview/full caches, directional prefetch, and source-checked full-resolution refinement after both held keys and repeated taps. Preserve original annotation coordinates, saved dimensions and editing state throughout refinement.
+
 - Restore warm high-resolution navigation speed by caching decoded pixels with their source fingerprint, preparing large-image identity off the GUI thread, and checking unchanged metadata in the background while retaining strict save-time conflict detection.
 
 - Refresh image fingerprints from the newly loaded source and original dimensions, rebase clean retained histories when a same-path image is replaced, and preserve dirty edits and conflicts when an external replacement is unreadable.

@@ -35,6 +35,7 @@ from labelimg.platform.text import native_text as ustr
 from labelimg.files.ui.list_widget import BatchRenameDialog, CURRENT_IMAGE_ROLE, FILE_CATEGORY_LABELS_ROLE, FILE_ANNOTATION_STATE_ROLE, FILE_PERSISTENCE_FLAGS_ROLE, FILE_QUALITY_FINDINGS_ROLE, FILE_REVIEW_STATE_ROLE, validate_base_name, validate_rename_mapping
 from labelimg.files.application.operations import FileOperationError
 from labelimg.files.application.transaction import FileOperationBlocked
+from labelimg.files.ui.progressive_controller import ProgressiveImageActions
 
 
 class _ImageDecodeWorker(QObject):
@@ -60,7 +61,7 @@ class _ImageDecodeWorker(QObject):
         )
 
 
-class FileActionsMixin:
+class FileActionsMixin(ProgressiveImageActions):
     def cleanup_annotation_files(self, _checked=False):
         from labelimg.files.ui.cleanup_dialog import show_annotation_cleanup
 
@@ -80,26 +81,38 @@ class FileActionsMixin:
     def _ensure_image_decode_cache(self):
         cache = getattr(self, "_image_decode_cache", None)
         if cache is None:
-            from labelimg.files.ui.image_decode_cache import DecodedImageCache
+            from labelimg.files.ui.progressive_images import NavigationImageCache
 
-            cache = DecodedImageCache(fingerprint_for=fingerprint_image)
+            cache = NavigationImageCache(fingerprint_for=fingerprint_image,
+                                         preview_size=self._navigation_preview_size())
             self._image_decode_cache = cache
+            self.destroyed.connect(cache.shutdown)
         return cache
 
     def _prefetch_adjacent_images(self):
         if not self.file_path:
             return
-        candidates = tuple(
-            path
-            for path in (
-                self._adjacent_visible_file(1),
-                self._adjacent_visible_file(-1),
-            )
-            if path
-        )
-        self._ensure_image_decode_cache().prefetch(candidates, current_path=self.file_path)
+        projection = getattr(self, '_file_list_projection', None)
+        if projection is None:
+            return
+        direction = getattr(self, '_navigation_direction', 1)
+        candidates = []
+        for step, count in ((direction, 4), (-direction, 2)):
+            path = self.file_path
+            for _ in range(count):
+                path = projection.adjacent_visible(path, step)
+                if not path:
+                    break
+                candidates.append(path)
+        cache = self._ensure_image_decode_cache()
+        cache.preview_size = self._navigation_preview_size()
+        cache.prefetch(candidates, current_path=self.file_path)
 
     def shutdown_image_decode_cache(self):
+        self._cancel_image_refinement()
+        refinement = getattr(self, '_refinement_loader', None)
+        if refinement is not None:
+            refinement.shutdown()
         self.cancel_image_navigation()
         loader = getattr(self, '_navigation_loader', None)
         if loader is not None:
@@ -121,6 +134,7 @@ class FileActionsMixin:
 
     def _request_indexed_image(self, path):
         """Use warm/small images immediately, decode cold large images off-thread."""
+        self._note_navigation_activity(path)
         if path == getattr(self, '_navigation_load_path', None):
             return True  # Key repeat must not invalidate a decode in progress.
         if path == self.file_path and getattr(self, '_navigation_load_path', None):

@@ -173,6 +173,8 @@ class CanvasActionsMixin:
             self._restore_zoom_anchor(*anchor)
         self._update_fit_width_availability()
         QTimer.singleShot(0, self._finish_zoom_geometry_change)
+        if self.zoom_mode == self.MANUAL_ZOOM:
+            self._request_image_detail()
 
 
     def _finish_zoom_geometry_change(self):

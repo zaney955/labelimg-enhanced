@@ -102,6 +102,7 @@ class ImageToolsActionsMixin:
 
     def _project_image_processing(self, request):
         """Project one committed image-processing result into Qt state."""
+        self._cancel_image_refinement()
         interrupted_index = self.invalidate_directory_load_for_file_operation()
         if request.kind is not ImageProcessingProjectionKind.PROJECTION_FAILED:
             self.display_adjustment_controller.source_pixels_replaced(
@@ -358,6 +359,7 @@ class ImageToolsActionsMixin:
             if not self.load_file(current_path):
                 return False
 
+        self._ensure_full_image()
         from labelimg.image_tools.ui.geometry_dialog import (
             GeometryTransformDialog,
         )
@@ -444,6 +446,7 @@ class ImageToolsActionsMixin:
         ):
             self.status(tr('imageTools.pendingAnnotation'))
             return False
+        self._ensure_full_image()
         from labelimg.image_tools.ui.adjustment_dialog import ImageAdjustmentDialog
 
         dialog = ImageAdjustmentDialog(
@@ -758,7 +761,7 @@ class ImageToolsActionsMixin:
         blocker = QSignalBlocker(self.actions.cropImage)
         self.actions.cropImage.setChecked(True)
         del blocker
-        image_size = (self.image.width(), self.image.height())
+        image_size = (self.canvas.pixmap_size.width(), self.canvas.pixmap_size.height())
         self.canvas.un_highlight()
         self.review_control.set_suppressed(True)
         overlay = self.display_adjustment_overlay
@@ -786,7 +789,7 @@ class ImageToolsActionsMixin:
         if not self._crop_active:
             return False
         region = self.crop_overlay.region
-        image_size = (self.image.width(), self.image.height())
+        image_size = (self.canvas.pixmap_size.width(), self.canvas.pixmap_size.height())
         if region is None or region.is_full_image(image_size):
             self.status(tr('crop.noRegion'))
             return False
@@ -855,7 +858,7 @@ class ImageToolsActionsMixin:
             return True
         region = self.crop_overlay.region
         if region is None or region.is_full_image(
-            (self.image.width(), self.image.height())
+            (self.canvas.pixmap_size.width(), self.canvas.pixmap_size.height())
         ):
             return self.cancel_crop()
         prompt = QMessageBox(self)

@@ -7,7 +7,7 @@ from concurrent.futures import CancelledError
 from html import escape
 from types import SimpleNamespace
 
-from PyQt5.QtCore import QDateTime, QEvent, QProcess, QSignalBlocker, QTimer, Qt
+from PyQt5.QtCore import QDateTime, QEvent, QProcess, QSignalBlocker, QSize, QTimer, Qt
 from PyQt5.QtGui import QImage, QImageReader
 from PyQt5.QtWidgets import QDialog, QDialogButtonBox, QFileDialog, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QTableWidget, QTableWidgetItem, QVBoxLayout
 from labelimg.ui.control_style import ComboBox as QComboBox
@@ -344,6 +344,7 @@ class MainWindow(
             self.status(tr(message_id, **values), delay)
 
     def reset_state(self, preserve_session=False):
+        self._cancel_image_refinement()
         self.cancel_image_navigation()
         self.label_list.clear()
         self.label_filter.clear()
@@ -397,7 +398,7 @@ class MainWindow(
             return
         self.canvas.replace_pixmap(
             pixmap,
-            logical_size=self.image.size(),
+            logical_size=self.canvas.pixmap_size,
         )
         self.paint_canvas()
 
@@ -423,6 +424,9 @@ class MainWindow(
             else self.load_file(filename, prepared_image_data=prepared_image)
         )
         if loaded:
+            # Publish this frame before another queued key can advance the
+            # document. Deferred update() calls can otherwise merge images.
+            self.canvas.repaint()
             return True
         self.cur_img_idx = previous_index
         self.update_file_navigation_actions()
@@ -473,6 +477,7 @@ class MainWindow(
         prepared_image_data=_UNPREPARED_IMAGE_DATA,
     ):
         """Load the specified file, or the last opened file if None."""
+        self._cancel_image_refinement()
         self.cancel_image_navigation()
         self._directory_initial_selection = None
         previous_file_path = self.file_path
@@ -601,17 +606,21 @@ class MainWindow(
             except OSError as error:
                 self.error_message(tr('open.fileTitle'), annotation_error_html(error))
                 return False
+        image_metadata = image_cache.image_metadata(unicode_file_path, prepared_image)
+        annotation_image_data = (
+            image_metadata if prepared_image.size() != QSize(image_metadata.width(), image_metadata.height())
+            else prepared_image_data)
         try:
             prepared_annotation = (
                 self.annotation_workspace.load(
                     annotation_path,
                     unicode_file_path,
-                    prepared_image_data,
+                    annotation_image_data,
                 )
                 if annotation_path is not None
                 else self.annotation_workspace.load_for_image(
                     unicode_file_path,
-                    prepared_image_data,
+                    annotation_image_data,
                 )
             )
         except YoloClassMappingDeclined:
@@ -647,7 +656,7 @@ class MainWindow(
 
         if unicode_file_path and os.path.exists(unicode_file_path):
             # Load image data first and retain it for annotation saving.
-            self.image_data = prepared_image_data
+            self.image_data = annotation_image_data
             self._loaded_image_fingerprint = prepared_fingerprint
             self.annotation_document = None
             self.canvas.verified = False
@@ -671,7 +680,7 @@ class MainWindow(
                 self._activate_display_adjustment_source(
                     image, unicode_file_path
                 ),
-                logical_size=image.size(),
+                logical_size=QSize(image_metadata.width(), image_metadata.height()),
             )
             if prepared_annotation is not None:
                 self.set_format(document_format_name(
@@ -702,6 +711,7 @@ class MainWindow(
 
             self.canvas.setFocus(True)
             self._prefetch_adjacent_images()
+            self._schedule_image_refinement()
             return True
         return False
 
@@ -1530,6 +1540,7 @@ class MainWindow(
             )
         )
         self.populate_file_list(image_paths)
+        self._ensure_image_decode_cache().prepare_directory(image_paths)
 
         if self.img_count:
             self.cur_img_idx = min(max(initial_index, 0), self.img_count - 1)
@@ -1596,6 +1607,7 @@ class MainWindow(
         all_paths = tuple(image_paths)
         self.m_img_list = list(all_paths)
         self.img_count = len(all_paths)
+        self._ensure_image_decode_cache().prepare_directory(all_paths)
         from labelimg.files import FileListProjection
         self._file_list_projection = FileListProjection(
             os.path.abspath(self.dir_name),
