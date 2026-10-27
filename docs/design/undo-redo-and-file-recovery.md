@@ -237,6 +237,12 @@ Autosave starts enabled for each workspace editing session, may be disabled for 
 
 Autosave never reads a mutable live Canvas after it has been queued.
 
+Opening an image refreshes its content fingerprint from the loaded source and its original image dimensions, independently of display-preview resolution. If a clean retained history belongs to a replaced image (even with the same name and dimensions), opening that image rebases its history to the new source before editing or autosaving. Dirty retained histories still require explicit conflict resolution. Loading an external image validates fresh disk pixels before discarding local edits, then establishes a new clean history and fingerprint; an unreadable replacement preserves the local edits and conflict.
+
+Decoded pixels and their original-source fingerprint share a versioned cache entry. Navigation checks file identity, size and timestamps cheaply and reuses the prepared fingerprint on a cache hit. Large-image decoding and fingerprint preparation run outside the GUI thread; a changed source during preparation is rejected. A supplied QImage cannot inherit another pixel buffer's fingerprint, and known old pixels cannot be rebound to a newer source version. Display-preview resolution does not participate in the identity.
+
+Unchanged metadata is not proof of unchanged content. Cache hits may schedule a coalesced background content check, at most once per image every two seconds; checks queued for obsolete navigation targets are cancelled. A mismatch or unreadable source invalidates future cache hits without changing the currently displayed pixels or acknowledging a new history baseline. Returning to the image then loads fresh pixels and rebases a clean history. An obsolete check cannot invalidate a newer prepared image. Saving still independently verifies the full source content, including replacements preserving both size and timestamps, and requires the ordinary conflict resolution before acknowledging a saved revision.
+
 ## Coordination with file operations
 
 Cross-file operations acquire the same canonical resource leases as saving. They cannot race an active or queued save.

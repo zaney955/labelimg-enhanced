@@ -29,7 +29,7 @@ from labelimg.ui.menu import Menu as QMenu
 import labelimg.ui.generated_resources  # noqa: F401 - registers Qt resources
 from labelimg.ui.actions import new_icon
 from labelimg.localization.runtime import localize_message_box_buttons, question as localized_question, tr, warning as localized_warning
-from labelimg.annotations import AnnotationFormat, annotation_stems_for_image
+from labelimg.annotations import AnnotationFormat, annotation_stems_for_image, fingerprint_image
 from labelimg.files import discover_images
 from labelimg.platform.text import native_text as ustr
 from labelimg.files.ui.list_widget import BatchRenameDialog, CURRENT_IMAGE_ROLE, FILE_CATEGORY_LABELS_ROLE, FILE_ANNOTATION_STATE_ROLE, FILE_PERSISTENCE_FLAGS_ROLE, FILE_QUALITY_FINDINGS_ROLE, FILE_REVIEW_STATE_ROLE, validate_base_name, validate_rename_mapping
@@ -82,7 +82,7 @@ class FileActionsMixin:
         if cache is None:
             from labelimg.files.ui.image_decode_cache import DecodedImageCache
 
-            cache = DecodedImageCache()
+            cache = DecodedImageCache(fingerprint_for=fingerprint_image)
             self._image_decode_cache = cache
         return cache
 
@@ -97,7 +97,7 @@ class FileActionsMixin:
             )
             if path
         )
-        self._ensure_image_decode_cache().prefetch(candidates)
+        self._ensure_image_decode_cache().prefetch(candidates, current_path=self.file_path)
 
     def shutdown_image_decode_cache(self):
         self.cancel_image_navigation()

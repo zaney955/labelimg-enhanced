@@ -78,6 +78,8 @@ Publication uses 64-row batches. No uninterrupted UI-thread task should exceed 5
 
 ## Interactive operations
 
+Warm image navigation reuses a source-versioned decoded image and its prepared content fingerprint. A hit performs lightweight source-token checks rather than hashing the original image on the GUI thread. Cold large images prepare both pixels and identity off-thread. Background verification of unchanged metadata is coalesced and cannot publish an obsolete identity or displace the latest navigation request. Save-time content verification remains independent. Regression tests check thread ownership, repeated warm previous/next navigation, metadata-preserving replacements, and stale background results; opt-in high-resolution timings report navigation-call and paint-inclusive latency separately.
+
 Filtering publishes row visibility to the proxy once per query, then restores the final selection in contiguous ranges. Hidden selections survive filtering. Select all, invert, Shift ranges, double-click restoration, status-based selection, rename and recovery project one final selection instead of one notification per row. Changing only a filter reuses the established default-name order; state sorting computes each natural path key once per projection.
 
 Annotation group visibility updates the Canvas and group-list state once per gesture. Canvas painting is queued so hiding or showing a category does not synchronously repaint the entire image for every box.

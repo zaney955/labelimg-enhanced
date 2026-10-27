@@ -158,6 +158,49 @@ class NavigationLatencyTest(unittest.TestCase):
             load.assert_called_once_with(self.paths[3])
         self.assertEqual(self.window.file_path, self.paths[3])
 
+    def test_warm_previous_and_next_do_not_hash_image_on_gui_thread(self):
+        from labelimg.annotations.infrastructure import storage
+        original = storage.fingerprint_path
+        for path in self.paths[:2]:
+            self.assertTrue(self.window.load_file(path))
+        gui_thread = threading.get_ident()
+
+        def fingerprint(path):
+            if str(path) in self.paths:
+                self.assertNotEqual(
+                    threading.get_ident(), gui_thread,
+                    'warm navigation reads the complete image on the GUI thread',
+                )
+            return original(path)
+
+        with patch.object(storage, 'fingerprint_path', side_effect=fingerprint):
+            for _ in range(3):
+                self.window.open_prev_image()
+                self.assertEqual(self.window.file_path, self.paths[0])
+                self.window.open_next_image()
+                self.assertEqual(self.window.file_path, self.paths[1])
+
+    def test_cold_large_image_fingerprint_is_prepared_off_gui_thread(self):
+        from labelimg.annotations.infrastructure import storage
+        path = str(Path(self.temporary.name, 'large.png'))
+        image = QImage(3000, 2000, QImage.Format_RGB32)
+        image.fill(QColor('red'))
+        self.assertTrue(image.save(path))
+        original = storage.fingerprint_path
+        gui_thread = threading.get_ident()
+        observed = []
+
+        def fingerprint(resource):
+            if str(resource) == path:
+                observed.append(threading.get_ident())
+                self.assertNotEqual(threading.get_ident(), gui_thread)
+            return original(resource)
+
+        with patch.object(storage, 'fingerprint_path', side_effect=fingerprint):
+            self.assertTrue(self.window.load_file(path))
+        self.assertTrue(observed)
+        self.assertIsNotNone(self.window.annotation_editing.view.snapshot.image_fingerprint)
+
     def test_reversing_pending_step_at_boundary_cancels_it(self):
         release = threading.Event()
         cache = self.window._ensure_image_decode_cache()

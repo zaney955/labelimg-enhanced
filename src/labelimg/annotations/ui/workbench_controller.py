@@ -537,7 +537,10 @@ class AnnotationActionsMixin:
         try:
             view = self.annotation_editing.view_image(image_key)
         except UnknownImageHistory:
-            snapshot = self.annotation_scene.capture(image_key)
+            snapshot = self.annotation_scene.capture(
+                image_key, refresh_image=True,
+                image_fingerprint=self._loaded_image_fingerprint,
+            )
             target = self._current_annotation_target()
             view = self.annotation_editing.open_image(
                 image_key,
@@ -546,7 +549,10 @@ class AnnotationActionsMixin:
             )
         else:
             self.annotation_editing.select_image(image_key)
-            loaded_snapshot = self.annotation_scene.capture(image_key)
+            loaded_snapshot = self.annotation_scene.capture(
+                image_key, refresh_image=True,
+                image_fingerprint=self._loaded_image_fingerprint,
+            )
             if view.dirty:
                 if loaded_snapshot != view.snapshot:
                     self.annotation_scene.project(
@@ -559,6 +565,7 @@ class AnnotationActionsMixin:
             elif (
                 self._annotation_content_signature(loaded_snapshot)
                 != self._annotation_content_signature(view.snapshot)
+                or loaded_snapshot.image_fingerprint != view.snapshot.image_fingerprint
             ):
                 target = self._current_annotation_target()
                 view = self.annotation_editing.rebase_image(

@@ -11,6 +11,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt5.QtGui import QColor, QImage
 
 from labelimg.files.ui.image_decode_cache import DecodedImageCache
+from labelimg.annotations import fingerprint_image
 
 
 class DecodedImageCacheTest(unittest.TestCase):
@@ -129,6 +130,101 @@ class DecodedImageCacheTest(unittest.TestCase):
                 release.set()
             self.cache._executor.shutdown(wait=True)
         self.assertIsNone(self.cache.get(path))
+
+    def use_fingerprints(self):
+        self.cache._fingerprint_for = fingerprint_image
+        self.cache._verification_interval = 0
+
+    def wait_until(self, condition):
+        deadline = time.monotonic() + 3
+        while not condition() and time.monotonic() < deadline:
+            time.sleep(.005)
+        self.assertTrue(condition())
+
+    def test_decode_binds_pixels_and_fingerprint_and_warm_hits_do_not_rehash(self):
+        self.use_fingerprints()
+        self.cache._verification_interval = 60
+        path, _image = self._image('identity.png', 'red')
+        decoded = self.cache.load(path)
+        fingerprint = self.cache.cached_fingerprint(path, decoded)
+        self.assertEqual(fingerprint, fingerprint_image(path, (40, 30)))
+        with patch.object(self.cache, '_fingerprint_for', side_effect=AssertionError('rehash')):
+            for _ in range(3):
+                cached = self.cache.get(path)
+                self.assertEqual(self.cache.cached_fingerprint(path, cached), fingerprint)
+                self.cache.put(path, cached)
+                self.assertEqual(self.cache.prepare_fingerprint(path, cached), fingerprint)
+
+    def test_different_pixels_cannot_inherit_an_existing_fingerprint(self):
+        self.use_fingerprints()
+        path, _image = self._image('changed-pixels.png', 'red')
+        decoded = self.cache.load(path)
+        different = QImage(decoded)
+        different.fill(QColor('blue'))
+        self.cache.put(path, different)
+        self.assertIsNone(self.cache.cached_fingerprint(path, different))
+
+    def test_changed_source_cannot_rebind_old_pixels_to_a_new_fingerprint(self):
+        self.use_fingerprints()
+        path, _image = self._image('rebound.png', 'red')
+        decoded = self.cache.load(path)
+        self._image('rebound.png', 'blue')
+        self.assertFalse(self.cache.put(path, decoded))
+        with self.assertRaises(OSError):
+            self.cache.prepare_fingerprint(path, decoded)
+
+    def test_background_content_check_invalidates_replacement_with_unchanged_metadata(self):
+        self.use_fingerprints()
+        path = os.path.join(self.temporary.name, 'same.bmp')
+        image = QImage(40, 30, QImage.Format_RGB32)
+        image.fill(QColor('red'))
+        self.assertTrue(image.save(path))
+        stat = os.stat(path)
+        # Also cover filesystems/replacement tools whose lightweight token
+        # remains identical after replacement, independently of platform ctime.
+        with patch('labelimg.files.ui.image_decode_cache._source_token', return_value=('same-version',)):
+            first = self.cache.load(path)
+            original = self.cache.cached_fingerprint(path, first)
+            image.fill(QColor('blue'))
+            self.assertTrue(image.save(path))
+            self.assertEqual(os.stat(path).st_size, stat.st_size)
+            os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+            self.cache.get(path)
+            self.wait_until(lambda: self.cache.get(path) is None)
+            latest = self.cache.load(path)
+            self.assertEqual(latest.pixelColor(0, 0), QColor('blue'))
+            self.assertNotEqual(self.cache.cached_fingerprint(path, latest), original)
+
+    def test_old_background_verification_cannot_invalidate_new_pixels(self):
+        self.use_fingerprints()
+        path, _image = self._image('racing.png', 'red')
+        self.cache.load(path)
+        started, release = threading.Event(), threading.Event()
+        original = self.cache._fingerprint_for
+        caller = threading.get_ident()
+
+        def verify(*args):
+            captured = original(*args)
+            if threading.get_ident() != caller:
+                started.set()
+                release.wait(2)
+            return captured
+
+        with patch.object(self.cache, '_fingerprint_for', side_effect=verify):
+            try:
+                self.cache.get(path)
+                self.assertTrue(started.wait(1))
+                self.cache.invalidate((path,))
+                _path, replacement = self._image('racing.png', 'blue')
+                self.cache.put(path, replacement)
+                self.cache.prepare_fingerprint(path, replacement)
+            finally:
+                release.set()
+            self.wait_until(lambda: not self.cache._verification_jobs)
+        self.cache._verification_interval = 60
+        latest = self.cache.get(path)
+        self.assertIsNotNone(latest)
+        self.assertEqual(latest.pixelColor(0, 0), QColor('blue'))
 
 
 if __name__ == "__main__":

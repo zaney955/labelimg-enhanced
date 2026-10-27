@@ -580,9 +580,27 @@ class MainWindow(
             )
             self.status_translation('status.errorReading', detail=unicode_file_path, important=True)
             return False
-        self._ensure_image_decode_cache().put(
+        if not self._ensure_image_decode_cache().put(
             unicode_file_path, prepared_image
-        )
+        ):
+            self.status_translation('status.errorReading', detail=unicode_file_path, important=True)
+            return False
+        image_cache = self._ensure_image_decode_cache()
+        prepared_fingerprint = image_cache.cached_fingerprint(unicode_file_path, prepared_image)
+        if prepared_fingerprint is None:
+            def prepare_fingerprint(_cancelled=None):
+                return image_cache.prepare_fingerprint(unicode_file_path, prepared_image)
+            try:
+                prepared_fingerprint = (
+                    self._run_image_preparation(prepare_fingerprint)
+                    if prepared_image.width() * prepared_image.height() > 4_000_000
+                    else prepare_fingerprint()
+                )
+            except CancelledError:
+                return False
+            except OSError as error:
+                self.error_message(tr('open.fileTitle'), annotation_error_html(error))
+                return False
         try:
             prepared_annotation = (
                 self.annotation_workspace.load(
@@ -630,6 +648,7 @@ class MainWindow(
         if unicode_file_path and os.path.exists(unicode_file_path):
             # Load image data first and retain it for annotation saving.
             self.image_data = prepared_image_data
+            self._loaded_image_fingerprint = prepared_fingerprint
             self.annotation_document = None
             self.canvas.verified = False
             self.canvas.questioned = False
@@ -946,6 +965,7 @@ class MainWindow(
                 for image_key in affected
             )
             prepared = []
+            external_images = {}
             if (
                 not image_resource
                 and conflict.resource.lower().endswith('.json')
@@ -960,11 +980,7 @@ class MainWindow(
                     image_key, touch=False
                 )
                 if image_resource:
-                    image_data = (
-                        self.image_data
-                        if image_key == self.file_path
-                        else read(image_key, None)
-                    )
+                    image_data = read(image_key, None)
                     image = (
                         image_data
                         if isinstance(image_data, QImage)
@@ -975,6 +991,7 @@ class MainWindow(
                             'External image is not readable: %s'
                             % image_key
                         )
+                    external_images[image_key] = image
                     prepared.append((image_key, view, None))
                     continue
                 if self._resource_key(conflict.resource) not in (
@@ -1009,9 +1026,10 @@ class MainWindow(
             external_fingerprint = fingerprint_path(
                 conflict.resource
             )
-            external_content = self._read_resource_bytes(
-                conflict.resource
-            )
+            external_content = None
+            if external_fingerprint.exists:
+                with open(conflict.resource, 'rb') as resource_file:
+                    external_content = resource_file.read()
             current_item = next(
                 (
                     item
@@ -1058,7 +1076,13 @@ class MainWindow(
                 self.annotation_editing.remove_images((image_key,))
                 self.annotation_scene.forget_image(image_key)
             if image_resource and current_item is not None:
-                self.load_file(current_item[0])
+                if not self.load_file(
+                    current_item[0],
+                    prepared_image_data=external_images[current_item[0]],
+                ):
+                    raise AnnotationDocumentError(
+                        'External image could not be loaded: %s' % current_item[0]
+                    )
 
             self.annotation_workspace.apply_transaction_resources(
                 {external_key: external_fingerprint},

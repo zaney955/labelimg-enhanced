@@ -99,6 +99,125 @@ class ExternalAnnotationSyncTest(unittest.TestCase):
         self.assertEqual(self.window.canvas.shapes[0].label, "watched")
         self.assertIn("watched", self.window.candidate_labels)
 
+    def test_load_external_conflict_rebases_and_allows_subsequent_autosave(self):
+        self.window.auto_saving.setChecked(False)
+        self.window.canvas.shapes[0].label = "local"
+        self.window.set_dirty()
+        write_pascal_voc(self.first_annotation, "first.png", "external")
+        outcome = self.window.annotation_persistence.save(
+            self.images[0], self.window.annotation_format,
+        )
+        self.assertFalse(outcome.ok)
+        conflict = next(iter(self.window.annotation_persistence.conflicts.values()))
+
+        with patch.object(self.window, "error_message") as error:
+            resolved = self.window._load_external_resource_conflict(conflict)
+
+        self.assertTrue(resolved, error.call_args)
+        error.assert_not_called()
+        self.assertEqual(self.window.canvas.shapes[0].label, "external")
+        self.assertFalse(self.window.dirty)
+        self.assertFalse(self.window.annotation_persistence.has_conflict(self.images[0]))
+        self.window.auto_saving.setChecked(True)
+        self.window.canvas.shapes[0].label = "after-resolution"
+        self.window.set_dirty()
+        self.window.save_dirty_annotations()
+        self.assertFalse(self.window.dirty)
+        self.assertEqual(
+            ElementTree.parse(self.first_annotation).findtext("object/name"),
+            "after-resolution",
+        )
+
+    def replace_first_image(self):
+        image = QImage(100, 100, QImage.Format_RGB32)
+        image.fill(QColor("red"))
+        self.assertTrue(image.save(self.images[0]))
+
+    def test_reopening_replaced_clean_image_autosaves_without_conflict(self):
+        self.assertTrue(self.window.load_file(self.images[1]))
+        self.replace_first_image()
+        self.assertTrue(self.window.load_file(self.images[0]))
+        self.assertEqual(self.window.image.pixelColor(0, 0), QColor("red"))
+        self.window.auto_saving.setChecked(True)
+        self.window.canvas.shapes[0].label = "replacement"
+        self.window.set_dirty()
+
+        with patch(
+            "labelimg.workbench.main_window.localized_warning",
+            return_value=QMessageBox.Cancel,
+        ) as warning:
+            self.window.open_file_list_path(self.images[1])
+
+        warning.assert_not_called()
+        self.assertEqual(self.window.file_path, self.images[1])
+        self.assertFalse(self.window.annotation_persistence.conflicts)
+        self.assertEqual(
+            ElementTree.parse(self.first_annotation).findtext("object/name"),
+            "replacement",
+        )
+
+    def test_background_check_refreshes_same_metadata_replacement_before_editing(self):
+        cache = self.window._ensure_image_decode_cache()
+        cache._verification_interval = 0
+        with patch('labelimg.files.ui.image_decode_cache._source_token', return_value=('unchanged',)):
+            self.assertTrue(self.window.load_file(self.images[0]))
+            self.assertTrue(self.window.load_file(self.images[1]))
+            self.replace_first_image()
+            cache.get(self.images[0])
+            for _ in range(100):
+                if cache.get(self.images[0]) is None:
+                    break
+                QTest.qWait(10)
+            self.assertIsNone(cache.get(self.images[0]))
+            self.assertTrue(self.window.load_file(self.images[0]))
+            self.assertEqual(self.window.image.pixelColor(0, 0), QColor('red'))
+            self.window.auto_saving.setChecked(True)
+            self.window.canvas.shapes[0].label = 'new-image'
+            self.window.set_dirty()
+            self.window.save_dirty_annotations()
+            self.assertFalse(self.window.dirty)
+            self.assertFalse(self.window.annotation_persistence.conflicts)
+
+    def test_load_replaced_image_conflict_refreshes_pixels_and_autosave(self):
+        self.window.auto_saving.setChecked(True)
+        self.window.canvas.shapes[0].label = "local"
+        self.window.set_dirty()
+        self.replace_first_image()
+        self.window.save_dirty_annotations()
+        conflict = next(iter(self.window.annotation_persistence.conflicts.values()))
+        self.assertEqual(conflict.resource, os.path.normcase(self.images[0]))
+
+        with patch.object(self.window, "error_message") as error:
+            resolved = self.window._load_external_resource_conflict(conflict)
+
+        self.assertTrue(resolved, error.call_args)
+        self.assertEqual(self.window.image.pixelColor(0, 0), QColor("red"))
+        self.assertEqual(self.window.canvas.shapes[0].label, "old")
+        self.assertFalse(self.window.dirty)
+        self.assertFalse(self.window.annotation_persistence.conflicts)
+        self.window.canvas.shapes[0].label = "replacement"
+        self.window.set_dirty()
+        self.window.save_dirty_annotations()
+        self.assertFalse(self.window.dirty)
+
+    def test_unreadable_replacement_does_not_discard_local_edits_or_conflict(self):
+        self.window.auto_saving.setChecked(True)
+        self.window.canvas.shapes[0].label = "local"
+        self.window.set_dirty()
+        with open(self.images[0], "wb") as target:
+            target.write(b"not an image")
+        self.window.save_dirty_annotations()
+        conflict = next(iter(self.window.annotation_persistence.conflicts.values()))
+
+        with patch.object(self.window, "error_message") as error:
+            resolved = self.window._load_external_resource_conflict(conflict)
+
+        self.assertFalse(resolved)
+        error.assert_called_once()
+        self.assertEqual(self.window.canvas.shapes[0].label, "local")
+        self.assertTrue(self.window.dirty)
+        self.assertTrue(self.window.annotation_persistence.has_conflict(self.images[0]))
+
     def test_content_identical_rewrite_does_not_rebuild_canvas(self):
         original_shape = self.window.canvas.shapes[0]
         original_message = self.window.statusBar().currentMessage()

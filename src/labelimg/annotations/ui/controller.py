@@ -23,7 +23,7 @@ class CanvasAnnotationScene:
         self._color_for_label = color_for_label or label_display_color
         self._last_snapshots = {}
 
-    def capture(self, image_key):
+    def capture(self, image_key, *, refresh_image=False, image_fingerprint=None):
         image_key = str(image_key)
         previous = self._last_snapshots.get(image_key)
         prior_boxes = {
@@ -47,14 +47,14 @@ class CanvasAnnotationScene:
             boxes=tuple(boxes),
             verified=bool(self.canvas.verified),
             questioned=bool(self.canvas.questioned),
-            image_fingerprint=(
+            image_fingerprint=image_fingerprint if image_fingerprint is not None else (
                 previous.image_fingerprint
-                if previous is not None
+                if previous is not None and not refresh_image
                 else fingerprint_image(
                     image_key,
                     (
-                        pixmap.width() if pixmap is not None else 0,
-                        pixmap.height() if pixmap is not None else 0,
+                        image_size.width() if pixmap is not None else 0,
+                        image_size.height() if pixmap is not None else 0,
                     ),
                 )
             ),

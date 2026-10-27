@@ -6,6 +6,7 @@ from collections import OrderedDict
 from concurrent.futures import CancelledError, ThreadPoolExecutor
 import os
 import threading
+import time
 
 from PyQt5.QtGui import QImage, QImageReader
 
@@ -44,13 +45,19 @@ def _default_cache_budget():
 class DecodedImageCache:
     """Hide source-token validation, memory bounds, and decode concurrency."""
 
-    def __init__(self, max_bytes=None, workers=2):
+    def __init__(self, max_bytes=None, workers=2, *, fingerprint_for=None,
+                 verification_interval=2.0):
         self._max_bytes = max(1, int(_default_cache_budget() if max_bytes is None else max_bytes))
         self._lock = threading.RLock()
         self._entries = OrderedDict()
         self._entry_bytes = 0
         self._jobs = {}
         self._wanted = set()
+        self._fingerprint_for = fingerprint_for
+        self._fingerprints = OrderedDict()
+        self._verification_jobs = {}
+        self._verified_at = {}
+        self._verification_interval = verification_interval
         self._executor = ThreadPoolExecutor(
             max_workers=max(1, int(workers)),
             thread_name_prefix="labelimg-prefetch",
@@ -68,8 +75,10 @@ class DecodedImageCache:
             if token is None or token != cached_token:
                 self._entries.pop(key, None)
                 self._entry_bytes -= size
+                self._fingerprints.pop(key, None)
                 return None
             self._entries.move_to_end(key)
+            self._verify_in_background(key, token, image)
             return QImage(image)
 
     def put(self, path, image):
@@ -78,6 +87,10 @@ class DecodedImageCache:
         token = _source_token(path)
         if token is None:
             return False
+        with self._lock:
+            known = self._fingerprints.get(_path_key(path))
+            if known is not None and known[1] == image.cacheKey() and known[0] != token:
+                return False  # These pixels were decoded from an older source.
         self._store(_path_key(path), token, image)
         return True
 
@@ -98,18 +111,46 @@ class DecodedImageCache:
                     return image
         if future is not None and not future.cancelled():
             try:
-                _key, job_token, image = future.result()
+                _key, job_token, image, fingerprint = future.result()
                 if job_token == token and _source_token(path) == token:
+                    self._store(key, token, image, fingerprint)
                     return QImage(image)
             except CancelledError:
                 pass  # Prefetch priority changed while demand was taking over.
-        _key, decoded_token, image = _decode_image(path, token)
+        _key, decoded_token, image, fingerprint = _decode_image(path, token, self._fingerprint_for)
         if _source_token(path) != decoded_token:
             raise OSError('image changed while it was being decoded')
-        self._store(key, token, image)
+        self._store(key, token, image, fingerprint)
         return image
 
-    def prefetch(self, paths):
+    def cached_fingerprint(self, path, image):
+        key, token = _path_key(path), _source_token(path)
+        with self._lock:
+            entry = self._fingerprints.get(key)
+            if entry is not None and entry[:2] == (token, image.cacheKey()):
+                self._fingerprints.move_to_end(key)
+                return entry[2]
+        return None
+
+    def prepare_fingerprint(self, path, image):
+        """Bind a fingerprint to these pixels; call off-thread for large images."""
+        cached = self.cached_fingerprint(path, image)
+        if cached is not None or self._fingerprint_for is None:
+            return cached
+        token = _source_token(path)
+        with self._lock:
+            known = self._fingerprints.get(_path_key(path))
+            if known is not None and known[1] == image.cacheKey() and known[0] != token:
+                raise OSError('decoded pixels belong to an older image source')
+        fingerprint = self._fingerprint_for(path, (image.width(), image.height()))
+        if token is None or token != _source_token(path):
+            raise OSError('image changed while its fingerprint was being prepared')
+        with self._lock:
+            if not self._shutdown:
+                self._remember_fingerprint(_path_key(path), token, image, fingerprint)
+        return fingerprint
+
+    def prefetch(self, paths, *, current_path=None):
         paths = tuple(dict.fromkeys(
             os.path.abspath(os.fspath(path))
             for path in paths
@@ -118,6 +159,10 @@ class DecodedImageCache:
         wanted = {_path_key(path) for path in paths}
         with self._lock:
             self._wanted = wanted
+            verification_targets = wanted | ({_path_key(current_path)} if current_path else set())
+            for key, future in tuple(self._verification_jobs.items()):
+                if key not in verification_targets:
+                    future.cancel()
             for key, future in tuple(self._jobs.items()):
                 if key not in wanted:
                     future.cancel()
@@ -139,7 +184,7 @@ class DecodedImageCache:
                     continue
                 if key in self._jobs:
                     continue
-                future = self._executor.submit(_decode_image, path, token)
+                future = self._executor.submit(_decode_image, path, token, self._fingerprint_for)
                 self._jobs[key] = future
             future.add_done_callback(self._prefetch_finished)
 
@@ -150,6 +195,8 @@ class DecodedImageCache:
                 entry = self._entries.pop(key, None)
                 if entry is not None:
                     self._entry_bytes -= entry[2]
+                self._fingerprints.pop(key, None)
+                self._verified_at.pop(key, None)
 
     def shutdown(self):
         with self._lock:
@@ -157,12 +204,14 @@ class DecodedImageCache:
                 return
             self._shutdown = True
             self._entries.clear()
+            self._fingerprints.clear()
+            self._verified_at.clear()
             self._entry_bytes = 0
         self._executor.shutdown(wait=False, cancel_futures=True)
 
     def _prefetch_finished(self, future):
         try:
-            key, token, image = future.result()
+            key, token, image, fingerprint = future.result()
         except Exception:
             with self._lock:
                 self._remove_job(future)
@@ -173,7 +222,7 @@ class DecodedImageCache:
                 and _source_token(key) == token
                 and key in self._wanted
             ):
-                self._store(key, token, image)
+                self._store(key, token, image, fingerprint)
             self._remove_job(future)
 
     def _remove_job(self, future):
@@ -188,14 +237,19 @@ class DecodedImageCache:
         if matching is not None:
             self._jobs.pop(matching, None)
 
-    def _store(self, key, token, image):
+    def _store(self, key, token, image, fingerprint=None):
         stored = QImage(image)
         size = _image_bytes(stored)
-        if size > self._max_bytes:
-            return  # Do not evict useful neighbors for an uncacheable image.
         with self._lock:
             if self._shutdown:
                 return
+            previous = self._fingerprints.get(key)
+            if fingerprint is not None:
+                self._remember_fingerprint(key, token, image, fingerprint)
+            elif previous is not None and previous[:2] != (token, image.cacheKey()):
+                self._fingerprints.pop(key, None)
+            if size > self._max_bytes:
+                return  # Keep prepared identity without evicting useful neighbors.
             prior = self._entries.pop(key, None)
             if prior is not None:
                 self._entry_bytes -= prior[2]
@@ -205,11 +259,57 @@ class DecodedImageCache:
                 _old_key, old_entry = self._entries.popitem(last=False)
                 self._entry_bytes -= old_entry[2]
 
+    def _remember_fingerprint(self, key, token, image, fingerprint):
+        self._fingerprints[key] = (token, image.cacheKey(), fingerprint)
+        self._fingerprints.move_to_end(key)
+        self._verified_at[key] = time.monotonic()
+        while len(self._fingerprints) > 1024:
+            old_key, _entry = self._fingerprints.popitem(last=False)
+            self._verified_at.pop(old_key, None)
 
-def _decode_image(path, token):
+    def _verify_in_background(self, key, token, image):
+        """Check content behind unchanged metadata without blocking navigation."""
+        expected = self._fingerprints.get(key)
+        if (self._shutdown or self._fingerprint_for is None or expected is None
+                or expected[:2] != (token, image.cacheKey())
+                or key in self._verification_jobs
+                or time.monotonic() - self._verified_at.get(key, 0) < self._verification_interval):
+            return
+        self._verified_at[key] = time.monotonic()
+        future = self._executor.submit(
+            self._fingerprint_for, key, (image.width(), image.height())
+        )
+        self._verification_jobs[key] = future
+        future.add_done_callback(lambda completed: self._verification_finished(key, token, expected, completed))
+
+    def _verification_finished(self, key, token, expected, future):
+        if future.cancelled():
+            with self._lock:
+                self._verification_jobs.pop(key, None)
+            return
+        try:
+            actual = future.result()
+        except Exception:
+            actual = None  # An unreadable source must not remain a trusted hit.
+        with self._lock:
+            self._verification_jobs.pop(key, None)
+            if self._shutdown or self._fingerprints.get(key) != expected:
+                return
+            if _source_token(key) != token or actual != expected[2]:
+                self.invalidate((key,))
+
+
+def _decode_image(path, token, fingerprint_for=None):
     reader = QImageReader(path)
     reader.setAutoTransform(True)
-    return _path_key(path), token, reader.read()
+    image = reader.read()
+    fingerprint = (
+        fingerprint_for(path, (image.width(), image.height()))
+        if fingerprint_for is not None and not image.isNull() else None
+    )
+    if token != _source_token(path):
+        raise OSError('image changed while it was being decoded')
+    return _path_key(path), token, image, fingerprint
 
 
 def _source_token(path):
@@ -217,7 +317,7 @@ def _source_token(path):
         stat = os.stat(path)
     except OSError:
         return None
-    return stat.st_size, stat.st_mtime_ns
+    return stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns
 
 
 def _path_key(path):

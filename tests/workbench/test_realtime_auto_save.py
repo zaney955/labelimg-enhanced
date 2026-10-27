@@ -231,6 +231,35 @@ class RealtimeAutoSaveTest(unittest.TestCase):
         reader = PascalVocReader(self.annotation_path)
         self.assertEqual(reader.get_shapes()[0][0], "car")
 
+    def test_adjusted_preview_does_not_create_an_external_image_conflict(self):
+        image_path = os.path.join(self.image_dir, "large.png")
+        image = QImage(1800, 1200, QImage.Format_RGB32)
+        image.fill(QColor("gray"))
+        self.assertTrue(image.save(image_path))
+        self.window.dir_name = self.image_dir
+        self.window.m_img_list = [self.image_path, image_path]
+        self.assertTrue(self.window.load_file(self.image_path))
+        self.window.display_adjustment_panel.master_brightness.slider.setValue(20)
+        self.window.display_adjustment_controller.finish_master_gesture()
+        self.assertTrue(self.window.load_file(image_path))
+        self.assertLess(self.window.canvas.pixmap.width(), image.width())
+        self.window.annotation_clipboard = [
+            ("car", ((10, 10), (40, 10), (40, 40), (10, 40)), False),
+        ]
+        self.window.paste_copied_bounding_boxes()
+
+        with patch(
+            "labelimg.workbench.main_window.localized_warning",
+            return_value=QMessageBox.Cancel,
+        ) as warning:
+            self.window.open_file_list_path(self.image_path)
+
+        warning.assert_not_called()
+        self.assertEqual(self.window.file_path, self.image_path)
+        self.assertFalse(self.window.annotation_persistence.has_conflict(image_path))
+        reader = PascalVocReader(os.path.join(self.annotation_dir, "large.xml"))
+        self.assertEqual(reader.get_shapes()[0][0], "car")
+
 
 if __name__ == "__main__":
     unittest.main()

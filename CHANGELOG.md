@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.0.1
+
+- Restore warm high-resolution navigation speed by caching decoded pixels with their source fingerprint, preparing large-image identity off the GUI thread, and checking unchanged metadata in the background while retaining strict save-time conflict detection.
+
+- Refresh image fingerprints from the newly loaded source and original dimensions, rebase clean retained histories when a same-path image is replaced, and preserve dirty edits and conflicts when an external replacement is unreadable.
+- Validate fresh disk pixels before accepting an external image conflict, then establish a clean history that can be edited and autosaved without immediately recreating the conflict.
+- Prevent adjusted or downsampled display previews from being mistaken for external image changes during autosave and navigation.
+- Add bilingual light and dark workbench previews to the English and Simplified Chinese README files.
+
 ## 3.0.0
 
 - Separate menu checkmarks from command icons, size preference buttons to their content, unify selection colors and review-ribbon gradients, distinguish keyboard focus from selected appearance modes, restore the original lightly tinted category capsules, remove the Help tutorial, and give combo popup rows consistent spacing.
