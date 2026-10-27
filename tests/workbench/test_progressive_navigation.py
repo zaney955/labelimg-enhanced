@@ -91,12 +91,16 @@ class ProgressiveNavigationTest(unittest.TestCase):
         with patch.object(self.window, '_start_image_refinement'):
             self.window.set_zoom(30)
             self.app.processEvents()
+        from labelimg.image_tools.application.display_adjustment import DisplayAdjustmentValues
+        adjustment = DisplayAdjustmentValues(15, 20)
+        completed_adjustments = []
+        self.window.display_adjustment_controller._bridge.completed.connect(
+            lambda request, _image: completed_adjustments.append(request.kind))
+        self.window.display_adjustment_controller.set_current(adjustment)
+        self.wait_until(lambda: 'full' in completed_adjustments)
         self.window.scroll_bars[Qt.Horizontal].setValue(120)
         self.window.scroll_bars[Qt.Vertical].setValue(80)
         scroll = {key: bar.value() for key, bar in self.window.scroll_bars.items()}
-        from labelimg.image_tools.application.display_adjustment import DisplayAdjustmentValues
-        adjustment = DisplayAdjustmentValues(15, 20)
-        self.window.display_adjustment_controller.set_current(adjustment)
         revision = self.window.annotation_editing.view.revision_id
         zoom = self.window.zoom_widget.value()
         self.window._start_image_refinement()
