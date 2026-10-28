@@ -10,9 +10,9 @@
 python tools/run_tests.py
 ```
 
-[运行器](../tools/run_tests.py)递归发现 `tests/**/test_*.py`，逐文件启动独立 Python 进程，设置源码 `PYTHONPATH`，默认使用 `QT_QPA_PLATFORM=offscreen` 和 `.test-state/test-config`。可用 `LABELIMG_CONFIG_DIR` 指定其他测试配置目录；不要指向真实用户设置。最终汇总区分失败文件与全部通过。
+[运行器](../tools/run_tests.py)递归发现 `tests/**/test_*.py`，逐文件启动独立 Python 进程并输出具体测试方法，设置源码 `PYTHONPATH`，默认使用 `QT_QPA_PLATFORM=offscreen` 和 `.test-state/test-config`。每个文件默认最多运行 900 秒，超时会作为该文件的明确失败继续汇总；可用 `--timeout-seconds` 调整。可用 `LABELIMG_CONFIG_DIR` 指定其他测试配置目录；不要指向真实用户设置。最终汇总区分失败文件与全部通过。
 
-运行器不接收文件筛选参数。定向检查应通过 unittest discovery，并显式隔离环境，例如：
+CI 使用 `--shard-index` 与 `--shard-count` 将排序后的测试文件稳定、无重叠地分片；普通本地全量测试保持默认单分片。定向检查应通过 unittest discovery，并显式隔离环境，例如：
 
 ```powershell
 $env:PYTHONPATH = "$PWD/src"
@@ -66,4 +66,4 @@ python -B tools/render_ui_scaling.py --output .test-state/zoom-native --native -
 
 ## CI 与发布
 
-[CI](../.github/workflows/ci.yml)在 Windows/Linux 的 Python 3.14 上运行源码全量及 wheel 构建。[发布工作流](../.github/workflows/release.yml)使用版本匹配的 annotated tag 构建 Windows 分发并创建草稿 Release；具体发布门槛与产物见[应用更新](design/application-updates.md#release-builds)。
+[CI](../.github/workflows/ci.yml)仅响应分支推送、拉取请求和手动触发，在 Windows/Linux 的 Python 3.14 上将源码全量测试分成四片并行执行；同一 ref 的新运行会取消旧运行。全部分片通过后单独构建并检查 wheel。版本标签不会重复触发普通 CI。[发布工作流](../.github/workflows/release.yml)要求 tagged commit 位于 `main` 且已经有成功的 main push CI，再使用版本匹配的 annotated tag 构建 Windows 分发并创建草稿 Release，不重复执行源码全量测试；具体发布门槛与产物见[应用更新](design/application-updates.md#release-builds)。

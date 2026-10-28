@@ -78,6 +78,19 @@ class ContinuousIntegrationContractTest(unittest.TestCase):
 
         self.assertIn("python -m pip install .", workflow)
 
+    def test_ci_shards_branch_pushes_and_bounds_each_test_file(self):
+        workflow = (
+            REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("branches:", workflow)
+        self.assertNotIn("tags:", workflow)
+        self.assertIn("cancel-in-progress: true", workflow)
+        self.assertIn("shard: [0, 1, 2, 3]", workflow)
+        self.assertIn("--shard-index", workflow)
+        self.assertIn("--shard-count 4", workflow)
+        self.assertIn("--timeout-seconds 900", workflow)
+
 
 if __name__ == "__main__":
     unittest.main()

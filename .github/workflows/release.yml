@@ -15,6 +15,7 @@ env:
   RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
 
 permissions:
+  actions: read
   contents: write
   id-token: write
   attestations: write
@@ -48,14 +49,36 @@ jobs:
           if ((git rev-parse HEAD) -ne $tagCommit) { exit 1 }
           python tools/validate_release.py --tag $env:RELEASE_TAG
 
-      - name: Install test, bundle, and build dependencies
+      - name: Require successful main CI for tagged commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $tagCommit = git rev-parse HEAD
+          git fetch origin main --no-tags
+          if ($LASTEXITCODE -ne 0) { throw "Unable to fetch origin/main" }
+          git merge-base --is-ancestor $tagCommit origin/main
+          if ($LASTEXITCODE -ne 0) {
+            throw "Tagged commit $tagCommit is not reachable from origin/main"
+          }
+          $endpoint = "repos/$env:GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?event=push&status=success&head_sha=$tagCommit&per_page=100"
+          $response = gh api $endpoint | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw "Unable to query CI runs" }
+          $successfulRuns = @($response.workflow_runs | Where-Object {
+            $_.head_sha -eq $tagCommit -and $_.head_branch -eq "main"
+          })
+          if ($successfulRuns.Count -eq 0) {
+            throw "Tagged commit $tagCommit has no successful main push CI run"
+          }
+          $run = $successfulRuns |
+            Sort-Object run_number -Descending |
+            Select-Object -First 1
+          Write-Output "Reusing successful CI: $($run.html_url)"
+
+      - name: Install bundle and build dependencies
         run: python -m pip install --upgrade pip build pyinstaller
       - name: Install application
         run: python -m pip install .
-      - name: Run tests
-        run: python tools/run_tests.py
-        env:
-          LABELIMG_CONFIG_DIR: ${{ runner.temp }}
 
       - name: Build wheel
         run: python -m pip wheel . --no-deps --wheel-dir dist
